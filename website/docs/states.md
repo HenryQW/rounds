@@ -77,7 +77,7 @@ Each source uses its own words for what a session does. Rounds puts these words 
 
 ## How to read the table
 
-- **Tile:** Last Call has what needs you, in the states that Settings > Filters counts: a session that waits for you (Needs input, Failed) until the agent goes on, and a result (Ready, Finished, Stopped) until you open it. "Last Call, then Served" means that the session goes to Served when you open it. The pill shows the same count as Last Call.
+- **Tile:** Last Call has what needs you: a session that waits for you (Needs input, Failed) until the agent goes on, and a result (Ready, Finished, Stopped) until you open it. "Last Call, then Served" means that the session goes to Served when you open it. The pill shows the same count as Last Call.
 - **Dot:** a filled dot wants you or runs; a ring is quiet or opened; a dashed ring means that the state is not known. A result in Last Call has a filled green dot, the colour of the pill. When you open a session, its filled dot becomes a ring.
 - **Finished and Stopped:** both end a turn. Finished means that the agent ended its turn. Stopped means that you ended it while it ran.
 - **Sub-agents:** a Codex or herdr sub-agent does not go into Last Call, because the agent that started it asks you. Settings > Filters can count them.

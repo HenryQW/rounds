@@ -19,7 +19,7 @@ Each tile is a filter for one group of states. A click shows only that group. A 
 | Served | Quiet | Results you opened, and Offline sessions |
 | Aged | Older | Sessions with no activity for more than a day (you can change the time) |
 
-Settings > Filters sets which states Last Call counts and when a session is Aged. Right-click Last Call for Mark All as Seen. [States](/states) lists each state and the words each source uses for it.
+Settings > Filters sets whether sub-agents count in Last Call and when a session is Aged. Right-click Last Call for Mark All as Seen. [States](/states) lists each state and the words each source uses for it.
 
 Hints and VoiceOver use the plain names.
 

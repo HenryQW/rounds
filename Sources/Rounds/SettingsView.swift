@@ -283,19 +283,6 @@ struct SettingsView: View {
     /// What Last Call counts and when a session is Older (spec 3.2): `AppModel.lastCall`.
     private var filters: some View {
         Section {
-            LabeledContent {
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(LastCallRule.counted, id: \.self) { s in
-                        Toggle(s.title, isOn: Binding(get: { model.lastCall.states.contains(s) }, set: { on in
-                            if on { model.lastCall.states.insert(s) } else { model.lastCall.states.remove(s) }
-                        }))
-                        .toggleStyle(.checkbox)
-                    }
-                }
-            } label: {
-                described("Count in Last Call", "Waits stay; opened results leave.")
-            }
-            .help("Needs input and Failed stay in Last Call until the agent goes on. Ready, Finished and Stopped stay until you open them, in Rounds or in Claude. Right-click Last Call for Mark All as Seen.")
             Toggle(isOn: Binding(get: { model.lastCall.subAgents }, set: { model.lastCall.subAgents = $0 })) {
                 described("Count sub-agents in Last Call", "Codex and herdr sub-agents.")
             }

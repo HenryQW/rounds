@@ -26,7 +26,6 @@ final class AppModel {
     var lastCall = AppModel.loadLastCall() {
         didSet {
             guard lastCall != oldValue else { return }
-            appDefaults.set(lastCall.states.map(\.rawValue).sorted(), forKey: "lastCallStates")
             appDefaults.set(lastCall.subAgents, forKey: "countSubAgents")
             appDefaults.set(lastCall.agedHours, forKey: "agedHours")
             regroup()
@@ -337,7 +336,6 @@ final class AppModel {
 
     private static func loadLastCall() -> LastCallRule {
         var rule = LastCallRule()
-        if let states = appDefaults.stringArray(forKey: "lastCallStates") { rule.states = Set(states.compactMap(SessionState.init)) }
         rule.subAgents = appDefaults.object(forKey: "countSubAgents") as? Bool ?? rule.subAgents
         rule.agedHours = appDefaults.object(forKey: "agedHours") as? Int ?? rule.agedHours
         return rule

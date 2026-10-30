@@ -39,10 +39,6 @@ private let now = Date(timeIntervalSince1970: 3600)
     let read = group(rows, query: "", marks: marks, rule: LastCallRule(), now: now)
     #expect(read.yourTurn.map(\.id) == ["n"] && read.quiet.map(\.id).sorted() == ["f", "o", "r"])
     #expect(read.lastCallCount == 1 && read.waitCount == 1 && read.unseenWaitCount == 0)
-    // A state left out of Last Call goes to its own tile.
-    var rule = LastCallRule()
-    rule.states = [.needsInput]
-    #expect(group(rows, query: "", rule: rule, now: now).yourTurn.map(\.id) == ["n"])
 }
 
 /// Older comes from the Aged time (Settings > Filters), not from the classifier; a waiting row never ages.

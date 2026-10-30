@@ -125,14 +125,13 @@ public struct GroupedSessions: Sendable, Equatable {
 }
 
 /// What Last Call counts and when a session is Older (Settings > Filters; spec 3.2, decided 2026-10-30). Last Call
-/// holds what needs the user, in one of `states`: a wait (Needs input, Failed) until the agent goes on, and a result
+/// holds what needs the user, in one of the `counted` states: a wait (Needs input, Failed) until the agent goes on, and a result
 /// until the user opens it. A sub-agent (Codex, herdr) counts only with
 /// `subAgents`: the agent that started it handles its result and asks the user itself. Out of Last Call, Needs input
 /// is Running (its work waits to go on) and the rest Quiet. A row with no activity for `agedHours` is Older, unless it
 /// runs or waits.
 public struct LastCallRule: Sendable, Equatable {
     public static let counted: [SessionState] = [.needsInput, .failed, .ready, .finished, .stopped]
-    public var states: Set<SessionState> = Set(counted)
     public var subAgents = false
     public var agedHours = 24
     public var agedAfter: TimeInterval { TimeInterval(agedHours) * 3600 }
@@ -145,7 +144,7 @@ public struct LastCallRule: Sendable, Equatable {
         let waiting = s.state.waits, runs = s.state.group == .running
         let subAgent = r.parentId != nil && r.session == nil
         let group: StatusGroup = if !waiting && !runs && now.timeIntervalSince(r.lastActivityAt) > agedAfter { .older }
-            else if states.contains(s.state) && (!subAgent || subAgents) && (!seen || waiting) { .yourTurn }
+            else if Self.counted.contains(s.state) && (!subAgent || subAgents) && (!seen || waiting) { .yourTurn }
             else if runs || s.state == .needsInput { .running }
             else { .quiet }
         var placed = r

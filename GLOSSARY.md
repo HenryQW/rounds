@@ -103,7 +103,7 @@ The place of a state in the list and the filters. Each group has a plain name, u
 _Avoid_: category, bucket, queue
 
 **Your Turn** (tile name **Last Call**):
-The group of sessions that need the user, in a counted state (Needs input, Failed, Ready, Finished, Stopped by default): every wait (Needs input, Failed) until the agent goes on, and every result (Ready, Finished, Stopped) until the user opens it. The pill shows its count.
+The group of sessions that need the user, in one of five states (Needs input, Failed, Ready, Finished, Stopped): every wait (Needs input, Failed) until the agent goes on, and every result (Ready, Finished, Stopped) until the user opens it. The pill shows its count.
 _Avoid_: Need input, attention required
 
 **Running** (tile name **On Tap**):
