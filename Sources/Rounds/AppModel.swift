@@ -412,11 +412,22 @@ final class AppModel {
         }
     }
 
-    /// A running pi session: its terminal (in rootshell, its pane). Else a new terminal tab resumes it.
+    /// A running pi session: its terminal (in rootshell, its pane), or its herdr pane. Else it resumes in herdr when herdr has a local
+    /// client (so no second terminal tab opens beside herdr's), else in a new terminal tab.
     private func openPi(_ session: PiSession) {
         let pid = piStates[session.id].flatMap { $0.sessionPath == session.path && Processes.isPi($0.pid) ? $0.pid : nil }
-        let file = "'" + session.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-        TerminalOpener.show(pid.flatMap(TerminalOpener.client(above:)), command: "pi --session \(file)", directory: session.cwd)
+        if let pid {
+            // A pi in a herdr pane runs under the herdr server, with no terminal app above it.
+            if let client = TerminalOpener.client(above: pid) { TerminalOpener.show(client) }
+            else if let pane = Processes.environment(of: pid, "HERDR_PANE_ID") { herdr?.focus(pane: pane) }
+            return
+        }
+        let inTerminal: @MainActor @Sendable () -> Void = {
+            let file = "'" + session.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+            TerminalOpener.show(nil, command: "pi --session \(file)", directory: session.cwd)
+        }
+        guard herdrOn, let herdr else { return inTerminal() }
+        herdr.resumePi(file: session.path, cwd: session.cwd, otherwise: inTerminal)
     }
 
     /// Demo mode only: new placeholder rows (`Demo`'s window-turn scene).

@@ -87,3 +87,9 @@ func herdrSubAgentParentIsTheOneSessionInItsWorkspace(sessions: Int, linked: Boo
     #expect(agents.map(\.sessionPath) == ["/s/b.jsonl", "/s/a.jsonl"])
     #expect(agents.map(\.id) == ["herdr:/s/b.jsonl", "herdr:/s/a.jsonl"] && agents.allSatisfy(\.isListed))
 }
+
+@Test func readsThePaneOfACreatedTab() {
+    let response = #"{"id":"1","result":{"type":"tab_created","tab":{"tab_id":"w8B:t9"},"root_pane":{"pane_id":"w8B:p9","tab_id":"w8B:t9"}}}"#
+    #expect(herdrCreatedPane(Data(response.utf8)) == "w8B:p9")
+    #expect(herdrCreatedPane(Data(#"{"id":"1","error":{"code":"x","message":"no"}}"#.utf8)) == nil)
+}

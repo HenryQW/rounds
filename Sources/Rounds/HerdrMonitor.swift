@@ -34,17 +34,53 @@ final class HerdrMonitor: @unchecked Sendable {
     }
 
     /// Selects the agent's pane in herdr, then shows herdr: the exact terminal pane of a local herdr client, or,
-    /// when every client is remote (over SSH, tsshd), a new terminal window that runs herdr.
-    func focus(_ agent: HerdrAgent) {
+    /// when every client is remote (over SSH, tsshd), a new terminal tab or window that runs herdr.
+    func focus(_ agent: HerdrAgent) { focus(pane: agent.paneId) }
+
+    func focus(pane: String) {
         queue.async {
             do {
-                _ = try Self.request("agent.focus", ["target": agent.paneId])
+                _ = try Self.request("agent.focus", ["target": pane])
             } catch {
                 log.error("herdr focus failed: \(String(describing: error), privacy: .public)")
             }
             let client = Self.localClient()
             DispatchQueue.main.async { MainActor.assumeIsolated { TerminalOpener.show(client) } }
         }
+    }
+
+    /// Resumes a stopped pi session inside herdr (spec 2.7), so a herdr tab already open in a terminal is reused: a new
+    /// herdr tab in the session's folder runs `pi --session`, and the client's terminal comes forward. With no local
+    /// client, or when herdr fails, `otherwise` opens a terminal tab instead.
+    func resumePi(file: String, cwd: String, otherwise: @escaping @MainActor () -> Void) {
+        queue.async {
+            guard let client = Self.localClient(),
+                  let pane = Self.cli(["tab", "create", "--cwd", cwd, "--focus"]).flatMap(herdrCreatedPane),
+                  Self.cli(["pane", "run", pane, "pi --session '\(file.replacingOccurrences(of: "'", with: "'\\''"))'"]) != nil else {
+                DispatchQueue.main.async { MainActor.assumeIsolated { otherwise() } }
+                return
+            }
+            DispatchQueue.main.async { MainActor.assumeIsolated { TerminalOpener.show(client) } }
+        }
+    }
+
+    /// Runs the herdr command line; its output, or nil when it fails.
+    private static func cli(_ arguments: [String]) -> Data? {
+        let process = Process()
+        process.executableURL = URL.homeDirectory.appending(path: ".local/bin/herdr")
+        process.arguments = arguments
+        let output = Pipe()
+        (process.standardOutput, process.standardError) = (output, FileHandle.nullDevice)
+        do {
+            try process.run()
+        } catch {
+            log.error("herdr \(arguments.first ?? "", privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        if process.terminationStatus != 0 { log.error("herdr \(arguments.prefix(2).joined(separator: " "), privacy: .public) exited \(process.terminationStatus)") }
+        return process.terminationStatus == 0 ? data : nil
     }
 
     /// Shows herdr: the terminal of a local client, else a new terminal window that runs herdr.

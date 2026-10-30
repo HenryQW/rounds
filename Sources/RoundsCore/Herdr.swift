@@ -51,6 +51,12 @@ public func parseHerdrAgents(_ data: Data) throws(HerdrError) -> [HerdrAgent] {
     }
 }
 
+/// The pane of a new tab, from the response of `herdr tab create` (`result.root_pane.pane_id`).
+public func herdrCreatedPane(_ data: Data) -> String? {
+    let response = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    return ((response?["result"] as? [String: Any])?["root_pane"] as? [String: Any])?["pane_id"] as? String
+}
+
 /// herdr reports the session file of some pi agents only. `paneSessions` (herdr pane id to session file, from the
 /// `HERDR_PANE_ID` of each running pi process; spec 2.7) fills in the others, so a pi session in herdr shows once, as
 /// its herdr agent.
