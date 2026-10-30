@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key><string>com.henryqw.rounds</string>
+    <key>CFBundleExecutable</key><string>Rounds</string>
+    <key>CFBundleIconFile</key><string>AppIcon</string>
+    <key>CFBundleName</key><string>Rounds</string>
+    <key>CFBundleDisplayName</key><string>Rounds</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleVersion</key><string>1</string>
+    <key>LSMinimumSystemVersion</key><string>27.0</string>
+    <key>LSUIElement</key><true/>
+    <key>NSAppleEventsUsageDescription</key><string>Rounds opens herdr agents in rootshell or Ghostty: it focuses the terminal pane of the agent or opens a window that runs herdr.</string>
+</dict>
+</plist>

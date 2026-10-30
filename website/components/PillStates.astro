@@ -1,0 +1,302 @@
+---
+// The five pill states, drawn in HTML on a strip of screen edge, for the Pill page: the same tab, colours, counts and
+// motion as the app (DESIGN.md, spec 5.7) and the home page hero. With Reduce Motion nothing moves.
+const states = [
+  { key: "idle", name: "Clear glass", count: "" },
+  { key: "running", name: "Running", count: "3" },
+  { key: "input", name: "Needs input", count: "2" },
+  { key: "failed", name: "Failed", count: "1" },
+  { key: "ready", name: "Ready", count: "4" },
+];
+---
+
+<div class="pill-states not-prose" role="list">
+  {states.map((s) => (
+    <figure class="edge" role="listitem">
+      <div class="screen">
+        {(s.key === "input" || s.key === "failed") && <span class:list={["ring", s.key]} />}
+        <span class:list={["pill", s.key]} role="img" aria-label={`${s.name}${s.count ? `, ${s.count}` : ""}`}>
+          {s.key === "running" && (
+            <>
+              <span class="drink" />
+              <span class="fizz" style="left:8px;width:4px;height:4px;animation-duration:1.9s" />
+              <span class="fizz" style="left:15px;width:3px;height:3px;animation-duration:2.6s" />
+            </>
+          )}
+          {s.key === "input" && (
+            <svg class="shake" width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
+              <rect x="3.6" y="0" width="2.8" height="1.6" rx="0.5" /><path d="M3 2.2h4l1.6 4.2H1.4z" /><path d="M0.8 7.2h8.4L8 16H2z" />
+            </svg>
+          )}
+          {s.key === "failed" && (
+            <svg class="shake" width="11" height="14" viewBox="0 0 11 14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
+              <path d="M7.7 0.75H0.75l1.3 12.5h6.9l0.8-8.4" /><path class="crack" d="M7.7 0.75l0.55 2.8-1.65 4.2 0.9 4.2" /><path class="shard" d="M7.7 0.75h2.55l-0.45 4.1-1.55-1.3z" />
+            </svg>
+          )}
+          {s.key === "ready" && (
+            <svg width="11" height="15" viewBox="0 0 11 15" fill="currentColor" aria-hidden="true">
+              <path d="M1 0.5h9c0 4-2 6-3.9 6.4v5.4h2.4v1.7H2.5v-1.7h2.4V6.9C3 6.5 1 4.5 1 0.5z" />
+            </svg>
+          )}
+          {s.count && <span class="count">{s.count}</span>}
+        </span>
+      </div>
+      <figcaption>{s.name}</figcaption>
+    </figure>
+  ))}
+</div>
+
+<style>
+  .pill-states {
+    display: grid;
+    gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(88px, 1fr));
+    margin: 24px 0;
+  }
+
+  .edge {
+    margin: 0;
+  }
+
+  /* A piece of desktop with the right screen edge, in the theme's blue steps, as on the home page. */
+  .screen {
+    background: linear-gradient(140deg, var(--ui-stream-6), var(--ui-stream-3) 55%, var(--ui-stream-1));
+    border: 1px solid var(--blume-border);
+    border-radius: 10px;
+    height: 160px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  figcaption {
+    color: var(--blume-muted-foreground);
+    font-size: 0.85rem;
+    margin-top: 6px;
+    text-align: center;
+  }
+
+  /* The pill: 28 x 100 pt, square on the screen side, opaque flat colour with a dark hairline. */
+  .pill {
+    align-items: center;
+    border: 0.5px solid rgb(0 0 0 / 0.3);
+    border-radius: 12px 0 0 12px;
+    border-right: 0;
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    font: 600 14px/1 var(--ui-font-sans);
+    gap: 7px;
+    height: 100px;
+    justify-content: center;
+    overflow: hidden;
+    position: absolute;
+    right: 0;
+    top: 30px;
+    width: 28px;
+  }
+
+  .count {
+    font-variant-numeric: tabular-nums;
+    position: relative;
+  }
+
+  /* Clear glass with a hairline (primary at 25 %), so it reads as part of the screen edge. */
+  .pill.idle {
+    backdrop-filter: blur(6px) saturate(1.4);
+    background: rgb(255 255 255 / 0.12);
+    border: 1px solid rgb(255 255 255 / 0.25);
+    border-right: 0;
+  }
+
+  .pill.running {
+    background: #0a6bdb;
+    color: #fff;
+  }
+
+  .pill.input {
+    animation: peek 2s infinite;
+    background: #ff9500;
+    color: #2b1a00;
+  }
+
+  .pill.failed {
+    animation: peek 2s infinite;
+    background: #ff3b30;
+    color: #330505;
+  }
+
+  .pill.ready {
+    background: #34c759;
+    color: #05290f;
+  }
+
+  /* Running: a darker drink 60 % high, with two bubbles that rise 70 pt and fade. */
+  .drink {
+    background: rgb(0 0 0 / 0.18);
+    bottom: 0;
+    height: 60%;
+    left: 0;
+    position: absolute;
+    right: 0;
+  }
+
+  .fizz {
+    animation: fizz linear infinite;
+    background: #fff;
+    border-radius: 50%;
+    bottom: 8px;
+    position: absolute;
+  }
+
+  @keyframes fizz {
+    0% {
+      opacity: 0;
+      transform: translateY(0);
+    }
+    15% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(-70px);
+    }
+  }
+
+  /* Needs input and Failed: every 2 s the pill peeks 12 pt out with a small bounce, and a ring grows from it. */
+  @keyframes peek {
+    0%,
+    100% {
+      width: 28px;
+    }
+    12% {
+      width: 42px;
+    }
+    18% {
+      width: 39px;
+    }
+    55% {
+      width: 40px;
+    }
+    75% {
+      width: 28px;
+    }
+  }
+
+  .ring {
+    animation: ring 2s infinite;
+    border: 3px solid #ff9500;
+    border-radius: 12px 0 0 12px;
+    border-right: 0;
+    height: 100px;
+    opacity: 0;
+    position: absolute;
+    right: 0;
+    top: 30px;
+    transform-origin: right center;
+    width: 28px;
+  }
+
+  .ring.failed {
+    border-color: #ff3b30;
+  }
+
+  @keyframes ring {
+    0% {
+      opacity: 0;
+      transform: scale(1);
+    }
+    8% {
+      opacity: 1;
+    }
+    75%,
+    100% {
+      opacity: 0;
+      transform: scale(1.7);
+    }
+  }
+
+  /* The shaker and the glass shake six times as the pill peeks; the glass then cracks and loses a shard. */
+  .shake {
+    animation: shake 2s infinite;
+    transform-origin: 50% 100%;
+  }
+
+  @keyframes shake {
+    0%,
+    32%,
+    100% {
+      transform: rotate(0);
+    }
+    5%,
+    14%,
+    23% {
+      transform: rotate(-16deg);
+    }
+    9.5%,
+    18.5%,
+    27.5% {
+      transform: rotate(16deg);
+    }
+  }
+
+  .crack {
+    animation: crack 2s infinite;
+    stroke-dasharray: 20;
+    stroke-dashoffset: 20;
+  }
+
+  @keyframes crack {
+    0%,
+    30% {
+      stroke-dashoffset: 20;
+    }
+    42%,
+    100% {
+      stroke-dashoffset: 0;
+    }
+  }
+
+  .shard {
+    animation: shard 2s infinite;
+    transform-box: fill-box;
+    transform-origin: 90% 100%;
+  }
+
+  @keyframes shard {
+    0%,
+    40% {
+      transform: none;
+    }
+    50%,
+    100% {
+      transform: translate(0.5px, 2.5px) rotate(15deg);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pill,
+    .ring,
+    .fizz,
+    .shake,
+    .crack,
+    .shard {
+      animation: none;
+    }
+
+    .ring {
+      display: none;
+    }
+
+    .crack {
+      stroke-dashoffset: 0;
+    }
+
+    .shard {
+      transform: translate(0.5px, 2.5px) rotate(15deg);
+    }
+
+    .fizz {
+      display: none;
+    }
+  }
+</style>

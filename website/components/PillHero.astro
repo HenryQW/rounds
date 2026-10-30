@@ -1,0 +1,1189 @@
+---
+// The home page hero: a small desktop with the Rounds pill at its right edge. The pill shows each state in turn; a hover or
+// a click slides out a copy of the session window, whose tiles filter the list. Sizes, colours and timings follow
+// the app (DESIGN.md, spec 5.2 and 5.7); the tile, bar and search icons are drawn here, as SF Symbols are only for
+// apps on Apple platforms. With Reduce Motion nothing moves.
+import appleLogo from "../node_modules/@lobehub/icons-static-svg/icons/apple.svg?raw";
+import BarFloor from "./BarFloor.astro";
+
+// The Apple logo for Download for Mac, without its <title>, which would show as a tooltip.
+const apple = appleLogo.replace(/<title>[^<]*<\/title>/, "");
+
+// The desk: a mess of icons for the sources Rounds reads and the models that pi can run. Rounds reads the sources
+// directly; the models only show through pi. A seeded shuffle gives each build the same mess.
+const models: Record<string, string> = {
+  openai: "GPT", "gemini-color": "Gemini", "mistral-color": "Mistral", "deepseek-color": "DeepSeek", "qwen-color": "Qwen",
+  grok: "Grok", "meta-color": "Llama", "kimi-color": "Kimi", "zhipu-color": "GLM", "minimax-color": "MiniMax",
+  openrouter: "OpenRouter", ollama: "Ollama", groq: "Groq", "cerebras-color": "Cerebras", "huggingface-color": "Hugging Face",
+  githubcopilot: "Copilot", "bedrock-color": "Bedrock", "azure-color": "Azure", "vertexai-color": "Vertex AI",
+  "gemma-color": "Gemma", "nvidia-color": "NVIDIA", "together-color": "Together", "fireworks-color": "Fireworks",
+  "perplexity-color": "Perplexity", "cohere-color": "Cohere", zai: "Z.ai",
+};
+// The glob names each file, so the build takes only these logos from the package.
+const files = import.meta.glob<string>(
+  "../node_modules/@lobehub/icons-static-svg/icons/{openai,gemini-color,mistral-color,deepseek-color,qwen-color,grok,meta-color,kimi-color,zhipu-color,minimax-color,openrouter,ollama,groq,cerebras-color,huggingface-color,githubcopilot,bedrock-color,azure-color,vertexai-color,gemma-color,nvidia-color,together-color,fireworks-color,perplexity-color,cohere-color,zai}.svg",
+  { query: "?url", import: "default", eager: true },
+);
+const logo = (name: string) => files[`../node_modules/@lobehub/icons-static-svg/icons/${name}.svg`];
+const sources: [string, string][] = [["Claude", "/sources/claude.svg"], ["Codex", "/sources/codex.svg"], ["pi", "/sources/pi.svg"], ["herdr", "/sources/herdr.svg"]];
+const modelIcons: [string, string][] = Object.entries(models).map(([file, name]) => [name, logo(file)]);
+
+let seed = 7;
+const random = () => {
+  seed = (seed + 0x6d2b79f5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+const between = (a: number, b: number) => a + random() * (b - a);
+const pick = <T,>(list: T[]) => list[Math.floor(random() * list.length)];
+const pool = [...sources, ...sources, ...sources, ...sources, ...modelIcons, ...Array.from({ length: 10 }, () => pick(modelIcons))];
+for (let i = pool.length - 1; i > 0; i--) {
+  const j = Math.floor(random() * (i + 1));
+  [pool[i], pool[j]] = [pool[j], pool[i]];
+}
+const desk = pool.map(([name, src]) => {
+  let x: number, y: number;
+  do {
+    x = between(-1, 84);
+    y = between(-6, 360);
+  } while (x > 64 && y > 200 && y < 330); // the hint and the pill stay clear
+  const motion = random();
+  const badge = pick(["", "", "", "", "", "", "", "", "", "", "", "", "", "", "1", "1", "2", "3", "!"]);
+  return {
+    name, src, badge,
+    motion: motion < 0.3 ? "shake" : motion < 0.6 ? "jump" : "",
+    style: `left:${x.toFixed(1)}%;top:${y.toFixed(0)}px;z-index:${Math.ceil(random() * 40)};--s:${pick([44, 48, 52, 52, 56, 60])}px;` +
+      `--r:${between(-14, 14).toFixed(1)}deg;--d:${between(1.3, 2.6).toFixed(2)}s;--delay:${(-between(0, 3)).toFixed(2)}s`,
+  };
+});
+---
+
+<section class="hero homepage-container">
+  <div class="intro">
+    <h1>Your agents work in parallel. You need to stay sober.</h1>
+    <p class="lede">All your AI sessions in one list at the edge of your screen. The pill tells you when one needs you.</p>
+    <div class="links">
+      <a class="primary" href="https://github.com/HenryQW/rounds/releases/latest/download/Rounds.dmg">
+        <span class="apple" aria-hidden="true" set:html={apple} />
+        Download for Mac
+      </a>
+      <a href="/overview">Read the docs</a>
+    </div>
+    <article class="installer" aria-label="Install with Homebrew">
+      <div class="command-row">
+        <code class="command"><span class="prompt" aria-hidden="true">$ </span>brew trust --tap henryqw/tap &amp;&amp; brew install --cask henryqw/tap/rounds</code>
+        <button class="copy" type="button" data-copy="brew trust --tap henryqw/tap &amp;&amp; brew install --cask henryqw/tap/rounds" aria-label="Copy the install command" aria-describedby="copy-status">
+          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M4.5 4.5H10.5C11.05 4.5 11.5 4.95 11.5 5.5V11.5C11.5 12.05 11.05 12.5 10.5 12.5H4.5C3.95 12.5 3.5 12.05 3.5 11.5V5.5C3.5 4.95 3.95 4.5 4.5 4.5Z" stroke="currentColor" stroke-width="1.25" />
+            <path d="M2.5 9.5H2C1.45 9.5 1 9.05 1 8.5V2C1 1.45 1.45 1 2 1H8.5C9.05 1 9.5 1.45 9.5 2V2.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" />
+          </svg>
+        </button>
+      </div>
+      <p class="copy-status" id="copy-status" aria-live="polite">Trusts the tap, then start your Rounds…</p>
+    </article>
+    <p class="needs">Needs macOS 27. Free and <a href="https://github.com/HenryQW/rounds">open source</a> under the <a href="https://github.com/HenryQW/rounds/blob/main/LICENSE">MIT license</a>. Works best with <a href="https://pi.henry.wang">Henry Pi Harness</a>.</p>
+  </div>
+
+  <div class="stage" id="stage">
+    <div class="desk" aria-hidden="true">
+      {desk.map((d) => (
+        <div class:list={["icon", d.motion]} style={d.style}>
+          <div class="tile">
+            <img src={d.src} alt="" />
+            {d.badge && <span class:list={["badge", { failed: d.badge === "!" }]}>{d.badge}</span>}
+          </div>
+          <span>{d.name}</span>
+        </div>
+      ))}
+    </div>
+    <BarFloor />
+    <p class="hint" id="hint" aria-hidden="true">Get the pill <span>→</span></p>
+    <div class="ring" id="ring"></div>
+    <button type="button" class="pill running" id="pill" aria-label="Open the session window" aria-expanded="false"></button>
+    <div class="window" id="window" aria-hidden="true">
+      <div class="toolbar">
+        <span class="lights" aria-hidden="true"><i></i><i></i><i></i></span>
+        <label class="search">
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><circle cx="5.5" cy="5.5" r="4.25"/><path d="M8.6 8.6l3.4 3.4" stroke-linecap="round"/></svg>
+          <input id="query" type="search" placeholder="Search Sessions" aria-label="Search sessions" autocomplete="off" />
+        </label>
+      </div>
+      <div class="tiles" id="tiles"></div>
+      <div class="chips" id="chips"></div>
+      <div class="list" id="list"></div>
+      <div class="bar">
+        <span class="brand"><img src="/icon.png" alt="" width="16" height="16" />Rounds</span>
+        <span class="tools" aria-hidden="true">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor"><circle cx="8" cy="8" r="5.2" stroke-width="2.6" stroke-dasharray="2.3 1.8"/><circle cx="8" cy="8" r="2.2" stroke-width="1.3"/></svg>
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#ff3b30" stroke-width="1.5" stroke-linecap="round"><path d="M5 3.6a5.5 5.5 0 1 0 6 0"/><path d="M8 1.5v6"/></svg>
+        </span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .hero {
+    align-items: center;
+    display: grid;
+    gap: 40px;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+  }
+
+  @media (max-width: 900px) {
+    .hero {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  h1 {
+    font-size: clamp(2rem, 4vw, 3rem);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    margin: 0 0 16px;
+  }
+
+  .lede {
+    color: var(--blume-muted-foreground);
+    font-size: 1.125rem;
+    line-height: 1.55;
+    margin: 0 0 28px;
+  }
+
+  .links a {
+    background: transparent;
+    border: 1px solid var(--blume-border);
+    border-radius: 999px;
+    color: inherit;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.875rem;
+    padding: 6px 14px;
+    text-decoration: none;
+  }
+
+  .links a:hover {
+    background: var(--blume-muted);
+  }
+
+  .links {
+    display: flex;
+    gap: 10px;
+  }
+
+  /* The Apple logo from @lobehub/icons-static-svg, inline, so it takes the button's text colour. */
+  .apple {
+    display: flex;
+    font-size: 16px;
+  }
+
+  .links a.primary {
+    align-items: center;
+    display: inline-flex;
+    gap: 6px;
+    background: var(--ui-accent);
+    border-color: var(--ui-accent);
+    color: var(--ui-background);
+  }
+
+  /* The Homebrew command as a terminal card, as on pi.henry.wang: a prompt, the command, a copy button, a status line. */
+  .installer {
+    background: #09090b;
+    border: 1px solid rgb(255 255 255 / 0.1);
+    border-radius: 8px;
+    color: #f0eee9;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 16px;
+    padding: 12px 16px;
+  }
+
+  .command-row {
+    align-items: center;
+    display: flex;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .command,
+  .copy-status {
+    font: 13px/18px ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .command {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .prompt {
+    user-select: none;
+  }
+
+  .copy {
+    align-items: center;
+    background: #8fb3ff;
+    border: 0;
+    border-radius: 6px;
+    color: #111827;
+    cursor: pointer;
+    display: inline-flex;
+    flex: 0 0 46px;
+    height: 40px;
+    justify-content: center;
+    padding: 0;
+    transition: filter 160ms ease, transform 160ms ease;
+  }
+
+  .copy:hover {
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+  }
+
+  .copy-status {
+    color: rgb(240 238 233 / 0.72);
+    margin: 0;
+  }
+
+  .copy-status[data-error] {
+    color: #f0b5a8;
+  }
+
+  .needs {
+    color: var(--blume-muted-foreground);
+    font-size: 0.8rem;
+    margin: 8px 0 0;
+  }
+
+  .needs a {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  /* The desktop: a calm wallpaper from the theme's blue steps, with the pill at the right edge. */
+  .stage {
+    background: linear-gradient(140deg, var(--ui-stream-6), var(--ui-stream-3) 55%, var(--ui-stream-1));
+    border: 1px solid var(--blume-border);
+    border-radius: 14px;
+    height: 560px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* A near-black callout: it stands out on the white tiles and the blue desk, and is no state colour; its halo breathes. */
+  .hint {
+    align-items: center;
+    animation: halo 2s ease-in-out infinite;
+    background: #0b1020;
+    border-radius: 999px;
+    box-shadow: 0 0 0 4px rgb(11 16 32 / 0.3), 0 6px 18px rgb(0 0 0 / 0.45);
+    color: #fff;
+    display: flex;
+    font-size: 1.05rem;
+    font-weight: 600;
+    gap: 6px;
+    margin: 0;
+    padding: 8px 16px;
+    position: absolute;
+    right: 44px;
+    top: calc(50% - 19px);
+    transition: opacity 0.3s;
+    z-index: 60;
+  }
+
+  @keyframes halo {
+    50% {
+      box-shadow: 0 0 0 9px rgb(11 16 32 / 0.15), 0 6px 18px rgb(0 0 0 / 0.45);
+    }
+  }
+
+  .hint span {
+    animation: nudge 1.4s ease-in-out infinite;
+    display: inline-block;
+  }
+
+  /* The desk: icons overlap, lean and sit at random; some shake as if they ask for you, some jump. */
+  .icon {
+    align-items: center;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    position: absolute;
+    transform: rotate(var(--r));
+    transform-origin: 50% 100%;
+    width: calc(var(--s) + 22px);
+  }
+
+  .tile {
+    background: linear-gradient(#fff, #eceff3);
+    border-radius: calc(var(--s) * 0.23);
+    box-shadow: 0 3px 8px rgb(0 0 0 / 0.28), inset 0 0 0 0.5px rgb(0 0 0 / 0.15);
+    display: grid;
+    height: var(--s);
+    place-items: center;
+    position: relative;
+    width: var(--s);
+  }
+
+  .tile img {
+    border-radius: 18%;
+    height: 64%;
+    width: 64%;
+  }
+
+  /* A round count, like a Dock badge: a fixed circle with the number centred in it. */
+  .badge {
+    background: #ff9500;
+    border-radius: 50%;
+    box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+    box-sizing: border-box;
+    color: #fff;
+    display: grid;
+    font: 600 11px/1 var(--ui-font-sans);
+    font-variant-numeric: tabular-nums;
+    height: 18px;
+    place-items: center;
+    position: absolute;
+    right: -6px;
+    top: -6px;
+    width: 18px;
+  }
+
+  .badge.failed {
+    background: #ff3b30;
+  }
+
+  .icon > span {
+    color: #fff;
+    font-size: 11px;
+    font-weight: 500;
+    text-shadow: 0 1px 2px rgb(0 0 0 / 0.7);
+    white-space: nowrap;
+  }
+
+  .icon.shake {
+    animation: desk-shake var(--d) ease-in-out var(--delay) infinite;
+  }
+
+  .icon.jump {
+    animation: desk-jump var(--d) cubic-bezier(0.3, 0, 0.4, 1) var(--delay) infinite;
+  }
+
+  @keyframes desk-shake {
+    0%,
+    46%,
+    100% {
+      transform: rotate(var(--r));
+    }
+    6% {
+      transform: rotate(calc(var(--r) - 9deg));
+    }
+    12% {
+      transform: rotate(calc(var(--r) + 9deg));
+    }
+    18% {
+      transform: rotate(calc(var(--r) - 7deg));
+    }
+    24% {
+      transform: rotate(calc(var(--r) + 7deg));
+    }
+    30% {
+      transform: rotate(calc(var(--r) - 4deg));
+    }
+    36% {
+      transform: rotate(calc(var(--r) + 3deg));
+    }
+  }
+
+  @keyframes desk-jump {
+    0%,
+    50%,
+    100% {
+      transform: translateY(0) rotate(var(--r)) scale(1, 1);
+    }
+    4% {
+      transform: translateY(0) rotate(var(--r)) scale(1.08, 0.9);
+    }
+    18% {
+      transform: translateY(-26px) rotate(calc(var(--r) * -1)) scale(0.96, 1.05);
+    }
+    32% {
+      transform: translateY(0) rotate(var(--r)) scale(1.1, 0.88);
+    }
+    40% {
+      transform: translateY(-7px) rotate(var(--r));
+    }
+  }
+
+  .hint.gone {
+    opacity: 0;
+  }
+
+  @keyframes nudge {
+    50% {
+      transform: translateX(6px);
+    }
+  }
+
+  /* The pill: 28 x 100 pt, square on the screen side, opaque flat colour with a dark hairline. */
+  .pill {
+    align-items: center;
+    border: 0.5px solid rgb(0 0 0 / 0.3);
+    border-radius: 12px 0 0 12px;
+    border-right: 0;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    font: 600 14px/1 var(--ui-font-sans);
+    gap: 7px;
+    height: 100px;
+    justify-content: center;
+    overflow: hidden;
+    padding: 0;
+    position: absolute;
+    right: 0;
+    top: calc(50% - 50px);
+    transition: background-color 0.6s, opacity 0.25s;
+    width: 28px;
+    z-index: 60;
+  }
+
+  .pill :global(.count) {
+    font-variant-numeric: tabular-nums;
+    position: relative;
+  }
+
+  .pill.running {
+    background: #0a6bdb;
+    color: #fff;
+  }
+
+  .pill.input {
+    background: #ff9500;
+    color: #2b1a00;
+  }
+
+  .pill.failed {
+    background: #ff3b30;
+    color: #330505;
+  }
+
+  .pill.ready {
+    background: #34c759;
+    color: #05290f;
+  }
+
+  /* Running: a darker drink 60 % high, with two bubbles that rise 70 pt and fade. */
+  .pill :global(.drink) {
+    background: rgb(0 0 0 / 0.18);
+    bottom: 0;
+    height: 60%;
+    left: 0;
+    position: absolute;
+    right: 0;
+  }
+
+  .pill :global(.fizz) {
+    animation: fizz linear infinite;
+    background: #fff;
+    border-radius: 50%;
+    bottom: 8px;
+    position: absolute;
+  }
+
+  @keyframes fizz {
+    0% {
+      opacity: 0;
+      transform: translateY(0);
+    }
+    15% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(-70px);
+    }
+  }
+
+  /* Needs input and Failed: every 2 s the pill peeks 12 pt out with a small bounce, and a ring grows from it. */
+  .pill.input,
+  .pill.failed {
+    animation: peek 2s infinite;
+  }
+
+  @keyframes peek {
+    0%,
+    100% {
+      width: 28px;
+    }
+    12% {
+      width: 42px;
+    }
+    18% {
+      width: 39px;
+    }
+    55% {
+      width: 40px;
+    }
+    75% {
+      width: 28px;
+    }
+  }
+
+  .ring {
+    border: 3px solid #ff9500;
+    border-radius: 12px 0 0 12px;
+    border-right: 0;
+    display: none;
+    height: 100px;
+    opacity: 0;
+    pointer-events: none;
+    position: absolute;
+    right: 0;
+    top: calc(50% - 50px);
+    transform-origin: right center;
+    width: 28px;
+    z-index: 60;
+  }
+
+  .ring.on {
+    animation: ring 2s infinite;
+    display: block;
+  }
+
+  .ring.failed {
+    border-color: #ff3b30;
+  }
+
+  @keyframes ring {
+    0% {
+      opacity: 0;
+      transform: scale(1);
+    }
+    8% {
+      opacity: 1;
+    }
+    75%,
+    100% {
+      opacity: 0;
+      transform: scale(1.7);
+    }
+  }
+
+  /* The shaker and the glass shake six times (0.09 s each) as the pill peeks; the glass then cracks and loses a shard. */
+  .pill :global(.shake) {
+    animation: shake 2s infinite;
+    transform-origin: 50% 100%;
+  }
+
+  @keyframes shake {
+    0%,
+    32%,
+    100% {
+      transform: rotate(0);
+    }
+    5%,
+    14%,
+    23% {
+      transform: rotate(-16deg);
+    }
+    9.5%,
+    18.5%,
+    27.5% {
+      transform: rotate(16deg);
+    }
+  }
+
+  .pill :global(.crack) {
+    animation: crack 2s infinite;
+    stroke-dasharray: 20;
+    stroke-dashoffset: 20;
+  }
+
+  @keyframes crack {
+    0%,
+    30% {
+      stroke-dashoffset: 20;
+    }
+    42%,
+    100% {
+      stroke-dashoffset: 0;
+    }
+  }
+
+  .pill :global(.shard) {
+    animation: shard 2s infinite;
+    transform-box: fill-box;
+    transform-origin: 90% 100%;
+  }
+
+  @keyframes shard {
+    0%,
+    40% {
+      transform: none;
+    }
+    50%,
+    100% {
+      transform: translate(0.5px, 2.5px) rotate(15deg);
+    }
+  }
+
+  /* The session window: 420 pt wide, from the edge with a small bounce while the pill fades; back with an ease-in. */
+  .window {
+    --win-bg: #fff;
+    --win-fg: #1d1d1f;
+    --win-muted: #86868b;
+    --win-line: rgb(0 0 0 / 0.1);
+    --win-fill: rgb(0 0 0 / 0.03);
+    --win-hover: rgb(0 0 0 / 0.08);
+    --win-badge: rgb(0 0 0 / 0.06);
+    background: var(--win-bg);
+    border-radius: 12px 0 0 12px;
+    bottom: 12px;
+    box-shadow: 0 12px 40px rgb(0 0 0 / 0.3);
+    box-sizing: border-box;
+    color: var(--win-fg);
+    display: flex;
+    flex-direction: column;
+    font: 13px/1.3 -apple-system, BlinkMacSystemFont, var(--ui-font-sans);
+    overflow: hidden;
+    position: absolute;
+    right: 0;
+    top: 12px;
+    transform: translateX(105%);
+    transition: transform 0.22s cubic-bezier(0.5, 0, 0.75, 0);
+    width: min(420px, 94%);
+    z-index: 70;
+  }
+
+  :global(:root[data-theme="dark"]) .window {
+    --win-bg: #252527;
+    --win-fg: #f5f5f7;
+    --win-muted: #98989d;
+    --win-line: rgb(255 255 255 / 0.12);
+    --win-fill: rgb(255 255 255 / 0.04);
+    --win-hover: rgb(255 255 255 / 0.08);
+    --win-badge: rgb(255 255 255 / 0.1);
+  }
+
+  .window.open {
+    transform: translateX(0);
+    transition: transform 0.45s cubic-bezier(0.34, 1.3, 0.64, 1);
+  }
+
+  .toolbar {
+    align-items: center;
+    display: flex;
+    gap: 14px;
+    padding: 10px 12px 6px 16px;
+  }
+
+  .lights {
+    display: flex;
+    gap: 8px;
+  }
+
+  .lights i {
+    background: #ff5f57;
+    border-radius: 50%;
+    height: 12px;
+    width: 12px;
+  }
+
+  .lights i:nth-child(2) {
+    background: var(--win-badge);
+  }
+
+  .lights i:nth-child(3) {
+    background: #28c840;
+  }
+
+  .search {
+    align-items: center;
+    border: 1px solid var(--win-line);
+    border-radius: 999px;
+    box-shadow: 0 0 0 3px rgb(10 107 219 / 0.35);
+    color: var(--win-muted);
+    display: flex;
+    flex: 1;
+    font-size: 14px;
+    gap: 7px;
+    padding: 6px 12px;
+  }
+
+  .search input {
+    background: transparent;
+    border: 0;
+    color: var(--win-fg);
+    flex: 1;
+    font: inherit;
+    min-width: 0;
+    outline: none;
+    padding: 0;
+  }
+
+  .search input::placeholder {
+    color: var(--win-muted);
+  }
+
+  /* Four tiles, 44 pt: a state-coloured symbol and the count, then the tile name; the selected one lifts. */
+  .tiles {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    padding: 8px 16px 0;
+  }
+
+  .tiles :global(button) {
+    align-items: center;
+    background: var(--win-fill);
+    border: 0.5px solid var(--win-line);
+    border-radius: 8px;
+    color: var(--win-fg);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    font: inherit;
+    gap: 2px;
+    height: 44px;
+    justify-content: center;
+    padding: 0;
+  }
+
+  .tiles :global(button:hover) {
+    background: var(--win-hover);
+  }
+
+  .tiles :global(button[aria-pressed="true"]) {
+    background: var(--win-bg);
+    border-color: var(--win-muted);
+  }
+
+  .tiles :global(.top) {
+    align-items: center;
+    display: flex;
+    font-size: 15px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    gap: 4px;
+    height: 20px;
+  }
+
+  .tiles :global(.empty) {
+    color: var(--win-muted);
+  }
+
+  .tiles :global(.name) {
+    color: var(--win-muted);
+    font-size: 10px;
+  }
+
+  .chips {
+    display: flex;
+    gap: 8px;
+    padding: 8px 16px;
+  }
+
+  .chips :global(span) {
+    align-items: center;
+    border: 0.5px solid var(--win-line);
+    border-radius: 999px;
+    display: flex;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    gap: 4px;
+    height: 28px;
+    padding: 0 8px;
+  }
+
+  .chips :global(img),
+  .list :global(.source) {
+    height: 18px;
+    width: 18px;
+  }
+
+  .list {
+    flex: 1;
+    overflow: hidden;
+    padding: 4px 8px;
+  }
+
+  .list :global(.section) {
+    align-items: center;
+    color: var(--win-muted);
+    display: flex;
+    font-size: 12px;
+    font-weight: 600;
+    gap: 8px;
+    padding: 10px 8px 4px;
+  }
+
+  .list :global(.letter) {
+    background: var(--win-badge);
+    border-radius: 4px;
+    color: var(--win-muted);
+    display: grid;
+    font-size: 11px;
+    height: 18px;
+    place-items: center;
+    width: 18px;
+  }
+
+  .list :global(.row) {
+    align-items: center;
+    border-radius: 6px;
+    display: grid;
+    gap: 8px;
+    grid-template-columns: 8px 18px minmax(0, 1fr) auto;
+    padding: 6px 8px 6px 32px;
+  }
+
+  .list :global(.row:hover) {
+    background: var(--win-hover);
+  }
+
+  .list :global(.dot) {
+    border: 1.5px solid var(--dot);
+    border-radius: 50%;
+    box-sizing: border-box;
+    height: 8px;
+    width: 8px;
+  }
+
+  .list :global(.dot.filled) {
+    background: var(--dot);
+  }
+
+  .list :global(.title) {
+    font-size: 14px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .list :global(.sub) {
+    color: var(--win-muted);
+    font-size: 11px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .list :global(.end) {
+    align-items: center;
+    color: var(--win-muted);
+    display: flex;
+    font: 10px ui-monospace, SFMono-Regular, Menlo, monospace;
+    gap: 6px;
+  }
+
+  /* A working row's glass fills to 80 %, stays full and empties to 10 %, each with its own speed. */
+  .list :global(.glass) {
+    height: 14px;
+    position: relative;
+    width: 12px;
+  }
+
+  .list :global(.glass i) {
+    animation: pour var(--period, 2.8s) ease-in-out infinite;
+    background: #007aff;
+    bottom: 0;
+    clip-path: polygon(0 0, 100% 0, 88% 100%, 12% 100%);
+    height: 100%;
+    left: 0;
+    position: absolute;
+    right: 0;
+    transform: scaleY(0.66);
+    transform-origin: bottom;
+  }
+
+  @keyframes pour {
+    0% {
+      transform: scaleY(0.1);
+    }
+    70%,
+    85% {
+      transform: scaleY(0.8);
+    }
+    100% {
+      transform: scaleY(0.1);
+    }
+  }
+
+  .list :global(.another) {
+    color: #0a6bdb;
+    font-size: 18px;
+    font-weight: 600;
+    padding: 48px 0;
+    text-align: center;
+  }
+
+  .list :global(.another span) {
+    display: block;
+    font-size: 40px;
+    margin-bottom: 12px;
+  }
+
+  .bar {
+    align-items: center;
+    border-top: 0.5px solid var(--win-line);
+    color: var(--win-muted);
+    display: flex;
+    font-size: 11px;
+    justify-content: space-between;
+    padding: 8px 16px;
+  }
+
+  .brand {
+    align-items: center;
+    display: flex;
+    gap: 6px;
+  }
+
+  .tools {
+    display: flex;
+    gap: 10px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .hint,
+    .hint span,
+    .icon.shake,
+    .icon.jump,
+    .pill,
+    .ring.on,
+    .pill :global(.fizz),
+    .pill :global(.shake),
+    .pill :global(.crack),
+    .pill :global(.shard),
+    .list :global(.glass i),
+    .window,
+    .window.open {
+      animation: none;
+      transition: none;
+    }
+
+    .pill :global(.crack) {
+      stroke-dashoffset: 0;
+    }
+
+    .pill :global(.shard) {
+      transform: translate(0.5px, 2.5px) rotate(15deg);
+    }
+
+    .pill :global(.fizz) {
+      display: none;
+    }
+  }
+</style>
+
+<script>
+  type Tile = "call" | "tap" | "served";
+  // [state, source, title, detail, project, time]; a row's tile comes from its state (finished rows here are seen).
+  type Row = [string, string, string, string, string, string];
+  const parser: Row = ["working", "claude", "Refactor the parser", "Edit", "atlas", "1 min ago"];
+  const upload: Row = ["working", "pi", "Fix flaky upload test", "pi", "atlas", "2 min ago"];
+  const tests: Row = ["working", "codex", "Speed up the test suite", "Thinking", "harbor", "1 min ago"];
+  const notes: Row = ["background", "claude", "Update the release notes", "2 tasks", "notes", "4 min ago"];
+  const guide: Row = ["finished", "codex", "Write the upgrade guide", "", "notes", "1 hr ago"];
+  const flags: Row = ["stopped", "claude", "Clean up old flags", "", "harbor", "48 min ago"];
+  const search: Row = ["input", "claude", "Add search to the docs", "Permission: Bash", "atlas", "3 min ago"];
+  const login: Row = ["failed", "claude", "Fix login redirect", "error", "harbor", "7 min ago"];
+  const tokenizer: Row = ["ready", "claude", "Try a faster tokenizer", "review", "atlas", "9 min ago"];
+  const api: Row = ["ready", "pi", "Review the API changes", "pi", "notes", "15 min ago"];
+  const scenes: Record<string, Row[]> = {
+    running: [parser, upload, tests, notes, guide, flags],
+    input: [search, parser, upload, tests, notes, guide],
+    failed: [login, search, parser, tests, notes, guide],
+    ready: [tokenizer, api, parser, tests, notes, flags],
+  };
+  const look: Record<string, [color: string, filled: boolean, label: string, tile: Tile]> = {
+    input: ["#ff9500", true, "Needs input", "call"], failed: ["#ff3b30", true, "Failed", "call"],
+    ready: ["#34c759", true, "Ready", "call"], working: ["#007aff", true, "Working", "tap"],
+    background: ["#007aff", false, "Background", "tap"], finished: ["#8e8e93", false, "Finished", "served"],
+    stopped: ["#8e8e93", false, "Stopped", "served"],
+  };
+  const icons: Record<string, string> = {
+    call: `<svg width="15" height="15" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7.5" fill="currentColor"/><path d="M8 4v5" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="8" cy="11.6" r="1.05" fill="#fff"/></svg>`,
+    tap: `<svg width="17" height="15" viewBox="0 0 18 16" fill="currentColor"><rect x="5" y="1" width="6" height="1.8" rx="0.9"/><rect x="7.2" y="2.5" width="1.6" height="3"/><path d="M1 6.5h10.5a4 4 0 0 1 4 4v1.5h-3v-1.3a1.2 1.2 0 0 0-1.2-1.2H1z"/><path d="M12.5 13.2h3l-0.4 2.3h-2.2z"/></svg>`,
+    served: `<svg width="15" height="15" viewBox="0 0 16 16"><circle cx="8" cy="8" r="7.5" fill="currentColor"/><path d="M4.6 8.2l2.3 2.3 4.5-4.7" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    aged: `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="8" cy="8" r="6.75"/><path d="M8 4.2V8l2.6 1.6"/></svg>`,
+  };
+  const tiles: [Tile | "aged", string, string][] = [
+    ["call", "Last Call", "#ff9500"], ["tap", "On Tap", "#007aff"], ["served", "Served", "#34c759"], ["aged", "Aged", ""],
+  ];
+  const brokenRow = `<svg width="12" height="14" viewBox="0 0 12 14" fill="none" stroke="#ff3b30" stroke-width="1" stroke-linejoin="round"><path d="M8.4 0.5H0.5l1.4 13h8.2l0.9-8.4"/><path d="M8.4 0.5l0.6 2.8-1.8 4.2 1 4.2"/><path d="M9 0.5h2.5l-0.4 4.5"/></svg>`;
+
+  const $ = (id: string) => document.getElementById(id)!;
+  const pill = $("pill"), ring = $("ring"), win = $("window"), hint = $("hint"), stage = $("stage");
+  let state = "running";
+  let filter: string | null = null;
+  // As in the app: the search matches the title and the project, under the selected tile; counts do not follow it.
+  let query = "";
+  let closeTimer: number | undefined;
+
+  const shaker = `<svg class="shake" width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
+    <rect x="3.6" y="0" width="2.8" height="1.6" rx="0.5"/><path d="M3 2.2h4l1.6 4.2H1.4z"/><path d="M0.8 7.2h8.4L8 16H2z"/></svg>`;
+  const broken = `<svg class="shake" width="11" height="14" viewBox="0 0 11 14" fill="none" stroke="currentColor" stroke-width="1.5"
+    stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M7.7 0.75H0.75l1.3 12.5h6.9l0.8-8.4"/>
+    <path class="crack" d="M7.7 0.75l0.55 2.8-1.65 4.2 0.9 4.2"/><path class="shard" d="M7.7 0.75h2.55l-0.45 4.1-1.55-1.3z"/></svg>`;
+  const wine = `<svg width="11" height="15" viewBox="0 0 11 15" fill="currentColor" aria-hidden="true">
+    <path d="M1 0.5h9c0 4-2 6-3.9 6.4v5.4h2.4v1.7H2.5v-1.7h2.4V6.9C3 6.5 1 4.5 1 0.5z"/></svg>`;
+
+  const tileOf = (r: Row) => look[r[0]][3];
+
+  function drawPill() {
+    const rows = scenes[state];
+    const call = rows.filter((r) => tileOf(r) === "call").length;
+    const count = call || rows.filter((r) => tileOf(r) === "tap").length;
+    const ringing = state === "input" || state === "failed";
+    pill.className = `pill ${state}`;
+    ring.className = `ring${ringing ? " on" : ""}${state === "failed" ? " failed" : ""}`;
+    const icon = state === "running"
+      ? `<span class="drink"></span><span class="fizz" style="left:8px;width:4px;height:4px;animation-duration:1.9s"></span>` +
+        `<span class="fizz" style="left:15px;width:3px;height:3px;animation-duration:2.6s"></span>`
+      : state === "input" ? shaker : state === "failed" ? broken : wine;
+    pill.innerHTML = `${icon}<span class="count">${count}</span>`;
+  }
+
+  function drawWindow() {
+    const rows = scenes[state];
+    $("tiles").innerHTML = tiles.map(([key, name, color]) => {
+      const n = key === "aged" ? null : rows.filter((r) => tileOf(r) === key).length;
+      const tint = n ? color : "";
+      return `<button type="button" data-tile="${key}" aria-pressed="${filter === key}">` +
+        `<span class="top${n === 0 ? " empty" : ""}"><span style="color:${tint || "var(--win-muted)"};display:flex">${icons[key]}</span>` +
+        `${n ?? ""}</span><span class="name">${name}</span></button>`;
+    }).join("");
+    const sources = ["claude", "pi", "codex"];
+    $("chips").innerHTML = sources.map((s) => `<span><img src="/sources/${s}.svg" alt="${s}" />${rows.filter((r) => r[1] === s).length}</span>`).join("");
+    const shown = rows.filter((r) => (!filter || tileOf(r) === filter) && (!query || `${r[2]} ${r[4]}`.toLowerCase().includes(query)));
+    if (!shown.length) {
+      $("list").innerHTML = query
+        ? `<div class="another" style="color:var(--win-muted)">No Matches</div>`
+        : filter === "call"
+        ? `<div class="another"><span>🍹</span>Another round?</div>`
+        : `<div class="another" style="color:var(--win-muted)">Nothing here</div>`;
+      return;
+    }
+    // Projects with waiting work first, as in the app.
+    const projects = [...new Set(shown.map((r) => r[4]))];
+    $("list").innerHTML = projects.map((p) => {
+      const inProject = shown.filter((r) => r[4] === p);
+      return `<div class="section"><span class="letter">${p[0].toUpperCase()}</span>${p}<span>${inProject.length}</span></div>` +
+        inProject.map(([s, source, title, detail, project, time], i) => {
+          const [color, filled, label] = look[s];
+          const sub = [label, detail, project].filter(Boolean).join(" · ");
+          const glass = s === "working" ? `<span class="glass"><i style="--period:${2.4 + ((i * 0.37) % 0.8)}s"></i></span>`
+            : s === "failed" ? brokenRow : "";
+          return `<div class="row"><span class="dot${filled ? " filled" : ""}" style="--dot:${color}"></span>` +
+            `<img class="source" src="/sources/${source}.svg" alt="" /><div><div class="title">${title}</div>` +
+            `<div class="sub">${sub}</div></div><span class="end">${glass}${time}</span></div>`;
+        }).join("");
+    }).join("");
+  }
+
+  // Once the pill is used, the desk calms down: each icon ends its current shake or jump at rest, then stays still.
+  function calm() {
+    document.querySelectorAll(".desk .shake, .desk .jump").forEach((icon) =>
+      icon.addEventListener("animationiteration", () => icon.classList.remove("shake", "jump"), { once: true }));
+  }
+
+  // Easter egg: a click kicks an icon or an empty away from the pointer, in an arc and a spin, and it is gone.
+  const still = matchMedia("(prefers-reduced-motion: reduce)");
+  stage.addEventListener("click", (e) => {
+    const thing = (e.target as Element).closest<HTMLElement | SVGGElement>(".desk .icon, .floor .kick");
+    if (!thing) return;
+    const box = thing.getBoundingClientRect();
+    const side = box.left + box.width / 2 < e.clientX ? -1 : 1;
+    const start = getComputedStyle(thing).transform;
+    const from = start === "none" ? "" : start;
+    thing.classList.remove("shake", "jump");
+    thing.style.pointerEvents = "none";
+    for (let n = thing.previousElementSibling; n?.tagName === "ellipse"; n = n.previousElementSibling) {
+      (n as SVGElement).style.opacity = "0";
+    }
+    const far = side * (300 + Math.random() * 300), up = 120 + Math.random() * 160, spin = side * (360 + Math.random() * 540);
+    const frames = still.matches ? [{ opacity: 1 }, { opacity: 0 }] : [
+      { transform: from },
+      { transform: `translate(${far * 0.45}px, ${-up}px) rotate(${spin * 0.45}deg) ${from}`, offset: 0.45 },
+      { transform: `translate(${far}px, ${up}px) rotate(${spin}deg) ${from}`, opacity: 0 },
+    ];
+    thing.animate(frames, { duration: still.matches ? 200 : 900, easing: "cubic-bezier(0.25, 0.6, 0.4, 1)", fill: "forwards" });
+  });
+
+  function open() {
+    clearTimeout(closeTimer);
+    hint.classList.add("gone");
+    clearInterval(cycle);
+    calm();
+    drawWindow();
+    win.classList.add("open");
+    win.setAttribute("aria-hidden", "false");
+    pill.setAttribute("aria-expanded", "true");
+    pill.style.opacity = "0";
+    ring.style.visibility = "hidden";
+  }
+
+  function close() {
+    win.classList.remove("open");
+    win.setAttribute("aria-hidden", "true");
+    pill.setAttribute("aria-expanded", "false");
+    pill.style.opacity = "";
+    ring.style.visibility = "";
+  }
+
+  pill.addEventListener("mouseenter", open);
+  pill.addEventListener("click", open);
+  // As in the app: the window closes a moment after the pointer leaves it.
+  win.addEventListener("mouseleave", () => { closeTimer = window.setTimeout(close, 800); });
+  win.addEventListener("mouseenter", () => clearTimeout(closeTimer));
+  // The path, not the target: a tile click draws the tiles again, so its button is no longer in the window.
+  stage.addEventListener("click", (e) => { if (!e.composedPath().some((n) => n === win || n === pill)) close(); });
+  // Esc clears the search first, then closes, as in the app.
+  const queryField = $("query") as HTMLInputElement;
+  queryField.addEventListener("input", () => {
+    query = queryField.value.trim().toLowerCase();
+    drawWindow();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    if (queryField.value) {
+      queryField.value = query = "";
+      drawWindow();
+    } else close();
+  });
+  $("tiles").addEventListener("click", (e) => {
+    const key = (e.target as HTMLElement).closest("button")?.dataset.tile;
+    if (!key) return;
+    filter = filter === key ? null : key;
+    drawWindow();
+  });
+  // Each state stays for two of the pill's 2 s cycles, then the next comes; once the pill is used, its state stays.
+  const order = ["running", "input", "failed", "ready"];
+  const cycle = setInterval(() => {
+    state = order[(order.indexOf(state) + 1) % order.length];
+    drawPill();
+  }, 4000);
+  drawPill();
+
+  // The install card: the status line says what the command does, then whether the copy worked.
+  const copy = document.querySelector<HTMLButtonElement>(".installer .copy")!;
+  const status = $("copy-status");
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(copy.dataset.copy!);
+      status.textContent = "Copied the install command.";
+      status.removeAttribute("data-error");
+    } catch {
+      status.textContent = "Copy failed. Select the command and copy it.";
+      status.setAttribute("data-error", "");
+    }
+  });
+</script>

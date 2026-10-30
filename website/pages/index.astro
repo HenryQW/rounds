@@ -1,0 +1,71 @@
+---
+import PageLayout from "blume/components/layout/PageLayout.astro";
+import data from "blume:data";
+
+import PillHero from "../components/PillHero.astro";
+
+const { config } = data;
+const features = [
+  { title: "One list", text: "Claude Code, Codex, and each model that pi runs in herdr.", href: "/sources" },
+  { title: "Calm until needed", text: "Blue while agents work. Orange, red or green when one needs you.", href: "/pill" },
+  { title: "Last Call", text: "What changed since you last looked.", href: "/session-window" },
+];
+---
+
+<PageLayout
+  site={{ title: config.title, description: config.description }}
+  logo={config.logo}
+  banner={config.banner}
+  analytics={config.analytics}
+  navigation={data.navigation}
+  favicon={config.favicon}
+  appleIcon={config.appleIcon}
+  fontCssVars={data.fontCssVars}
+  themeMode={config.theme.mode}
+  searchEnabled={config.search.enabled}
+  siteUrl={config.site}
+  ogEnabled={config.og.enabled}
+  page={{ title: "Rounds", description: config.description }}
+>
+  <PillHero />
+  <section class="features homepage-container">
+    {features.map((f) => (
+      <a class="feature" href={f.href}>
+        <h2>{f.title}</h2>
+        <p>{f.text}</p>
+      </a>
+    ))}
+  </section>
+</PageLayout>
+
+<style>
+  .features {
+    display: grid;
+    gap: 16px;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+
+  .feature {
+    border: 1px solid var(--blume-border);
+    border-radius: 12px;
+    color: inherit;
+    padding: 20px;
+    text-decoration: none;
+  }
+
+  .feature:hover {
+    background: var(--blume-muted);
+  }
+
+  h2 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    margin: 0 0 6px;
+  }
+
+  p {
+    color: var(--blume-muted-foreground);
+    line-height: 1.5;
+    margin: 0;
+  }
+</style>

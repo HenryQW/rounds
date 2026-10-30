@@ -1,0 +1,19 @@
+{
+  "sessionId": "local_00000000-0000-4000-8000-000000000001",
+  "cliSessionId": "00000000-0000-4000-8000-0000000000aa",
+  "cwd": "/Users/test/proj",
+  "title": "Sample session",
+  "branch": "feature/x",
+  "isArchived": false,
+  "lastActivityAt": 1792986997683,
+  "lastTurnEdgeAt": 1792986990000,
+  "lastAssistantUuid": "u-2",
+  "turnWrapUp": {"description": "Done.", "needsUser": "Pick A or B?"},
+  "postTurnSummary": {"status_category": "blocked", "needs_action": "pick A or B", "status_detail": "detail", "summarizes_uuid": "u-2"},
+  "error": "boom",
+  "errorAt": 1792980000000,
+  "interruptedAwaitingPerson": true,
+  "sshConfig": {"host": "example"},
+  "model": "claude-opus-5-5",
+  "prs": [{"prNumber": 412, "repo": "example/api", "state": "MERGED", "url": "https://github.com/example/api/pull/412"}, {"prNumber": 7}]
+}

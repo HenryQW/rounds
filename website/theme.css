@@ -1,0 +1,91 @@
+@import "@henryqw/theme/tokens.css";
+@import "@henryqw/theme/blume.css";
+
+/* Home page sections: the same width and gutters as pi.henry.wang (its homepage-container). */
+.homepage-container {
+  box-sizing: border-box;
+  margin: 0 auto;
+  max-width: 1440px;
+  padding: 32px 24px;
+}
+
+@media (min-width: 768px) {
+  .homepage-container {
+    padding: 40px;
+  }
+}
+
+@media (min-width: 1280px) {
+  .homepage-container {
+    padding: 72px 64px;
+  }
+}
+
+/* The footer's About Henry link shows Henry's picture, the same one as in the app's Settings. */
+footer a[href="https://henry.wang"]::before {
+  background: url("/henry.png") center / cover;
+  border-radius: 50%;
+  content: "";
+  display: inline-block;
+  height: 20px;
+  margin-right: 6px;
+  vertical-align: middle;
+  width: 20px;
+}
+
+/* Screenshot pairs: show the light image, or the dark one in dark mode. */
+.shot-dark {
+  display: none;
+}
+
+:root[data-theme="dark"] .shot-light {
+  display: none;
+}
+
+:root[data-theme="dark"] .shot-dark {
+  display: inline;
+}
+
+/* The States page: the app's state dots (Rounds DESIGN.md colours). A filled dot wants the user or runs; a ring is
+   quiet; a dashed ring is unknown. */
+.state {
+  white-space: nowrap;
+}
+
+.state::before {
+  border: 1.5px solid var(--dot);
+  border-radius: 50%;
+  box-sizing: border-box;
+  content: "";
+  display: inline-block;
+  height: 0.6em;
+  margin-right: 0.4em;
+  width: 0.6em;
+}
+
+.state.filled::before {
+  background: var(--dot);
+}
+
+.state.dashed::before {
+  border-style: dashed;
+}
+
+/* The table scrolls on its own on a narrow screen, so the page does not. */
+.states-scroll {
+  overflow-x: auto;
+}
+
+.states-table .group th {
+  background: var(--blume-muted);
+  color: var(--blume-muted-foreground);
+  font-weight: 500;
+}
+
+.states-table td:nth-child(2) {
+  white-space: nowrap;
+}
+
+.states-table .none {
+  color: var(--blume-muted-foreground);
+}

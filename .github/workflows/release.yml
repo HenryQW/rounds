@@ -1,0 +1,64 @@
+name: Release
+
+# A tag v<VERSION> (the VERSION file) builds Rounds (ad hoc signed, no Developer ID) and publishes Rounds-<VERSION>.dmg
+# and Rounds.dmg (the "latest" link on the docs site) on a GitHub release. With TAP_TOKEN set, the cask in
+# HenryQW/homebrew-tap moves to this version. See website/docs/release.md.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: xcode-27
+    env:
+      TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the release notes need the previous tag and the commits since it
+
+      - name: Check that the tag is the version
+        run: |
+          echo "VERSION=$(cat VERSION)" >> "$GITHUB_ENV"
+          test "v$(cat VERSION)" = "$GITHUB_REF_NAME"
+
+      - name: Test
+        run: swift test
+
+      - name: Build the app and the disk image
+        run: |
+          scripts/bundle.sh
+          scripts/dmg.sh
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp "build/Rounds-$VERSION.dmg" build/Rounds.dmg
+          # In build/, so the checksum file names the bare file name and `shasum -c` works next to the download.
+          (cd build && shasum -a 256 "Rounds-$VERSION.dmg" | tee "Rounds-$VERSION.dmg.sha256")
+          # Notes: the subject of each commit since the previous tag; the first release has no previous tag.
+          PREV="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+          if [ -n "$PREV" ]; then
+            git log --no-merges --format='- %s' "$PREV..HEAD" > build/notes.md
+            printf '\nAll changes: https://github.com/%s/compare/%s...%s\n' "$GITHUB_REPOSITORY" "$PREV" "$GITHUB_REF_NAME" >> build/notes.md
+          else
+            echo "First release." > build/notes.md
+          fi
+          gh release create "$GITHUB_REF_NAME" "build/Rounds-$VERSION.dmg" "build/Rounds-$VERSION.dmg.sha256" build/Rounds.dmg \
+            --title "Rounds $VERSION" --notes-file build/notes.md
+
+      - name: Update the Homebrew tap
+        if: env.TAP_TOKEN != ''
+        run: |
+          SHA256="$(shasum -a 256 "build/Rounds-$VERSION.dmg" | cut -d ' ' -f 1)"
+          git clone "https://x-access-token:$TAP_TOKEN@github.com/HenryQW/homebrew-tap.git" "$RUNNER_TEMP/tap"
+          mkdir -p "$RUNNER_TEMP/tap/Casks"
+          sed -e "s/@VERSION@/$VERSION/" -e "s/@SHA256@/$SHA256/" packaging/homebrew/rounds.rb > "$RUNNER_TEMP/tap/Casks/rounds.rb"
+          cd "$RUNNER_TEMP/tap"
+          git add Casks/rounds.rb
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "rounds $VERSION"
+          git push

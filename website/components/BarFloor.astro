@@ -1,0 +1,218 @@
+---
+// The floor of the home page desktop: a wooden bar floor with the empties of a long night (bottles, a broken one,
+// cans, caps and spilt beer). Drawn by hand, so it has no image files; nearer things are larger and brighter.
+---
+
+<svg class="floor" viewBox="0 0 620 150" preserveAspectRatio="xMidYMax slice" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="wood" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#2a1a0e"/><stop offset="0.25" stop-color="#4a2e18"/><stop offset="1" stop-color="#2b1a0d"/></linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.5" stop-color="#fff" stop-opacity="0.07"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <!-- glass: dark edges, a broad body tone, a sharp window highlight, a soft rim light on the far side -->
+    <linearGradient id="gGreen" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#061a08"/><stop offset="0.1" stop-color="#14451a"/><stop offset="0.22" stop-color="#2f7a30"/>
+      <stop offset="0.27" stop-color="#7fca72"/><stop offset="0.3" stop-color="#2f7a30"/><stop offset="0.62" stop-color="#1d5a22"/>
+      <stop offset="0.82" stop-color="#3a8a3a"/><stop offset="0.9" stop-color="#1a4d1d"/><stop offset="1" stop-color="#05170a"/></linearGradient>
+    <linearGradient id="gBrown" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#1a0b02"/><stop offset="0.1" stop-color="#4a2306"/><stop offset="0.22" stop-color="#8a4a12"/>
+      <stop offset="0.27" stop-color="#e0a050"/><stop offset="0.3" stop-color="#8a4a12"/><stop offset="0.62" stop-color="#5f300a"/>
+      <stop offset="0.82" stop-color="#a0601c"/><stop offset="0.9" stop-color="#4a2306"/><stop offset="1" stop-color="#140801"/></linearGradient>
+    <linearGradient id="gClear" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#9fb3c2" stop-opacity="0.75"/><stop offset="0.12" stop-color="#dfeaf2" stop-opacity="0.35"/>
+      <stop offset="0.26" stop-color="#fff" stop-opacity="0.85"/><stop offset="0.31" stop-color="#e6eef5" stop-opacity="0.25"/>
+      <stop offset="0.8" stop-color="#e6eef5" stop-opacity="0.3"/><stop offset="0.9" stop-color="#fff" stop-opacity="0.6"/><stop offset="1" stop-color="#8aa0b0" stop-opacity="0.8"/></linearGradient>
+    <linearGradient id="paper" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6d5f3c"/><stop offset="0.18" stop-color="#cdbd8e"/><stop offset="0.3" stop-color="#fbf0cf"/>
+      <stop offset="0.65" stop-color="#d8c79a"/><stop offset="1" stop-color="#5e5132"/></linearGradient>
+    <linearGradient id="foil" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5a4208"/><stop offset="0.3" stop-color="#f5d66b"/><stop offset="0.45" stop-color="#fff3bf"/><stop offset="0.7" stop-color="#b48a1e"/><stop offset="1" stop-color="#4a3606"/></linearGradient>
+    <linearGradient id="alu" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#5d646b"/><stop offset="0.22" stop-color="#c9d0d6"/><stop offset="0.3" stop-color="#ffffff"/>
+      <stop offset="0.45" stop-color="#aab2b9"/><stop offset="0.8" stop-color="#e3e8ec"/><stop offset="1" stop-color="#535a61"/></linearGradient>
+    <linearGradient id="canRed" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#3d0207"/><stop offset="0.15" stop-color="#9a0d1b"/><stop offset="0.27" stop-color="#ff6b74"/>
+      <stop offset="0.33" stop-color="#d0162a"/><stop offset="0.78" stop-color="#c0142a"/><stop offset="0.88" stop-color="#e85060"/><stop offset="1" stop-color="#36020a"/></linearGradient>
+    <linearGradient id="canBlue" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#03123a"/><stop offset="0.15" stop-color="#0d3a96"/><stop offset="0.27" stop-color="#8fb4ff"/>
+      <stop offset="0.33" stop-color="#1f56d0"/><stop offset="0.78" stop-color="#1a4cc0"/><stop offset="0.88" stop-color="#5b8bf0"/><stop offset="1" stop-color="#020f30"/></linearGradient>
+    <linearGradient id="hl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset="0.2" stop-color="#fff" stop-opacity="0.75"/><stop offset="0.8" stop-color="#fff" stop-opacity="0.55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+    <radialGradient id="cap" cx="0.4" cy="0.35" r="0.7"><stop offset="0" stop-color="#fff6c8"/><stop offset="0.35" stop-color="#e0b52c"/><stop offset="1" stop-color="#6e5205"/></radialGradient>
+    <filter id="blur3" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>
+    <filter id="blur6" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="6"/></filter>
+
+    <!-- longneck bottle, standing, base at y 0, 150 tall -->
+    <path id="neckP" d="M-17 -5Q-17 0 -12 0H12Q17 0 17 -5V-80C17 -99 6.5 -104 6.5 -119V-141H7.5Q8.5 -141 8.5 -143V-148Q8.5 -150 6.5 -150H-6.5Q-8.5 -150 -8.5 -148V-143Q-8.5 -141 -7.5 -141H-6.5V-119C-6.5 -104 -17 -99 -17 -80Z"/>
+    <clipPath id="neckClip"><use href="#neckP"/></clipPath>
+    <g id="bottleGreen">
+      <use href="#neckP" fill="url(#gGreen)"/>
+      <g clip-path="url(#neckClip)">
+        <rect x="-17" y="-64" width="34" height="44" fill="url(#paper)"/>
+        <ellipse cx="-2" cy="-44" rx="9" ry="12" fill="#b3161d" opacity="0.85"/><ellipse cx="-2" cy="-44" rx="6" ry="8.5" fill="none" stroke="#f3d27a" stroke-width="1"/>
+        <rect x="-12" y="-27" width="18" height="2" fill="#3a2a10" opacity="0.6"/>
+        <rect x="-17" y="-139" width="34" height="14" fill="url(#foil)"/>
+        <path d="M-17 -79C-17 -97 -6 -103 -6 -119" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="3"/>
+      </g>
+      <rect x="-11.5" y="-78" width="2.6" height="72" rx="1.3" fill="url(#hl)"/>
+      <rect x="-4" y="-148" width="1.6" height="26" rx="0.8" fill="url(#hl)" opacity="0.8"/>
+      <path d="M-13 -86C-12 -95 -7 -100 -5 -106" fill="none" stroke="#fff" stroke-opacity="0.55" stroke-width="1.6" stroke-linecap="round"/>
+      <rect x="10" y="-76" width="1.4" height="66" rx="0.7" fill="#fff" opacity="0.18"/>
+      <ellipse cx="0" cy="-1.5" rx="15" ry="1.5" fill="#000" opacity="0.35"/>
+    </g>
+    <g id="bottleBrown">
+      <use href="#neckP" fill="url(#gBrown)"/>
+      <g clip-path="url(#neckClip)">
+        <rect x="-17" y="-62" width="34" height="40" fill="url(#paper)"/>
+        <rect x="-17" y="-55" width="34" height="9" fill="#1c3f6e" opacity="0.85"/>
+        <rect x="-10" y="-40" width="14" height="2" fill="#3a2a10" opacity="0.6"/><rect x="-10" y="-35" width="10" height="2" fill="#3a2a10" opacity="0.5"/>
+        <path d="M-17 -79C-17 -97 -6 -103 -6 -119" fill="none" stroke="#000" stroke-opacity="0.35" stroke-width="3"/>
+      </g>
+      <rect x="-11.5" y="-78" width="2.6" height="72" rx="1.3" fill="url(#hl)"/>
+      <rect x="-4" y="-148" width="1.6" height="26" rx="0.8" fill="url(#hl)" opacity="0.8"/>
+      <path d="M-13 -86C-12 -95 -7 -100 -5 -106" fill="none" stroke="#fff" stroke-opacity="0.55" stroke-width="1.6" stroke-linecap="round"/>
+      <rect x="10" y="-76" width="1.4" height="66" rx="0.7" fill="#fff" opacity="0.18"/>
+    </g>
+
+    <!-- wine bottle (clear glass, a little wine left), standing, 170 tall -->
+    <path id="wineP" d="M-16 -5Q-16 0 -11 0H11Q16 0 16 -5V-100C16 -116 6 -118 6 -128V-163Q6 -165 4 -165H-4Q-6 -165 -6 -163V-128C-6 -118 -16 -116 -16 -100Z"/>
+    <clipPath id="wineClip"><use href="#wineP"/></clipPath>
+    <g id="wine">
+      <g clip-path="url(#wineClip)">
+        <rect x="-16" y="-14" width="32" height="14" fill="#5a0b1e"/>
+        <ellipse cx="0" cy="-14" rx="16" ry="2" fill="#8a1a32"/>
+        <rect x="-16" y="-70" width="32" height="34" fill="#f2efe8"/><rect x="-16" y="-70" width="32" height="34" fill="url(#gClear)" opacity="0.5"/>
+        <text x="0" y="-50" text-anchor="middle" font-family="Georgia, serif" font-size="8" fill="#2a2a2a">CUVÉE</text>
+        <rect x="-8" y="-45" width="16" height="1" fill="#8a1a32"/>
+        <rect x="-16" y="-165" width="32" height="22" fill="#3b0a14"/><rect x="-16" y="-165" width="32" height="22" fill="url(#gClear)" opacity="0.6"/>
+      </g>
+      <use href="#wineP" fill="url(#gClear)"/>
+      <use href="#wineP" fill="none" stroke="#fff" stroke-opacity="0.5" stroke-width="0.7"/>
+      <rect x="-11" y="-98" width="2.4" height="90" rx="1.2" fill="url(#hl)"/>
+    </g>
+
+    <!-- broken bottle: the lower half, a jagged top with a lit edge -->
+    <g id="brokenBrown">
+      <path d="M-17 -5Q-17 0 -12 0H12Q17 0 17 -5V-46L13 -57L9.5 -49L5 -72L0.5 -55L-4 -63L-8 -50L-12 -60L-17 -47Z" fill="url(#gBrown)"/>
+      <path d="M-17 -47L-12 -60L-8 -50L-4 -63L0.5 -55L5 -72L9.5 -49L13 -57L17 -46" fill="none" stroke="#ffcf8a" stroke-width="1.1" stroke-linejoin="round"/>
+      <path d="M-15 -46L-11 -55L-7.5 -47L-3.5 -57L0.5 -50L4.5 -64L8.5 -46L12 -52L15 -44" fill="none" stroke="#120700" stroke-opacity="0.55" stroke-width="2.4" stroke-linejoin="round"/>
+      <rect x="-17" y="-40" width="34" height="22" fill="url(#paper)" opacity="0.92"/>
+      <path d="M-17 -40H17M-3 -40L1 -33L-2 -27" fill="none" stroke="#3d2a0c" stroke-opacity="0.4" stroke-width="0.8"/>
+      <rect x="-11.5" y="-44" width="2.6" height="40" rx="1.3" fill="url(#hl)"/>
+    </g>
+    <g id="shard"><path d="M0 0L9 -3L13 1L4 4Z" fill="url(#gBrown)"/><path d="M0 0L9 -3L13 1" fill="none" stroke="#ffd59a" stroke-width="0.7"/></g>
+    <g id="shardG"><path d="M0 0L7 -4L11 0L5 3Z" fill="url(#gGreen)"/><path d="M0 0L7 -4L11 0" fill="none" stroke="#c8f5b8" stroke-width="0.7"/></g>
+
+    <!-- 355 ml can, standing, 48 tall -->
+    <g id="can">
+      <path d="M-13 -3Q-13 0 -10 0H10Q13 0 13 -3V-40L11 -45H-11L-13 -40Z" fill="url(#canRed)"/>
+      <path d="M-13 -40L-11 -45H11L13 -40" fill="url(#alu)"/><rect x="-13" y="-4" width="26" height="4" rx="2" fill="url(#alu)"/>
+      <ellipse cx="0" cy="-45" rx="11" ry="2.4" fill="#c2c9cf"/><ellipse cx="0" cy="-45" rx="9" ry="1.6" fill="#9aa2a9"/>
+      <ellipse cx="2.5" cy="-45.3" rx="3" ry="0.9" fill="#e9edf0"/>
+      <path d="M-13 -30C-6 -24 4 -34 13 -27V-21C4 -28 -6 -18 -13 -24Z" fill="#fff" opacity="0.92"/>
+      <rect x="-8" y="-38" width="2.2" height="34" rx="1.1" fill="url(#hl)" opacity="0.85"/>
+    </g>
+    <g id="canB">
+      <path d="M-13 -3Q-13 0 -10 0H10Q13 0 13 -3V-40L11 -45H-11L-13 -40Z" fill="url(#canBlue)"/>
+      <path d="M-13 -40L-11 -45H11L13 -40" fill="url(#alu)"/><rect x="-13" y="-4" width="26" height="4" rx="2" fill="url(#alu)"/>
+      <ellipse cx="0" cy="-45" rx="11" ry="2.4" fill="#c2c9cf"/><ellipse cx="0" cy="-45" rx="9" ry="1.6" fill="#9aa2a9"/>
+      <rect x="-13" y="-26" width="26" height="7" fill="#f4c430" opacity="0.9"/>
+      <rect x="-8" y="-38" width="2.2" height="34" rx="1.1" fill="url(#hl)" opacity="0.85"/>
+    </g>
+    <!-- crushed can: creased, with dents that catch light -->
+    <g id="crushed">
+      <path d="M-20 -4L-14 -13L-7 -9L-2 -17L5 -11L11 -16L19 -9L21 2L13 6L6 2L-1 7L-9 3L-16 6Z" fill="url(#canBlue)"/>
+      <path d="M-14 -13L-11 4M-2 -17L-1 7M11 -16L13 6" fill="none" stroke="#000" stroke-opacity="0.4" stroke-width="1.4"/>
+      <path d="M-13 -12L-10 3M-1 -16L0 6M12 -15L14 5" fill="none" stroke="#fff" stroke-opacity="0.45" stroke-width="0.8"/>
+      <rect x="-19" y="-7" width="39" height="5" fill="#f4c430" opacity="0.8" transform="skewY(-4)"/>
+      <ellipse cx="21" cy="-3" rx="3" ry="8.5" fill="url(#alu)"/><ellipse cx="21" cy="-3" rx="1.6" ry="6" fill="#8b939a"/>
+    </g>
+    <g id="capG"><ellipse rx="6" ry="2.6" fill="#6e5205"/><ellipse cy="-1" rx="5.4" ry="2.3" fill="url(#cap)"/><ellipse cy="-1" rx="5.4" ry="2.3" fill="none" stroke="#5a4204" stroke-width="0.8" stroke-dasharray="1.1 0.8"/></g>
+    <g id="shadow"><ellipse rx="1" ry="1" fill="#000"/></g>
+  </defs>
+
+  <!-- a wooden bar floor: planks that run to the back, a skirting board, a soft sheen -->
+  <rect width="620" height="150" fill="url(#wood)"/>
+  <g stroke="#140b05" stroke-opacity="0.6" stroke-width="1">
+    <path d="M0 40H620M0 72H620M0 110H620"/>
+    <path d="M90 8V40M300 8V40M510 8V40M40 40V72M230 40V72M420 40V72M600 40V72M150 72V110M380 72V110M560 72V110M70 110V150M290 110V150M470 110V150"/>
+  </g>
+  <rect width="620" height="150" fill="url(#sheen)"/>
+  <rect width="620" height="8" fill="#1a1008"/><rect y="8" width="620" height="1" fill="#fff" opacity="0.1"/>
+
+  <!-- back row (far, smaller, dimmer) -->
+  <g opacity="0.9">
+    <ellipse cx="120" cy="52" rx="16" ry="3.5" fill="#000" opacity="0.5" filter="url(#blur3)"/>
+    <g class="kick"><use href="#bottleBrown" transform="translate(120 52) scale(0.42)"/></g>
+    <ellipse cx="146" cy="53" rx="9" ry="2.5" fill="#000" opacity="0.5" filter="url(#blur3)"/>
+    <g class="kick"><use href="#can" transform="translate(146 53) scale(0.5)"/></g>
+    <ellipse cx="520" cy="50" rx="14" ry="3.5" fill="#000" opacity="0.5" filter="url(#blur3)"/>
+    <g class="kick"><use href="#wine" transform="translate(520 50) scale(0.38)"/></g>
+    <ellipse cx="546" cy="51" rx="13" ry="3.5" fill="#000" opacity="0.5" filter="url(#blur3)"/>
+    <g class="kick"><use href="#bottleGreen" transform="translate(546 51) scale(0.4)"/></g>
+    <g class="kick"><use href="#bottleGreen" transform="translate(566 52) scale(0.4)"/></g>
+  </g>
+
+  <!-- middle row -->
+  <ellipse cx="44" cy="96" rx="22" ry="5" fill="#000" opacity="0.55" filter="url(#blur3)"/>
+  <ellipse cx="52" cy="98" rx="18" ry="4" fill="#2f7a30" opacity="0.35" filter="url(#blur6)"/>
+  <g class="kick"><use href="#bottleGreen" transform="translate(44 96) scale(0.6)"/></g>
+
+  <ellipse cx="236" cy="92" rx="14" ry="3.5" fill="#000" opacity="0.5" filter="url(#blur3)"/>
+  <g class="kick"><use href="#canB" transform="translate(236 92) scale(0.75)"/></g>
+
+  <ellipse cx="318" cy="94" rx="18" ry="4.5" fill="#000" opacity="0.55" filter="url(#blur3)"/>
+  <g class="kick"><use href="#brokenBrown" transform="translate(318 94) scale(0.75)"/></g>
+  <g class="kick"><use href="#shard" transform="translate(340 100) rotate(-12)"/></g><g class="kick"><use href="#shard" transform="translate(296 104) rotate(160) scale(0.8)"/></g>
+  <g class="kick"><use href="#shard" transform="translate(350 108) rotate(40) scale(0.7)"/></g><g class="kick"><use href="#shard" transform="translate(330 112) rotate(-70) scale(0.6)"/></g>
+
+  <ellipse cx="452" cy="92" rx="16" ry="4" fill="#000" opacity="0.5" filter="url(#blur3)"/>
+  <g class="kick"><use href="#wine" transform="translate(452 92) scale(0.55)"/></g>
+
+  <!-- front row (near, larger) -->
+  <!-- lying green bottle: neck to the right, a pool of light through the glass -->
+  <ellipse cx="146" cy="138" rx="58" ry="6" fill="#000" opacity="0.55" filter="url(#blur3)"/>
+  <ellipse cx="150" cy="140" rx="44" ry="5" fill="#3a8a3a" opacity="0.4" filter="url(#blur6)"/>
+  <g class="kick"><use href="#bottleGreen" transform="translate(92 125) rotate(83) scale(0.78)"/></g>
+
+  <ellipse cx="38" cy="140" rx="20" ry="4" fill="#000" opacity="0.55" filter="url(#blur3)"/>
+  <g class="kick"><use href="#crushed" transform="translate(36 134) rotate(-4)"/></g>
+
+  <ellipse cx="262" cy="142" rx="18" ry="4" fill="#000" opacity="0.55" filter="url(#blur3)"/>
+  <g class="kick"><use href="#can" transform="translate(262 141) scale(0.95)"/></g>
+
+  <!-- lying brown bottle, rolled the other way -->
+  <ellipse cx="390" cy="138" rx="60" ry="6" fill="#000" opacity="0.55" filter="url(#blur3)"/>
+  <ellipse cx="384" cy="140" rx="44" ry="5" fill="#a0601c" opacity="0.35" filter="url(#blur6)"/>
+  <g class="kick"><use href="#bottleBrown" transform="translate(452 124) rotate(-96) scale(0.8)"/></g>
+
+  <!-- a red can on its side, and spilt beer -->
+  <ellipse cx="540" cy="140" rx="40" ry="5" fill="#d9a441" opacity="0.28"/>
+  <ellipse cx="548" cy="140" rx="26" ry="3" fill="#ffe08a" opacity="0.22"/>
+  <ellipse cx="560" cy="138" rx="26" ry="4" fill="#000" opacity="0.55" filter="url(#blur3)"/>
+  <g class="kick"><use href="#can" transform="translate(540 125) rotate(-90) scale(0.9)"/></g>
+
+  <g class="kick"><use href="#shardG" transform="translate(196 132) rotate(20)"/></g><g class="kick"><use href="#shardG" transform="translate(210 140) rotate(-30) scale(0.8)"/></g>
+  <g class="kick"><use href="#capG" transform="translate(120 112)"/></g><g class="kick"><use href="#capG" transform="translate(206 112)"/></g><g class="kick"><use href="#capG" transform="translate(380 104)"/></g>
+  <g class="kick"><use href="#capG" transform="translate(486 120) scale(1.1)"/></g><g class="kick"><use href="#capG" transform="translate(600 110)"/></g><g class="kick"><use href="#capG" transform="translate(316 140) scale(1.2)"/></g>
+</svg>
+
+<style>
+  .floor {
+    bottom: 0;
+    height: 150px;
+    left: 0;
+    pointer-events: none;
+    position: absolute;
+    width: 100%;
+    z-index: 50;
+  }
+
+  /* The easter egg (PillHero): each empty can be kicked; its shadow fades as it goes. */
+  .kick {
+    pointer-events: auto;
+    transform-box: fill-box;
+    transform-origin: center;
+  }
+
+  ellipse {
+    transition: opacity 0.3s;
+  }
+</style>

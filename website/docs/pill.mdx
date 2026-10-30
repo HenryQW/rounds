@@ -1,0 +1,32 @@
+---
+title: The Pill
+description: The tab at the screen edge that shows the counts and opens the session window.
+---
+
+import PillStates from "../components/PillStates.astro";
+
+The pill is a small tab at a screen edge. It shows the state of your sessions at a glance.
+
+## States
+
+| Pill | Meaning |
+| --- | --- |
+| Clear glass | No session runs and none needs you. |
+| Blue, with a count | Sessions are running. The count is the number running. |
+| Orange, with a count | A session needs your input, and you have not seen it. The pill peeks out of the edge and shakes a cocktail shaker. The count is all of Your Turn. |
+| Red, with a count | A session failed, and you have not seen it. The pill peeks out of the edge, and its glass shakes and breaks. Red shows before orange. The count is all of Your Turn. |
+| Green, with a count | Only results wait: Ready, Finished or Stopped sessions you have not seen. The pill is still. |
+
+A session you opened is Seen. It does not make the pill alert again.
+
+<PillStates />
+
+## Use the pill
+
+- Hover or click the pill to open the [session window](/session-window).
+- Right-click the pill for Settings and Quit Rounds.
+- Hold ⌘ and drag the pill to move it along the edge. A hover with ⌘ down does not open the window.
+
+## Displays
+
+In Settings, the Pill page sets the screen edge (Left or Right) and the displays that show a pill. If you check no connected display, the built-in display keeps the pill. The window opens on the display whose pill you used.

@@ -1,0 +1,10 @@
+{
+  "sessionId": "local_00000000-0000-4000-8000-000000000002",
+  "cliSessionId": "00000000-0000-4000-8000-0000000000bb",
+  "cwd": "/Users/test/proj",
+  "title": "Sample session",
+  "isArchived": true,
+  "lastActivityAt": 1792986997683,
+  "interruptedAwaitingPerson": null,
+  "sshConfig": null
+}
