@@ -69,6 +69,9 @@ final class PanelController: NSObject, NSWindowDelegate {
         self.panel = panel
         // No row is selected at rest: a selection marks a row the user chose (↓, ↑ or a click), never one at random.
         state.selectedId = nil
+        // While the pill calls (orange, red or green), a hidden window opens on Last Call, where every session it counts
+        // is. Demo scenes keep the filter they set.
+        if !panel.isVisible, model.yourTurnCount > 0, !Demo.isOn { state.filter = .yourTurn }
         NSApp.activate()
         EdgeDrawer.shared.slideIn(panel)
         state.focusToken += 1
