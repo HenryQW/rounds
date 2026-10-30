@@ -13,7 +13,8 @@ import Testing
     #expect(decodes == 1)
     try Data("two!".utf8).write(to: file)
     try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(5)], ofItemAtPath: file.path)
-    #expect(cache.value(at: file, decode: decode) == "two!")
+    // Each refresh lists the files again, so it reads through a new URL (a URL keeps its stat for one run loop pass).
+    #expect(cache.value(at: URL(fileURLWithPath: file.path), decode: decode) == "two!")
     #expect(decodes == 2)
 }
 

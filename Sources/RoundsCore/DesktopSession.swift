@@ -125,7 +125,7 @@ public func loadDesktopSessions(
     let fm = FileManager.default
     for account in (try? fm.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [] {
         for org in (try? fm.contentsOfDirectory(at: account, includingPropertiesForKeys: nil)) ?? [] {
-            for file in (try? fm.contentsOfDirectory(at: org, includingPropertiesForKeys: nil)) ?? []
+            for file in (try? fm.contentsOfDirectory(at: org, includingPropertiesForKeys: fileCacheKeys)) ?? []
             where file.lastPathComponent.hasPrefix("local_") && file.pathExtension == "json" {
                 seen.insert(file)
                 let result = cache.value(at: file) { data in Result { () throws(DesktopSessionError) in try DesktopSession(json: data) } }

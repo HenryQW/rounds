@@ -64,6 +64,7 @@ final class AppModel {
     @ObservationIgnored private var codexThreads: [CodexThread]?
     /// Modification dates and sizes of the database and its write-ahead log when `codexThreads` was read.
     @ObservationIgnored private var codexStamp: [Double] = []
+    @ObservationIgnored private var hookStamp: [Double] = []
     private(set) var codexInstalled = false
     private(set) var codexHookStatus: HookInstallStatus = .missing
     private(set) var codexError: String?
@@ -83,6 +84,8 @@ final class AppModel {
     private var piExtension: URL { piHome.appending(path: "extensions/rounds.ts") }
     private let piStateDir = piStateDirectory()
     @ObservationIgnored private let piCache = FileCache<PiSession?>()
+    /// The parsed session files by path, so a file event reads only the changed files.
+    @ObservationIgnored private var piSessions: [String: PiSession] = [:]
     @ObservationIgnored private let piStateCache = FileCache<PiState?>()
     /// herdr agents (spec 2.4), kept apart because they update from the socket, not from files.
     private var herdrRows: [SessionRow] = []
@@ -117,13 +120,16 @@ final class AppModel {
         pruneStateFiles(dir: stateDir, liveIds: reliable ? Set(claudeIds).union(codexThreads?.map(\.id) ?? []) : nil)
         // Each watcher reads only its own source.
         watchers = [
-            DirectoryWatcher(paths: [sessionsRoot.path]) { [weak self] _ in MainActor.assumeIsolated { self?.refresh(codex: false) } },
+            DirectoryWatcher(paths: [sessionsRoot.path]) { [weak self] _ in MainActor.assumeIsolated { self?.refresh(codex: false, pi: false) } },
             DirectoryWatcher(paths: [stateDir.path]) { [weak self] paths in MainActor.assumeIsolated { self?.hookStatesChanged(paths) } },
             // Rollout files change on every Codex event; a longer latency keeps the reads rare.
             DirectoryWatcher(paths: [codexHome.appending(path: "sessions").path], latency: 1) { [weak self] _ in MainActor.assumeIsolated { self?.refresh(claude: false, pi: false) } },
             // pi writes its session file on every message, as Codex does its rollout.
-            DirectoryWatcher(paths: [piHome.appending(path: "sessions").path, piStateDir.path], latency: 1) { [weak self] _ in
-                MainActor.assumeIsolated { self?.refresh(claude: false, codex: false) }
+            DirectoryWatcher(paths: [piHome.appending(path: "sessions").path, piStateDir.path], latency: 1) { [weak self] paths in
+                MainActor.assumeIsolated {
+                    self?.refreshPi(changed: paths)
+                    self?.regroup()
+                }
             },
         ]
         herdr = HerdrMonitor { [weak self] agents, status in self?.updateHerdr(agents, status) }
@@ -136,7 +142,7 @@ final class AppModel {
         timer?.tolerance = 5
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
-            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.refresh() } }
+            center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in MainActor.assumeIsolated { self?.refresh(pi: false) } }
         }
     }
 
@@ -144,7 +150,7 @@ final class AppModel {
     private func refreshAll() {
         readHookStates()
         refresh()
-        refreshHookStatus()
+        refreshHookStatus(force: false)
     }
 
     /// Reads the sources again, then regroups.
@@ -208,10 +214,7 @@ final class AppModel {
         do {
             // The thread query runs again only when the database or its write-ahead log changed.
             let database = codexHome.appending(path: "state_5.sqlite")
-            let stamp = [database, codexHome.appending(path: "state_5.sqlite-wal")].flatMap { url in
-                let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
-                return [values?.contentModificationDate?.timeIntervalSince1970 ?? 0, Double(values?.fileSize ?? 0)]
-            }
+            let stamp = Self.stamp([database, codexHome.appending(path: "state_5.sqlite-wal")])
             let threads = try codexThreads.flatMap { stamp == codexStamp ? $0 : nil } ?? loadCodexThreads(database: database)
             (codexThreads, codexStamp) = (threads, stamp)
             let live = Processes.isRunning("codex")
@@ -231,10 +234,12 @@ final class AppModel {
         }
     }
 
-    private func refreshPi() {
+    /// `changed`: the paths of a file event; only those session files are read again. Without it (at launch and every
+    /// 30 s, which also finds files that an event missed) every session folder is listed.
+    private func refreshPi(changed: [String]? = nil) {
         piInstalled = FileManager.default.fileExists(atPath: piHome.path)
         guard piInstalled else {
-            (piRows, piStates) = ([], [:])
+            (piRows, piStates, piSessions) = ([], [:], [:])
             return
         }
         let fm = FileManager.default
@@ -244,23 +249,32 @@ final class AppModel {
             piStateCache.value(at: url) { PiState(String(decoding: $0, as: UTF8.self)) }.flatMap { $0.map { (url.lastPathComponent, $0) } }
         }) { $1 }
         piStateCache.keep(only: Set(stateFiles))
-        let folders = (try? fm.contentsOfDirectory(at: piHome.appending(path: "sessions"), includingPropertiesForKeys: nil)) ?? []
-        let files = folders.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? [] }.filter { $0.pathExtension == "jsonl" }
+        let files: [URL]
+        if let changed {
+            files = changed.filter { $0.hasSuffix(".jsonl") }.map { URL(fileURLWithPath: $0) }
+        } else {
+            let folders = (try? fm.contentsOfDirectory(at: piHome.appending(path: "sessions"), includingPropertiesForKeys: nil)) ?? []
+            files = folders.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: fileCacheKeys)) ?? [] }.filter { $0.pathExtension == "jsonl" }
+            piCache.keep(only: Set(files))
+            piSessions = [:]
+        }
+        for url in files {
+            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            piSessions[url.path] = modified.flatMap { modified in
+                piCache.value(at: url, read: { readPiSession($0) }, decode: { parsePiSession($0, path: url.path, updatedAt: modified) }) ?? nil
+            }
+        }
         let now = Date()
         var panes: [String: String] = [:]
-        piRows = files.compactMap { url -> SessionRow? in
-            guard let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
-                  let session = piCache.value(at: url, read: { readPiSession($0) }, decode: { parsePiSession($0, path: url.path, updatedAt: modified) }) ?? nil
-            else { return nil }
+        piRows = piSessions.values.map { session in
             let state = piStates[session.id].flatMap { $0.sessionPath == session.path ? $0 : nil }
             // The extension names the process; a session without its line runs in a pi from before the install, or not at all.
             let live = state.map { Processes.isPi($0.pid) } ?? false
             if live, let state, let pane = Processes.environment(of: state.pid, "HERDR_PANE_ID") { panes[pane] = session.path }
             // A session quiet for the Aged time is Older whatever its last message says.
-            let aged = now.timeIntervalSince(modified) > lastCall.agedAfter
+            let aged = now.timeIntervalSince(session.updatedAt) > lastCall.agedAfter
             return SessionRow(pi: session, status: classifyPi(session, state: state, live: live && !aged))
         }
-        piCache.keep(only: Set(files))
         if panes != piPanes {
             piPanes = panes
             updateHerdrRows()
@@ -276,10 +290,13 @@ final class AppModel {
         }
     }
 
-    /// Hook install status: at launch, every 30 s, and when Settings opens or changes the hooks; not on file events.
-    /// A change turns a source on or off, so the rows are grouped again.
-    func refreshHookStatus() {
+    /// Hook install status: at launch, when Settings opens or changes the hooks, and every 30 s when one of its files
+    /// changed. A change turns a source on or off, so the rows are grouped again.
+    func refreshHookStatus(force: Bool = true) {
         guard !Demo.isOn else { return }
+        let stamp = Self.stamp([installer(.claude).settingsURL, installer(.codex).settingsURL, codexHome.appending(path: "config.toml"), piExtension])
+        guard force || stamp != hookStamp else { return }
+        hookStamp = stamp
         defer { regroup() }
         do {
             hookStatus = try installer(.claude).status(helperPath: helperPath)
@@ -301,6 +318,14 @@ final class AppModel {
             codexHookError = nil
         } catch {
             codexHookError = "hooks.json is not valid JSON: \(error)"
+        }
+    }
+
+    /// The modification date and size of each file (zeros for a missing file): a cheap test for a change.
+    private static func stamp(_ urls: [URL]) -> [Double] {
+        urls.flatMap { url in
+            let values = try? url.resourceValues(forKeys: Set(fileCacheKeys))
+            return [values?.contentModificationDate?.timeIntervalSince1970 ?? 0, Double(values?.fileSize ?? 0)]
         }
     }
 
@@ -444,8 +469,10 @@ final class AppModel {
         let pi = piOn ? piRows.filter { if case .pi(let s) = $0.source { !inHerdr.contains(s.path) } else { true } } : []
         let rows = (claudeOn ? rows : []) + (codexOn ? codexRows : []) + pi + herdrRows
         let now = Date()
-        groups = group(rows, query: query, marks: marks, includeOlder: includeOlder, trackSeen: seenStopsAlert, rule: lastCall, now: now)
         allGroups = group(rows, query: "", marks: marks, trackSeen: seenStopsAlert, rule: lastCall, now: now)
+        // Without a search or the Older filter the window shows the same groups as the pill.
+        groups = query.isEmpty && !includeOlder ? allGroups
+            : group(rows, query: query, marks: marks, includeOlder: includeOlder, trackSeen: seenStopsAlert, rule: lastCall, now: now)
         let sessions = allGroups.sessions
         // The pill shows the Last Call count; it rings only for a wait the user has not opened.
         let g = allGroups, running = sessions.count { $0.status.group == .running }

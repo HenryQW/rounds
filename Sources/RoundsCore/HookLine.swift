@@ -112,7 +112,7 @@ public func hookStateDirectory() -> URL {
 
 public func loadHookStates(dir: URL, cache: FileCache<HookState?> = FileCache()) -> [String: HookState] {
     var states: [String: HookState] = [:]
-    let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+    let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: fileCacheKeys)) ?? []
     for file in files {
         if let state = cache.value(at: file, decode: { HookState.parse(String(decoding: $0, as: UTF8.self)) }) ?? nil {
             states[file.lastPathComponent] = state

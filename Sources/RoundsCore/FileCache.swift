@@ -1,5 +1,8 @@
 import Foundation
 
+/// The values `FileCache` compares. A directory listing that prefetches them saves one stat per file.
+public let fileCacheKeys: [URLResourceKey] = [.contentModificationDateKey, .fileSizeKey]
+
 /// Decoded file contents, reused until the file's modification date or size changes.
 public final class FileCache<Value> {
     private var entries: [URL: (modified: Date, size: Int, value: Value)] = [:]
@@ -10,9 +13,8 @@ public final class FileCache<Value> {
 
     /// `read` loads the bytes to decode (default: the whole file); nil when the file cannot be read.
     public func value(at url: URL, read: (URL) -> Data? = { try? Data(contentsOf: $0) }, decode: (Data) -> Value) -> Value? {
-        var url = url
-        url.removeAllCachedResourceValues()
-        guard let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+        // A URL keeps its resource values until the end of the run loop pass, so a prefetched listing is not read again.
+        guard let values = try? url.resourceValues(forKeys: Set(fileCacheKeys)),
               let modified = values.contentModificationDate else {
             entries[url] = nil
             return nil
