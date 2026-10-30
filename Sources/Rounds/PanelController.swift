@@ -19,6 +19,8 @@ final class PanelState {
     var confirmQuit = false
     /// Ids of parent rows the user unfolded; parent rows start folded.
     var expanded: Set<String> = []
+    /// Ids of context rows the user folded; context rows start unfolded, so a filter's matches show at once.
+    var foldedContext: Set<String> = []
     /// Ids of folded sections, kept across launches.
     var collapsed = Set(appDefaults.stringArray(forKey: "collapsedSections") ?? []) {
         didSet { appDefaults.set(Array(collapsed), forKey: "collapsedSections") }
@@ -111,14 +113,16 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     /// A parent row shows its children when the user unfolded it, while a child session needs input, and during a search.
+    /// A context row shows them until the user folds it, even under Last Call, where every child needs the user.
     func isExpanded(_ row: SessionRow) -> Bool {
-        state.expanded.contains(row.id) || !model.query.isEmpty || row.children.contains { $0.status.group == .yourTurn }
+        if row.isContext { return !state.foldedContext.contains(row.id) || !model.query.isEmpty }
+        return state.expanded.contains(row.id) || !model.query.isEmpty || row.children.contains { $0.status.group == .yourTurn }
     }
 
     /// Session rows the user can see, in list order: rows of folded sections and children of folded rows are left out.
     func visibleRows() -> [SessionRow] {
         sections().filter { !state.collapsed.contains($0.id) }.flatMap(\.rows)
-            .flatMap { $0.isContext ? $0.children : isExpanded($0) ? $0.withChildren : [$0] }
+            .flatMap { !isExpanded($0) ? ($0.isContext ? [] : [$0]) : $0.isContext ? $0.children : $0.withChildren }
     }
 
     func row(_ id: String?) -> SessionRow? { sections().lazy.flatMap(\.rows).flatMap(\.withChildren).first { $0.id == id } }

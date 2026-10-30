@@ -308,9 +308,10 @@ struct PanelView: View {
             ForEach(project.rows) { row in
                 if row.isContext {
                     // Under a filter: the parent of the matching children, grey and without a dot; the children start
-                    // under its title.
+                    // under its title. It folds with the same chevron as other parent rows.
                     ContextRow(row: row).padding(.leading, Self.disclosureWidth + Self.disclosureSpacing).rowInsets()
-                    ForEach(row.children) { rowView($0, subtitle: label($0.status), child: true) }
+                        .overlay(alignment: .leading) { disclosure(row).padding(.leading, 8) }
+                    if controller.isExpanded(row) { ForEach(row.children) { rowView($0, subtitle: label($0.status), child: true) } }
                 } else {
                     rowView(row, subtitle: row.subtitle(folded: !controller.isExpanded(row), label: label(row.status)))
                     if controller.isExpanded(row) {
@@ -378,7 +379,9 @@ struct PanelView: View {
         } else {
             let open = controller.isExpanded(row)
             Button {
-                if open { state.expanded.remove(row.id) } else { state.expanded.insert(row.id) }
+                if row.isContext {
+                    if open { state.foldedContext.insert(row.id) } else { state.foldedContext.remove(row.id) }
+                } else if open { state.expanded.remove(row.id) } else { state.expanded.insert(row.id) }
             } label: {
                 Image(systemName: "chevron.right").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
                     .rotationEffect(.degrees(open ? 90 : 0))
