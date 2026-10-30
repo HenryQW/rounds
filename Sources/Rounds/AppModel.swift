@@ -70,6 +70,17 @@ final class AppModel {
     private(set) var codexHookError: String?
     let codexHome = URL.homeDirectory.appending(path: ".codex")
     @ObservationIgnored private let turnCache = FileCache<CodexTurn?>()
+    /// pi sessions (spec 2.7), from pi's session files; state from the Rounds pi extension and the file's last message.
+    private var piRows: [SessionRow] = []
+    /// The extension's last state of each pi session, by session id.
+    @ObservationIgnored private var piStates: [String: PiState] = [:]
+    private(set) var piInstalled = false
+    private(set) var piExtensionStatus: HookInstallStatus = .missing
+    let piHome = URL.homeDirectory.appending(path: ".pi/agent")
+    private var piExtension: URL { piHome.appending(path: "extensions/rounds.ts") }
+    private let piStateDir = piStateDirectory()
+    @ObservationIgnored private let piCache = FileCache<PiSession?>()
+    @ObservationIgnored private let piStateCache = FileCache<PiState?>()
     /// herdr agents (spec 2.4), kept apart because they update from the socket, not from files.
     private var herdrRows: [SessionRow] = []
     private(set) var herdrConnection: HerdrMonitor.Status = .notRunning
@@ -88,11 +99,14 @@ final class AppModel {
         // Demo mode: fixed rows, every source on, and no watcher, timer or herdr connection.
         if Demo.isOn {
             (hookStatus, codexInstalled, codexHookStatus, herdrConnection) = (.installed, true, .installed, .connected(Demo.rows().herdr.count))
+            (piInstalled, piExtensionStatus) = (true, .installed)
             setDemoRows(Demo.rows())
             return
         }
         try? FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: piStateDir, withIntermediateDirectories: true)
         refreshAll()
+        prunePiStates()
         // Delete state of archived or unknown sessions only when both session lists loaded without failures.
         let reliable = !rows.isEmpty && lastFailures.isEmpty && (!codexInstalled || codexThreads != nil)
         let claudeIds = rows.compactMap(\.session).filter { !$0.isArchived }.map(\.cliSessionId)
@@ -102,7 +116,11 @@ final class AppModel {
             DirectoryWatcher(paths: [sessionsRoot.path]) { [weak self] _ in MainActor.assumeIsolated { self?.refresh(codex: false) } },
             DirectoryWatcher(paths: [stateDir.path]) { [weak self] paths in MainActor.assumeIsolated { self?.hookStatesChanged(paths) } },
             // Rollout files change on every Codex event; a longer latency keeps the reads rare.
-            DirectoryWatcher(paths: [codexHome.appending(path: "sessions").path], latency: 1) { [weak self] _ in MainActor.assumeIsolated { self?.refresh(claude: false) } },
+            DirectoryWatcher(paths: [codexHome.appending(path: "sessions").path], latency: 1) { [weak self] _ in MainActor.assumeIsolated { self?.refresh(claude: false, pi: false) } },
+            // pi writes its session file on every message, as Codex does its rollout.
+            DirectoryWatcher(paths: [piHome.appending(path: "sessions").path, piStateDir.path], latency: 1) { [weak self] _ in
+                MainActor.assumeIsolated { self?.refresh(claude: false, codex: false) }
+            },
         ]
         herdr = HerdrMonitor { [weak self] agents, status in self?.updateHerdr(agents, status) }
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
@@ -126,9 +144,10 @@ final class AppModel {
     }
 
     /// Reads the sources again, then regroups.
-    private func refresh(claude: Bool = true, codex: Bool = true) {
+    private func refresh(claude: Bool = true, codex: Bool = true, pi: Bool = true) {
         if claude { refreshClaude() }
         if codex { refreshCodex() }
+        if pi { refreshPi() }
         regroup()
     }
 
@@ -137,7 +156,7 @@ final class AppModel {
         readHookStates()
         let ids = Set(paths.map { URL(fileURLWithPath: $0).lastPathComponent })
         let claudeIds = Set(rows.compactMap(\.session?.cliSessionId))
-        refresh(claude: !ids.isSubset(of: codexThreads?.map(\.id) ?? []), codex: !ids.isSubset(of: claudeIds))
+        refresh(claude: !ids.isSubset(of: codexThreads?.map(\.id) ?? []), codex: !ids.isSubset(of: claudeIds), pi: false)
     }
 
     /// Shortens large state files, then reads the last hook event of each session.
@@ -208,6 +227,46 @@ final class AppModel {
         }
     }
 
+    private func refreshPi() {
+        piInstalled = FileManager.default.fileExists(atPath: piHome.path)
+        guard piInstalled else {
+            (piRows, piStates) = ([], [:])
+            return
+        }
+        let fm = FileManager.default
+        // Hidden files are the extension's writes in progress.
+        let stateFiles = (try? fm.contentsOfDirectory(at: piStateDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
+        piStates = Dictionary(stateFiles.compactMap { url in
+            piStateCache.value(at: url) { PiState(String(decoding: $0, as: UTF8.self)) }.flatMap { $0.map { (url.lastPathComponent, $0) } }
+        }) { $1 }
+        piStateCache.keep(only: Set(stateFiles))
+        let folders = (try? fm.contentsOfDirectory(at: piHome.appending(path: "sessions"), includingPropertiesForKeys: nil)) ?? []
+        let files = folders.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? [] }.filter { $0.pathExtension == "jsonl" }
+        let anyPi = Processes.isRunning("pi")
+        let now = Date()
+        piRows = files.compactMap { url -> SessionRow? in
+            guard let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+                  let session = piCache.value(at: url, read: { readPiSession($0) }, decode: { parsePiSession($0, path: url.path, updatedAt: modified) }) ?? nil
+            else { return nil }
+            let state = piStates[session.id].flatMap { $0.sessionPath == session.path ? $0 : nil }
+            // The extension names the process; without it, any pi process may run the session.
+            let live = state.map { kill($0.pid, 0) == 0 && Processes.name(of: $0.pid) == "pi" } ?? anyPi
+            // A session quiet for the Aged time is Older whatever its last message says.
+            let aged = now.timeIntervalSince(modified) > lastCall.agedAfter
+            return SessionRow(pi: session, status: classifyPi(session, state: state, live: live && !aged))
+        }
+        piCache.keep(only: Set(files))
+    }
+
+    /// Deletes the extension's state of sessions with no session file and no pi process (at launch only: a pi that
+    /// was never prompted has no session file yet).
+    private func prunePiStates() {
+        let paths = Set(piRows.compactMap { if case .pi(let s) = $0.source { s.path } else { nil } })
+        for (id, state) in piStates where !paths.contains(state.sessionPath) && Processes.name(of: state.pid) != "pi" {
+            try? FileManager.default.removeItem(at: piStateDir.appending(path: id))
+        }
+    }
+
     /// Hook install status: at launch, every 30 s, and when Settings opens or changes the hooks; not on file events.
     /// A change turns a source on or off, so the rows are grouped again.
     func refreshHookStatus() {
@@ -219,6 +278,9 @@ final class AppModel {
         } catch {
             hookError = "settings.json is not valid JSON: \(error)"
         }
+        // The pi extension is installed when the file is the one this app ships; another copy needs an update.
+        let installedExtension = try? Data(contentsOf: piExtension)
+        piExtensionStatus = installedExtension.map { $0 == bundledPiExtension ? .installed : .wrongPath(found: piExtension.path) } ?? .missing
         guard codexInstalled else {
             codexHookError = nil
             return
@@ -237,16 +299,30 @@ final class AppModel {
         switch target {
         case .claude: HookInstaller(settingsURL: URL.homeDirectory.appending(path: ".claude/settings.json"))
         case .codex: HookInstaller(settingsURL: codexHome.appending(path: "hooks.json"), target: .codex)
+        case .pi: fatalError("pi has an extension file, not a hooks file")
         }
     }
 
-    func hookStatus(_ target: HookTarget) -> HookInstallStatus { target == .claude ? hookStatus : codexHookStatus }
+    /// `Resources/rounds-pi.ts` in the app bundle.
+    private var bundledPiExtension: Data? {
+        Bundle.main.url(forResource: "rounds-pi.ts", withExtension: nil).flatMap { try? Data(contentsOf: $0) }
+    }
+
+    func hookStatus(_ target: HookTarget) -> HookInstallStatus {
+        switch target {
+        case .claude: hookStatus
+        case .codex: codexHookStatus
+        case .pi: piExtensionStatus
+        }
+    }
 
     /// A source is on while it can report live state (spec 2): Claude and Codex with hooks (a wrong helper path still
-    /// counts, as the old helper runs until Repair Hooks), herdr while connected. The window shows only sources that are on.
+    /// counts, as the old helper runs until Repair Hooks), pi with its extension (an older copy still counts), herdr
+    /// while connected. The window shows only sources that are on.
     var claudeOn: Bool { hookStatus != .missing }
     var codexOn: Bool { codexInstalled && codexHookStatus != .missing }
     var herdrOn: Bool { if case .connected = herdrConnection { true } else { false } }
+    var piOn: Bool { piInstalled && piExtensionStatus != .missing }
 
     /// The apps "Another Round?" can start a session in: the sources that are on.
     var newSessionApps: [NewSessionApp] { [claudeOn ? .claude : nil, codexOn ? .codex : nil, herdrOn ? .herdr : nil].compactMap { $0 } }
@@ -262,12 +338,21 @@ final class AppModel {
     }
 
     /// Writes the Rounds entries; for Codex it also turns on `[features] hooks` in `~/.codex/config.toml`.
+    /// pi: copies the extension to `~/.pi/agent/extensions/rounds.ts`; a pi that runs loads it at its next start.
     func installHooks(_ target: HookTarget) throws {
+        if target == .pi {
+            guard let data = bundledPiExtension else { throw CocoaError(.fileNoSuchFile) }
+            try FileManager.default.createDirectory(at: piExtension.deletingLastPathComponent(), withIntermediateDirectories: true)
+            return try data.write(to: piExtension, options: .atomic)
+        }
         try installer(target).install(helperPath: helperPath)
         if target == .codex { try CodexConfig.enableHooks(at: codexHome.appending(path: "config.toml")) }
     }
 
-    func removeHooks(_ target: HookTarget) throws { try installer(target).remove() }
+    func removeHooks(_ target: HookTarget) throws {
+        if target == .pi { return try FileManager.default.removeItem(at: piExtension) }
+        try installer(target).remove()
+    }
 
     private func updateHerdr(_ agents: [HerdrAgent], _ status: HerdrMonitor.Status) {
         herdrConnection = status
@@ -308,7 +393,15 @@ final class AppModel {
         case .codex(let thread):
             if let url = URL(string: "codex://threads/\(thread.id)") { NSWorkspace.shared.open(url) }
         case .herdr(let agent): herdr?.focus(agent)
+        case .pi(let session): openPi(session)
         }
+    }
+
+    /// A running pi session: its terminal (in rootshell, its pane). Else a new terminal window resumes it.
+    private func openPi(_ session: PiSession) {
+        let pid = piStates[session.id].flatMap { $0.sessionPath == session.path && Processes.name(of: $0.pid) == "pi" ? $0.pid : nil }
+        let quote = { (s: String) in "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        TerminalOpener.show(pid.flatMap(TerminalOpener.client(above:)), command: "cd \(quote(session.cwd)) && pi --session \(quote(session.path))")
     }
 
     /// Demo mode only: new placeholder rows (`Demo`'s window-turn scene).
@@ -320,7 +413,10 @@ final class AppModel {
     }
 
     private func regroup() {
-        let rows = (claudeOn ? rows : []) + (codexOn ? codexRows : []) + herdrRows
+        // A pi session that runs in herdr shows once, as the herdr agent, which can focus its pane.
+        let inHerdr = Set(herdrRows.compactMap { if case .herdr(let a) = $0.source { a.sessionPath } else { nil } })
+        let pi = piOn ? piRows.filter { if case .pi(let s) = $0.source { !inHerdr.contains(s.path) } else { true } } : []
+        let rows = (claudeOn ? rows : []) + (codexOn ? codexRows : []) + pi + herdrRows
         let now = Date()
         groups = group(rows, query: query, marks: marks, includeOlder: includeOlder, trackSeen: seenStopsAlert, rule: lastCall, now: now)
         allGroups = group(rows, query: "", marks: marks, trackSeen: seenStopsAlert, rule: lastCall, now: now)

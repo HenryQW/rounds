@@ -331,6 +331,14 @@ struct SettingsView: View {
                 }
             } label: { source("codex", "Codex", "Threads, state from hooks.") }
                 .help("Hooks in ~/.codex/hooks.json; Codex asks you to review new hooks. Remove Hooks turns this source off; without hooks, Rounds reads the thread files, with no waiting state. Return opens the thread in the Codex app.")
+            LabeledContent {
+                if model.piInstalled {
+                    hookControls(.pi)
+                } else {
+                    statusPill("Not found", .gray)
+                }
+            } label: { source("pi", "pi", "Sessions, state from an extension.") }
+                .help("An extension in ~/.pi/agent/extensions/rounds.ts writes each session's state; pi loads it at its next start. Remove Extension turns this source off. A session that also runs in herdr shows once, as the herdr agent. Return brings its terminal to the front, or resumes it in a new window.")
             LabeledContent { statusPill(herdrStatus, herdrConnected ? .green : .gray) } label: { source("herdr", "herdr", "Agents from herdr's socket.") }
                 .help("The agents herdr runs, from its socket. While herdr is not running, this source is off. For pi states, run herdr integration install pi. Return focuses the agent in herdr.")
         } footer: {
@@ -437,21 +445,21 @@ struct SettingsView: View {
         // The status last, so every row's capsule ends on the same edge, with or without a button.
         return HStack(spacing: 8) {
             switch status {
-            case .installed: Button("Remove Hooks") { run { try model.removeHooks(target) } }
-            case .missing: Button("Install Hooks…") { state.installTarget = target }
-            case .wrongPath: Button("Repair Hooks") { run { try model.installHooks(target) } }
+            case .installed: Button("Remove \(target.noun)") { run { try model.removeHooks(target) } }
+            case .missing: Button("Install \(target.noun)…") { state.installTarget = target }
+            case .wrongPath: Button(target == .pi ? "Update Extension" : "Repair Hooks") { run { try model.installHooks(target) } }
             }
-            hookStatusLabel(status)
+            hookStatusLabel(status, target)
         }
         .controlSize(.small)
     }
 
     @ViewBuilder
-    private func hookStatusLabel(_ status: HookInstallStatus) -> some View {
+    private func hookStatusLabel(_ status: HookInstallStatus, _ target: HookTarget) -> some View {
         switch status {
         case .installed: statusPill("Installed", .green)
         case .missing: statusPill("Not installed", .orange)
-        case .wrongPath: statusPill("Needs repair", .orange)
+        case .wrongPath: statusPill(target == .pi ? "Needs update" : "Needs repair", .orange)
         }
     }
 
@@ -467,6 +475,10 @@ struct SettingsView: View {
                 Text("Install Codex hooks").font(.headline)
                 Text("Rounds adds these entries to ~/.codex/hooks.json. Each runs \(model.helperPath) with a 10-second timeout; it ends in a few milliseconds.")
                     .font(.caption)
+            case .pi:
+                Text("Install the pi extension").font(.headline)
+                Text("Rounds copies rounds.ts to ~/.pi/agent/extensions. On these pi events it writes the session's state, process and session file to ~/Library/Application Support/Rounds/pi; no prompt or model text.")
+                    .font(.caption)
             }
             ForEach(target.entries, id: \.event) { entry in
                 Text("\(entry.event)\(entry.matcher.map { "  matcher: \($0)" } ?? "")").font(.system(.caption, design: .monospaced))
@@ -477,6 +489,9 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             case .codex:
                 Text("It also sets hooks = true under [features] in ~/.codex/config.toml. Each changed file keeps a backup next to it (.rounds-backup). Codex then asks you to review the new hooks before they run.")
+                    .font(.caption).foregroundStyle(.secondary)
+            case .pi:
+                Text("No other file changes. pi loads the extension when a session starts; restart running sessions to see their state.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             HStack {

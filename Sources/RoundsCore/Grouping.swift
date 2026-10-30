@@ -1,11 +1,12 @@
 import Foundation
 
-/// One list row: a Claude desktop session, a herdr agent or a Codex thread, with the fields both share.
+/// One list row: a Claude desktop session, a herdr agent, a Codex thread or a pi session, with the fields all share.
 public struct SessionRow: Sendable, Equatable, Identifiable {
     public enum Source: Sendable, Equatable {
         case claude(DesktopSession)
         case herdr(HerdrAgent)
         case codex(CodexThread)
+        case pi(PiSession)
     }
 
     public let source: Source
@@ -17,7 +18,8 @@ public struct SessionRow: Sendable, Equatable, Identifiable {
     public let cwd: String
     public let branch: String?
     public let pullRequests: [PullRequestLink]
-    /// Claude: the desktop's last activity. herdr: the last state change. Codex: the thread's last update.
+    /// Claude: the desktop's last activity. herdr: the last state change. Codex: the thread's last update. pi: the
+    /// session file's last change.
     public let lastActivityAt: Date
     /// The row id of the session that started this one (a side session, fork or sub-agent); nil for a session of its own.
     public let parentId: String?
@@ -44,6 +46,11 @@ public struct SessionRow: Sendable, Equatable, Identifiable {
     public init(thread: CodexThread, status: SessionStatus) {
         (source, self.status, id, title, cwd) = (.codex(thread), status, "codex:" + thread.id, thread.title, thread.cwd)
         (branch, pullRequests, lastActivityAt, parentId) = (thread.branch, [], thread.updatedAt, thread.parentId.map { "codex:" + $0 })
+    }
+
+    public init(pi session: PiSession, status: SessionStatus) {
+        (source, self.status, id, title, cwd) = (.pi(session), status, "pi:" + session.path, session.title, session.cwd)
+        (branch, pullRequests, lastActivityAt, parentId) = (nil, [], session.updatedAt, session.parentPath.map { "pi:" + $0 })
     }
 
     /// The Claude desktop session, for Claude rows.
@@ -142,7 +149,11 @@ public struct LastCallRule: Sendable, Equatable {
         let s = r.status
         guard s.group != .hidden else { return r }
         let waiting = s.state.waits, runs = s.state.group == .running
-        let subAgent = r.parentId != nil && r.session == nil
+        // Claude side sessions and forks, and pi forks, are the user's own work.
+        let subAgent = switch r.source {
+        case .codex, .herdr: r.parentId != nil
+        case .claude, .pi: false
+        }
         let group: StatusGroup = if !waiting && !runs && now.timeIntervalSince(r.lastActivityAt) > agedAfter { .older }
             else if Self.counted.contains(s.state) && (!subAgent || subAgents) && (!seen || waiting) { .yourTurn }
             else if runs || s.state == .needsInput { .running }

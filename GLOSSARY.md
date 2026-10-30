@@ -5,15 +5,15 @@ Live state of AI coding sessions on one Mac, from several sources, in one list b
 ## Sessions and sources
 
 **Session**:
-One unit of agent work the user can open and continue: a Claude Code session, a Codex thread or a herdr agent pane.
+One unit of agent work the user can open and continue: a Claude Code session, a Codex thread, a pi session or a herdr agent pane.
 _Avoid_: task, activity, conversation, convo, job
 
 **Source**:
-The tool that runs a session and reports its state: Claude Code, Codex, or a herdr agent such as pi.
+The tool that runs a session and reports its state: Claude Code, Codex, pi, or a herdr agent (pi in herdr too). A pi session that runs in herdr shows once, from herdr.
 _Avoid_: origin, provider, platform
 
 **On** / **Off**:
-Whether a source can report live state. Claude Code and Codex are on while their hooks are installed; herdr is on while it is running. The window shows only the sessions of sources that are on.
+Whether a source can report live state. Claude Code and Codex are on while their hooks are installed; pi while its extension is installed; herdr while it is running. The window shows only the sessions of sources that are on.
 _Avoid_: enabled, connected, disabled
 
 **Thread**:

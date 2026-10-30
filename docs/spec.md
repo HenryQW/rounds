@@ -16,7 +16,7 @@ It works like a drawer: a small pill at a screen edge, and a session window that
 
 ### Scope
 
-- In scope: local Claude desktop Code-tab sessions on this Mac, the agents a local herdr server runs (pi and any agent herdr detects; section 2.5), and local Codex threads (section 2.6).
+- In scope: local Claude desktop Code-tab sessions on this Mac, the agents a local herdr server runs (pi and any agent herdr detects; section 2.5), local Codex threads (section 2.6), and local pi sessions in any terminal (section 2.7).
 - Out of scope (v1): terminal `claude` CLI sessions, cloud sessions, the desktop "unread" dot, own notifications, App Store.
 - Platform: macOS 27 or later, Apple silicon. Swift 6.4, SwiftUI. Not sandboxed. Ad-hoc signed, also a release (no Developer ID, not notarized: a downloaded copy needs its quarantine flag removed, or Open Anyway). Installed in `/Applications`, from the release disk image, the Homebrew tap (`henryqw/tap/rounds`) or a local build.
 
@@ -130,6 +130,22 @@ herdr is a terminal workspace manager for coding agents. Its own integrations (f
 - Updates: FSEvents on `~/.codex/sessions` (1 s latency), the hook state folder, and the 30 s timer. The thread query runs again only when the modification date or size of `state_5.sqlite` or `state_5.sqlite-wal` changed.
 - Known limit: a Codex thread that also runs in a herdr pane shows twice.
 
+### 2.7 pi sessions
+
+pi is a coding agent that can run almost any model. herdr shows the pi agents in its panes (2.5); this source shows every pi session, in any terminal. Checked in pi 1.4.0.
+
+- Session files: `~/.pi/agent/sessions/--<cwd>--/<time>_<id>.jsonl` (JSON lines). Line 1 is the header `{"type":"session","id","cwd","parentSession"?}`; `parentSession` (a `/fork` or `/clone`) is the session file of the parent, so the session is a child row of it (5.2, a "fork"). The name is in the last `session_info` entry (`name`). Messages are `{"type":"message","timestamp","message":{"role","stopReason"?,"errorMessage"?}}`. pi writes the file at the first prompt, so a pi that was never prompted has no row (as in 2.5).
+- Files are large (the system prompt is one line), so Rounds reads a file of up to 320 KB whole, else its first 256 KB (header, first prompt) and its last 64 KB. Only short lines and lines that start as a prompt, a reply or a name are decoded. Read again when the modification date or size changes.
+- Row id: `pi:` + session file path. Title: the session name, else the first line of the first prompt, else the folder. Time: the file's modification time.
+- Live state: pi reports its state only to its terminal (OSC 7501 program status), which Rounds cannot read. So Settings installs a pi extension, `Resources/rounds-pi.ts`, as `~/.pi/agent/extensions/rounds.ts` (pi loads every file there when a session starts; herdr's own pi integration works the same way). It follows pi's own status rules (`ProgramStatusReporter`) on `session_start`, `agent_start`, `message_end`, `agent_settled`, `session_before_compact`, `session_compact`, `session_compact_failed`, `ui_prompt_start`, `ui_prompt_end` and `session_shutdown`, and writes one line to `~/Library/Application Support/Rounds/pi/<session id>` (write, then rename): `<unix-ms>\t<state>\t<detail>\t<pid>\t<session file>`. State: `working`, `blocked` (a dialog open; detail: its title), `done`, `error` (detail: the first line of the error), `stopped` (the user stopped the turn) or `idle` (a session that started or resumed, with no turn yet). No prompt, tool input or model text is written. A failed write never stops the session.
+- Fallback: the last message in the file, when it is newer than the extension's line (no extension, or a pi that started before it was installed): a prompt, a tool call or a tool result → Working; a reply with `stopReason` `stop` → Finished, `error` → Failed, `aborted` → Stopped.
+- States: `blocked` → Needs input; `working` → Working ("Compacting" while it compacts); `done`, `idle` → Finished; `error` → Failed; `stopped` → Stopped. Working and Needs input need the session's pi process (the extension's pid, a process named `pi`; without a line from the extension: any `pi` process), else Offline. A session quiet for the Aged time (3.2) is not Working.
+- Once: a session that also runs in herdr (herdr reports the same session file in `agent_session`) shows only as the herdr agent, which can focus its pane. When herdr is not running, the pi row shows.
+- Open: a running session brings forward the terminal app above its pi process (parents from `sysctl`, as in 2.5); in rootshell, `focus pane with id` its `LC_ROOTSHELL_PANE`. A session with no pi process opens a new window that runs `cd <cwd> && pi --session <file>`, in rootshell, else Ghostty.
+- Updates: FSEvents on `~/.pi/agent/sessions` and the extension's state folder (1 s latency), and the 30 s timer. At launch, Rounds deletes the extension's lines of sessions with no session file and no pi process.
+- Settings: Install Extension… previews the file and the events; Remove Extension deletes the file and turns the source off; a different file (an older Rounds) shows "Needs update" and Update Extension. Install changes no other file. A pi that already runs loads the extension at its next start.
+- Known limit: Rounds reads the default folder only, not a `--session-dir`, `PI_CODING_AGENT_SESSION_DIR` or `PI_CODING_AGENT_DIR` folder. A login prompt of pi's own is not an extension dialog, so it does not show as Needs input.
+
 ## 3. Classification
 
 `Classifier` is a pure function: `(DesktopSession, HookState?, LastMessage?, claudeRunning: Bool, now) -> Status` (`LastMessage`: what the transcript tail says). It copies the desktop sidebar order (`xS()` in the desktop main process). The first match wins.
@@ -158,16 +174,16 @@ MCP tool names (`mcp__<server>__<tool>`) show as the tool part in Running and Pe
 
 Every source maps into the standard states of `GLOSSARY.md` (`SessionState`); the source's own words go in the detail. Rows read "State · detail · folder".
 
-| State | Group | Dot | Claude | Codex | herdr |
-|---|---|---|---|---|---|
-| Needs input | Your Turn (3.2) | orange | permission, question, plan approval, MCP input, interrupted, blocked summary | PermissionRequest | blocked |
-| Failed | Your Turn | red | StopFailure, error, failed summary | | |
-| Working | Running | blue, pulsing | turn hooks, transcript in progress | task_started, turn hooks | working |
-| Background | Running | blue ring | Stop with background tasks (at most 2 h; detail "2 tasks"), cron wake within 15 min | | |
-| Ready | Your Turn | green | review ready (detail "review") | | done (a turn not looked at) |
-| Finished | Quiet | grey ring | completed, new (detail "new") | task_complete, Stop | idle |
-| Stopped | Quiet | grey ring | interrupted by the user | turn_aborted, Interrupt | |
-| Offline | Quiet | grey dashed ring | Claude not running, hook from before launch, remote (detail "remote") | no codex process | |
+| State | Group | Dot | Claude | Codex | herdr | pi |
+|---|---|---|---|---|---|---|
+| Needs input | Your Turn (3.2) | orange | permission, question, plan approval, MCP input, interrupted, blocked summary | PermissionRequest | blocked | blocked (a dialog) |
+| Failed | Your Turn | red | StopFailure, error, failed summary | | | error, a reply that ended in an error |
+| Working | Running | blue, pulsing | turn hooks, transcript in progress | task_started, turn hooks | working | working, compacting |
+| Background | Running | blue ring | Stop with background tasks (at most 2 h; detail "2 tasks"), cron wake within 15 min | | | |
+| Ready | Your Turn | green | review ready (detail "review") | | done (a turn not looked at) | |
+| Finished | Quiet | grey ring | completed, new (detail "new") | task_complete, Stop | idle | done, idle |
+| Stopped | Quiet | grey ring | interrupted by the user | turn_aborted, Interrupt | | stopped |
+| Offline | Quiet | grey dashed ring | Claude not running, hook from before launch, remote (detail "remote") | no codex process | | no pi process |
 
 The labels in the rules below are now details; the state each rule returns is in this table. The group is each state's own; the Last Call rule (3.2) then moves rows by what the user has seen and by time. A herdr agent without a session file (a pi never prompted, or a sub-agent whose parent is not known, 2.5) gets a row only while it is blocked.
 
@@ -189,7 +205,7 @@ Runs before rule 5 when rules 0 to 4 did not match. If `lastTurnEdgeAt` is later
 - Older: a session with no activity for the Aged time (Move to Aged after, 1 to 99 hours or days, default 1 day) is Older, unless it runs or waits (Needs input, Failed); this comes before Last Call, so an old unseen session does not fill Last Call.
 - Pill count: the Last Call sessions, child sessions too: always the Last Call tile's number.
 - Child sessions (side sessions, forks, sub-agents; 2.1, 2.5, 2.6) go under their root session when that session is listed: not archived, and without a search also not older, hidden or Marked as Done. Else a child session is a row of its own. The row with its children goes in the most urgent group of all of them, and a Your Turn row waits since its longest wait. A child session marked done or hidden leaves its parent, as a row would leave the list.
-- A sub-agent (a Codex sub-agent thread, a herdr sub-agent) never alerts unless Count sub-agents in Last Call is on (default off; decided 2026-10-29): the agent that started it handles its result and asks the user itself. Its Needs input is in Running (the parent's work goes on), and its other states in Quiet, so it never lifts its parent into Your Turn, never counts in the pill or the Last Call tile, and never hides the Another round? banner. Its dot keeps the state colour, and its row keeps the state word under a filter. Claude forks and side sessions are the user's own work and alert as other sessions do. Risk: a source that does not pass a sub-agent's question up to its parent leaves it waiting with no alert.
+- A sub-agent (a Codex sub-agent thread, a herdr sub-agent) never alerts unless Count sub-agents in Last Call is on (default off; decided 2026-10-29): the agent that started it handles its result and asks the user itself. Its Needs input is in Running (the parent's work goes on), and its other states in Quiet, so it never lifts its parent into Your Turn, never counts in the pill or the Last Call tile, and never hides the Another round? banner. Its dot keeps the state colour, and its row keeps the state word under a filter. Claude forks and side sessions, and pi forks, are the user's own work and alert as other sessions do. Risk: a source that does not pass a sub-agent's question up to its parent leaves it waiting with no alert.
 - Children sort by group, then newest `lastActivityAt` first. A side session or fork with its parent's title shows as "Fork" (`userFork`), else as `spawnedFrom.title`.
 - Filter tile and pill counts are of sessions, by each session's own state.
 
@@ -212,7 +228,7 @@ One SwiftPM package (this Mac has Command Line Tools only, no Xcode). Targets: `
 | `HookStateStore` | FSEvents watch on `state/`, publish `[cliSessionId: HookState]`. Deletes state files of archived or deleted sessions at launch. |
 | `TranscriptReader` | Tail read and parse for reconcile. |
 | `Classifier` | Section 3. |
-| `AppModel` | Joins stores, runs the classifier on each change and every 30 s (for time windows), checks `NSWorkspace` for Claude desktop (`com.anthropic.claudefordesktop`). A change in the Claude or Codex folder reads only that source; a changed hook state file reads the source of its session (both when the id is not known). Hook install status (`settings.json`, `hooks.json`, `config.toml`) is read at launch, every 30 s, and when Settings opens or changes the hooks. |
+| `AppModel` | Joins stores, runs the classifier on each change and every 30 s (for time windows), checks `NSWorkspace` for Claude desktop (`com.anthropic.claudefordesktop`). A change in the Claude, Codex or pi folder reads only that source; a changed hook state file reads the source of its session (both when the id is not known). Hook install status (`settings.json`, `hooks.json`, `config.toml`) is read at launch, every 30 s, and when Settings opens or changes the hooks. |
 | `HotkeyManager` | Carbon `RegisterEventHotKey`. Default ⌥⌘Space. |
 | UI | `EdgeDrawer` (pill and slide), `PanelController` (session window), `SettingsView`. |
 
@@ -233,7 +249,7 @@ There is no menu bar item (removed on 2026-10-27): the edge pill (5.7) does its 
   - Under a status filter only the sessions in that group show. A parent that is not in it shows as a grey row (its icon and title, no dot, not selectable) above its matching children, which start under its title; its other children and its tasks stay out. It has the same chevron as other parent rows, but starts unfolded, so the filter's matches show at once, and it folds even while a child needs input (under Last Call every child does), except during a search (decided 2026-10-30; it could not fold before). The folded ids stay until the app quits. Under a filter a subtitle leaves out the state word (the filter names it) and keeps the detail; Failed keeps its word, since it shares the Your Turn group. All shows the full tree.
   - A child session is a full row without the source icon (its parent shows it): status dot, title, "State · detail", relative time. ↵, double-click and the row menu work as on any row.
   - A background task (rule 6) is one line in the secondary colour: a symbol by type (shell `terminal`, subagent `person.crop.circle`, workflow `flowchart`, others `gearshape`) and the description, in one line. It has no dot and no time, and it cannot be selected. A line from an older helper (count only) shows one line "n background tasks".
-  - A folded row adds its child sessions after the state: "Working · Bash · 1 fork · 2 sub-agents · repo" ("fork" for a Claude fork, "session" for another Claude side session, "sub-agent" for Codex and herdr). The task count is already in the Background detail ("2 tasks").
+  - A folded row adds its child sessions after the state: "Working · Bash · 1 fork · 2 sub-agents · repo" ("fork" for a Claude or pi fork, "session" for another Claude side session, "sub-agent" for Codex and herdr). The task count is already in the Background detail ("2 tasks").
 - Filters, under the search field (`FilterBar`):
   - Tiles: Your Turn (orange `exclamationmark.circle.fill`, the count of its sessions, the same number as the pill; right-click: Mark All as Seen), Running (blue `spigot.fill`, a tap: On Tap), Quiet (grey `checkmark.circle.fill`, the count of quiet rows: served, nothing to do, so no status colour; decided 2026-10-30, as green is only a result that waits in Last Call: the green pill and a filled green row dot), Older (grey `clock`, no count). Each tile is a symbol and a count, with its tile name in caption text under them, 44 pt high. Each group has a plain name (used in text, hints and VoiceOver) and a tile name, a drinking pun on the app's name: Your Turn is Last Call, Running is On Tap, Quiet is Served, Older is Aged (GLOSSARY.md). Empty lists say "Nothing Needs You", "Nothing on Tap", "Nothing Served", "Nothing Aged", under an empty tap (`spigot`). The tiles are neutral, with a 0.5 pt hairline and a faint fill; colour is only on the symbol, and the count is in the text colour (colour shows only where it carries a state). The selected tile lifts to the control surface with a stronger hairline, not a coloured fill; the name is in the hint and accessibility label. Hints show after 1 s (`NSInitialToolTipDelay`). A click shows only that status; a click on the selected tile goes back to All. Zero counts are dimmed. The filter stays across openings, but a window that opens while the pill calls (orange, red or green; 5.7) opens on Last Call, where every session the pill counts is (decided 2026-10-30: a green pill opened on a kept Served filter, which showed none of its sessions).
   - Source toggles: one per source in the rows (Claude, Codex, pi first, then other herdr agents by name), its icon and count in a capsule with a 0.5 pt hairline and no fill; a click hides or shows that source; a hidden source stays in the row, dimmed. Kept across launches.
@@ -257,18 +273,19 @@ There is no menu bar item (removed on 2026-10-27): the edge pill (5.7) does its 
 - A normal resizable window: the form scrolls; minimum 560 x 360 pt, first shown at 640 x 560 (frame name `RoundsSettingsSidebar`, so the narrow frame of the old tab window does not come back), then at the size the user gave it; it opens at the centre of the screen each time. While Settings shows, the session window stays open (it does not slide back), so changes show in it at once. SwiftUI gives the Settings window no resizable style, so the view adds `.resizable` to its window.
 - Launch at Login (`SMAppService.mainApp`).
 - Open a session with: Single Click or Double-Click (default), how a click on a row opens it in its app; with Double-Click, a single click only selects the row.
-- A source is on while it can report live state: Claude Code and Codex while their hooks are installed (a wrong helper path still counts, until Repair Hooks), herdr while it is connected. The window shows only sources that are on, and each Sources row's hint says so ("Remove Hooks turns this source off.").
+- A source is on while it can report live state: Claude Code and Codex while their hooks are installed (a wrong helper path still counts, until Repair Hooks), pi while its extension is installed (an older copy still counts, until Update Extension), herdr while it is connected. The window shows only sources that are on, and each Sources row's hint says so ("Remove Hooks turns this source off.").
 - Sources: one section with a row per source (its icon and name), and each source's details in its row's hover hint. The footer shows only errors (how to open a session is in General and Keys).
+- pi row: extension status, Install Extension…, Remove Extension, Update Extension (a different file), or "Not found" when `~/.pi/agent` is absent (2.7).
 - herdr row: connection status ("Connected · n agents", "Not running", "Not found") and how agents report state.
 - Codex row: hook status, Install Hooks…, Remove Hooks, Repair Hooks (wrong path), or "Not found" when Codex is absent. Install previews the entries and the `config.toml` change; each changed file keeps a `.rounds-backup`.
-- Status (hooks, Codex, herdr) is a small hairline capsule at the end of the row, after the small button, so the capsules of all rows end on one edge, with a dot in the state's colour: green set up (Installed, Connected), orange needs action (Not installed, Needs repair), grey otherwise (Not running, Not found). Buttons say what they change (Install Hooks…, Remove Hooks, Repair Hooks). An absent app is "Not found", so "Not installed" means only that hooks are absent.
+- Status (hooks, Codex, herdr) is a small hairline capsule at the end of the row, after the small button, so the capsules of all rows end on one edge, with a dot in the state's colour: green set up (Installed, Connected), orange needs action (Not installed, Needs repair, Needs update), grey otherwise (Not running, Not found). Buttons say what they change (Install Hooks…, Remove Hooks, Repair Hooks). An absent app is "Not found", so "Not installed" means only that hooks are absent.
 - Session Window Shortcuts: a read-only cheatsheet of the keys in 5.2 (action on the left, keys on the right, each key in its own keycap with a hairline (6 x 2 pt padding, at least 20 pt wide, 4 pt apart), in the system font, as Linear shows shortcuts; a monospaced ⌘D in one cap ran together). It changes with 5.2.
 - Claude Code row: hook status, Install Hooks…, Remove Hooks, Repair Hooks (wrong path).
 - Install shows the exact entries before it writes. It says that the file is written again with new formatting and that a backup is kept.
 
 ### 5.5 Deep link
 
-Claude sessions: `claude://code/continue?session=<sessionId>`. Codex threads: `codex://threads/<id>`. herdr agents: see 2.5 Open. Row menus say "Open in Claude", "Open in Codex" or "Open in herdr". If the desktop "entry points" setting is off, Claude ignores the link; Claude still comes to the front, and the panel shows a hint.
+Claude sessions: `claude://code/continue?session=<sessionId>`. Codex threads: `codex://threads/<id>`. herdr agents: see 2.5 Open. pi sessions: see 2.7 Open. Row menus say "Open in Claude", "Open in Codex", "Open in herdr" or "Open in Terminal". If the desktop "entry points" setting is off, Claude ignores the link; Claude still comes to the front, and the panel shows a hint.
 
 ### 5.6 Row icons
 

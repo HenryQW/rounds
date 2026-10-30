@@ -19,11 +19,12 @@ public enum KnownAgent: String, CaseIterable, Sendable {
 }
 
 extension SessionRow {
-    /// The source filter's key: claude, codex, or the herdr agent's name (pi, droid, ...).
+    /// The source filter's key: claude, codex, pi, or the herdr agent's name (pi, droid, ...).
     public var sourceName: String {
         switch source {
         case .claude: KnownAgent.claude.rawValue
         case .codex: KnownAgent.codex.rawValue
+        case .pi: KnownAgent.pi.rawValue
         case .herdr(let agent): agent.agent
         }
     }
@@ -32,6 +33,7 @@ extension SessionRow {
         switch source {
         case .claude: .claude
         case .codex: .codex
+        case .pi: .pi
         case .herdr(let agent): KnownAgent(rawValue: agent.agent)
         }
     }

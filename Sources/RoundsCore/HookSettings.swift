@@ -8,14 +8,20 @@ public enum HookInstallerError: Error, Equatable {
     case invalidJSON(String)
 }
 
-/// A hooks file Rounds writes its entries into.
+/// A hooks file Rounds writes its entries into, or the pi extension file it installs.
 public enum HookTarget: Sendable, Identifiable {
     /// `~/.claude/settings.json`: async hooks, so no session waits for the helper.
     case claude
     /// `~/.codex/hooks.json` (spec 2.6): Codex runs hooks in line; the helper ends in milliseconds.
     case codex
+    /// `~/.pi/agent/extensions/rounds.ts` (spec 2.7): an extension pi loads at start, not a hooks file; `entries` are
+    /// the pi events it follows.
+    case pi
 
     public var id: Self { self }
+
+    /// What Settings installs: "Hooks" or "Extension".
+    public var noun: String { self == .pi ? "Extension" : "Hooks" }
 
     public var entries: [(event: String, matcher: String?)] {
         switch self {
@@ -27,6 +33,8 @@ public enum HookTarget: Sendable, Identifiable {
         ]
         case .codex: ["UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PreCompact", "Stop", "Interrupt", "SessionEnd"]
             .map { ($0, nil) }
+        case .pi: ["session_start", "agent_start", "message_end", "agent_settled", "session_before_compact", "session_compact",
+                   "session_compact_failed", "ui_prompt_start", "ui_prompt_end", "session_shutdown"].map { ($0, nil) }
         }
     }
 
@@ -35,6 +43,7 @@ public enum HookTarget: Sendable, Identifiable {
         switch self {
         case .claude: ["async": true]
         case .codex: ["timeout": 10]
+        case .pi: [:]
         }
     }
 }

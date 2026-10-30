@@ -158,49 +158,11 @@ final class HerdrMonitor: @unchecked Sendable {
     /// A local herdr client: the regular app above it (its terminal) and, in rootshell, the client's pane UUID.
     /// Remote clients have no app above them.
     private static func localClient() -> TerminalOpener.Client? {
-        for pid in Processes.all() where Processes.name(of: pid) == "herdr" {
-            var current = pid
-            for _ in 0..<12 {
-                guard let parent = Processes.parent(of: current), parent > 1 else { break }
-                if let app = NSRunningApplication(processIdentifier: parent), app.activationPolicy == .regular {
-                    let pane = environment(of: pid, "LC_ROOTSHELL_PANE").flatMap(UUID.init(uuidString:))
-                    return TerminalOpener.Client(app: app, rootshellPane: pane)
-                }
-                current = parent
-            }
-        }
-        return nil
-    }
-
-    /// One environment variable of a process (same user), from `KERN_PROCARGS2`:
-    /// argc, the executable path, padding, argc argument strings, then the environment strings.
-    private static func environment(of pid: pid_t, _ name: String) -> String? {
-        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
-        var size = 0
-        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 4 else { return nil }
-        var bytes = [UInt8](repeating: 0, count: size)
-        guard sysctl(&mib, 3, &bytes, &size, nil, 0) == 0, size > 4 else { return nil }
-        let argc = Int(bytes.withUnsafeBytes { $0.load(as: Int32.self) })
-        var i = 4
-        func string() -> String? {
-            guard i < size else { return nil }
-            let start = i
-            while i < size, bytes[i] != 0 { i += 1 }
-            defer { i += 1 }
-            return String(decoding: bytes[start..<i], as: UTF8.self)
-        }
-        _ = string()
-        while i < size, bytes[i] == 0 { i += 1 }
-        for _ in 0..<argc { _ = string() }
-        let prefix = name + "="
-        while let entry = string(), !entry.isEmpty {
-            if entry.hasPrefix(prefix) { return String(entry.dropFirst(prefix.count)) }
-        }
-        return nil
+        Processes.all().lazy.filter { Processes.name(of: $0) == "herdr" }.compactMap(TerminalOpener.client(above:)).first
     }
 }
 
-/// Shows herdr in a terminal app through AppleScript (macOS asks the user once per app).
+/// Shows a terminal program (herdr, a pi session) through AppleScript (macOS asks the user once per app).
 @MainActor
 enum TerminalOpener {
     struct Client: Sendable {
@@ -212,18 +174,33 @@ enum TerminalOpener {
     static let rootshell = "com.kk2.rootshell"
     static let ghostty = "com.mitchellh.ghostty"
 
-    /// A local client: its exact rootshell pane, else its app. No local client: a new window running herdr,
+    /// The terminal a local process runs in: the regular app above it and, in rootshell, the process's pane UUID.
+    /// A process over SSH has no app above it.
+    nonisolated static func client(above pid: pid_t) -> Client? {
+        var current = pid
+        for _ in 0..<12 {
+            guard let parent = Processes.parent(of: current), parent > 1 else { return nil }
+            if let app = NSRunningApplication(processIdentifier: parent), app.activationPolicy == .regular {
+                return Client(app: app, rootshellPane: Processes.environment(of: pid, "LC_ROOTSHELL_PANE").flatMap(UUID.init(uuidString:)))
+            }
+            current = parent
+        }
+        return nil
+    }
+
+    /// A local client: its exact rootshell pane, else its app. No local client: a new window that runs `command`,
     /// in rootshell, else Ghostty. herdr attaches to its session with the agent already selected.
-    static func show(_ client: Client?) {
+    static func show(_ client: Client?, command: String = "herdr") {
+        let quoted = "\"" + command.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
         if let client {
             if client.app.bundleIdentifier == rootshell, let pane = client.rootshellPane {
                 run("tell application id \"\(rootshell)\" to focus pane with id \"\(pane.uuidString)\"")
             }
             client.app.activate()
         } else if NSWorkspace.shared.urlForApplication(withBundleIdentifier: rootshell) != nil {
-            run("tell application id \"\(rootshell)\"\ncreate window with command \"herdr\"\nactivate\nend tell")
+            run("tell application id \"\(rootshell)\"\ncreate window with command \(quoted)\nactivate\nend tell")
         } else if NSWorkspace.shared.urlForApplication(withBundleIdentifier: ghostty) != nil {
-            run("tell application id \"\(ghostty)\"\nnew window with configuration {initial input:\"herdr\" & linefeed}\nactivate\nend tell")
+            run("tell application id \"\(ghostty)\"\nnew window with configuration {initial input:\(quoted) & linefeed}\nactivate\nend tell")
         }
     }
 

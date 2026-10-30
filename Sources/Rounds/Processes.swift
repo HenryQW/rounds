@@ -25,4 +25,31 @@ enum Processes {
         guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
         return info.kp_eproc.e_ppid
     }
+
+    /// One environment variable of a process (same user), from `KERN_PROCARGS2`:
+    /// argc, the executable path, padding, argc argument strings, then the environment strings.
+    static func environment(of pid: pid_t, _ name: String) -> String? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 4 else { return nil }
+        var bytes = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &bytes, &size, nil, 0) == 0, size > 4 else { return nil }
+        let argc = Int(bytes.withUnsafeBytes { $0.load(as: Int32.self) })
+        var i = 4
+        func string() -> String? {
+            guard i < size else { return nil }
+            let start = i
+            while i < size, bytes[i] != 0 { i += 1 }
+            defer { i += 1 }
+            return String(decoding: bytes[start..<i], as: UTF8.self)
+        }
+        _ = string()
+        while i < size, bytes[i] == 0 { i += 1 }
+        for _ in 0..<argc { _ = string() }
+        let prefix = name + "="
+        while let entry = string(), !entry.isEmpty {
+            if entry.hasPrefix(prefix) { return String(entry.dropFirst(prefix.count)) }
+        }
+        return nil
+    }
 }

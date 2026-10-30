@@ -574,6 +574,7 @@ extension SessionRow {
     private var childNoun: String {
         switch source {
         case .claude(let s): s.spawnedFrom?.userFork == true ? "fork" : "session"
+        case .pi: "fork"
         case .codex, .herdr: "sub-agent"
         }
     }
@@ -583,6 +584,7 @@ extension SessionRow {
         case .claude: "Open in Claude"
         case .codex: "Open in Codex"
         case .herdr: "Open in herdr"
+        case .pi: "Open in Terminal"
         }
     }
 }
