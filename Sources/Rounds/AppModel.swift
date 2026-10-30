@@ -74,6 +74,9 @@ final class AppModel {
     private var piRows: [SessionRow] = []
     /// The extension's last state of each pi session, by session id.
     @ObservationIgnored private var piStates: [String: PiState] = [:]
+    /// herdr pane id to the session file of the running pi in it (its `HERDR_PANE_ID`), for the herdr agents that
+    /// report no session file.
+    @ObservationIgnored private var piPanes: [String: String] = [:]
     private(set) var piInstalled = false
     private(set) var piExtensionStatus: HookInstallStatus = .missing
     let piHome = URL.homeDirectory.appending(path: ".pi/agent")
@@ -86,6 +89,7 @@ final class AppModel {
     private(set) var herdrConnection: HerdrMonitor.Status = .notRunning
     /// Agent id to its last status and when that status began (herdr reports no times).
     @ObservationIgnored private var herdrSince: [String: (status: String, since: Date)] = [:]
+    @ObservationIgnored private var herdrAgents: [HerdrAgent] = []
     @ObservationIgnored private var herdr: HerdrMonitor?
     @ObservationIgnored private var roots: [String: String] = [:]
     private var lastFailures: Set<URL> = []
@@ -243,6 +247,7 @@ final class AppModel {
         let folders = (try? fm.contentsOfDirectory(at: piHome.appending(path: "sessions"), includingPropertiesForKeys: nil)) ?? []
         let files = folders.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? [] }.filter { $0.pathExtension == "jsonl" }
         let now = Date()
+        var panes: [String: String] = [:]
         piRows = files.compactMap { url -> SessionRow? in
             guard let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
                   let session = piCache.value(at: url, read: { readPiSession($0) }, decode: { parsePiSession($0, path: url.path, updatedAt: modified) }) ?? nil
@@ -250,11 +255,16 @@ final class AppModel {
             let state = piStates[session.id].flatMap { $0.sessionPath == session.path ? $0 : nil }
             // The extension names the process; a session without its line runs in a pi from before the install, or not at all.
             let live = state.map { Processes.isPi($0.pid) } ?? false
+            if live, let state, let pane = Processes.environment(of: state.pid, "HERDR_PANE_ID") { panes[pane] = session.path }
             // A session quiet for the Aged time is Older whatever its last message says.
             let aged = now.timeIntervalSince(modified) > lastCall.agedAfter
             return SessionRow(pi: session, status: classifyPi(session, state: state, live: live && !aged))
         }
         piCache.keep(only: Set(files))
+        if panes != piPanes {
+            piPanes = panes
+            updateHerdrRows()
+        }
     }
 
     /// Deletes the extension's state of sessions with no session file and no pi process (at launch only: a pi that
@@ -355,9 +365,16 @@ final class AppModel {
 
     private func updateHerdr(_ agents: [HerdrAgent], _ status: HerdrMonitor.Status) {
         herdrConnection = status
+        herdrAgents = agents
+        updateHerdrRows()
+        regroup()
+    }
+
+    /// herdr rows from the last agent list, with the pi sessions herdr did not report joined to their panes.
+    private func updateHerdrRows() {
         let now = Date()
         var since: [String: (status: String, since: Date)] = [:]
-        herdrRows = agents.filter(\.isListed).map { a in
+        herdrRows = joiningSessions(herdrAgents, paneSessions: piPanes).filter(\.isListed).map { a in
             let start: Date
             if let previous = herdrSince[a.id] {
                 start = previous.status == a.agentStatus ? previous.since : now
@@ -371,7 +388,6 @@ final class AppModel {
             return SessionRow(agent: a, status: herdrStatus(a.agentStatus, since: start))
         }
         herdrSince = since
-        regroup()
     }
 
     /// The project folder of a session folder (its git repository's main checkout), cached per folder.
@@ -396,11 +412,11 @@ final class AppModel {
         }
     }
 
-    /// A running pi session: its terminal (in rootshell, its pane). Else a new terminal window resumes it.
+    /// A running pi session: its terminal (in rootshell, its pane). Else a new terminal tab resumes it.
     private func openPi(_ session: PiSession) {
         let pid = piStates[session.id].flatMap { $0.sessionPath == session.path && Processes.isPi($0.pid) ? $0.pid : nil }
-        let quote = { (s: String) in "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-        TerminalOpener.show(pid.flatMap(TerminalOpener.client(above:)), command: "cd \(quote(session.cwd)) && pi --session \(quote(session.path))")
+        let file = "'" + session.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+        TerminalOpener.show(pid.flatMap(TerminalOpener.client(above:)), command: "pi --session \(file)", directory: session.cwd)
     }
 
     /// Demo mode only: new placeholder rows (`Demo`'s window-turn scene).

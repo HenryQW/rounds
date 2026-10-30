@@ -188,26 +188,35 @@ enum TerminalOpener {
         return nil
     }
 
-    /// A local client: its exact rootshell pane, else its app. No local client: a new window that runs `command`,
-    /// in rootshell, else Ghostty. herdr attaches to its session with the agent already selected.
-    static func show(_ client: Client?, command: String = "herdr") {
-        let quoted = "\"" + command.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+    /// A local client: its exact rootshell pane, else its app. No local client: `command` in `directory`, in a new tab
+    /// of a running rootshell (a new window when it has none), else a new rootshell window, else a new Ghostty window.
+    /// herdr attaches to its session with the agent already selected.
+    static func show(_ client: Client?, command: String = "herdr", directory: String? = nil) {
+        func quoted(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
+        let arguments = "with command \(quoted(command))" + (directory.map { " in directory \(quoted($0))" } ?? "")
         if let client {
             if client.app.bundleIdentifier == rootshell, let pane = client.rootshellPane {
                 run("tell application id \"\(rootshell)\" to focus pane with id \"\(pane.uuidString)\"")
             }
             client.app.activate()
         } else if NSWorkspace.shared.urlForApplication(withBundleIdentifier: rootshell) != nil {
-            run("tell application id \"\(rootshell)\"\ncreate window with command \(quoted)\nactivate\nend tell")
+            // `create tab` needs a front window; with none, it fails and a new window opens.
+            let running = !NSRunningApplication.runningApplications(withBundleIdentifier: rootshell).isEmpty
+            if !(running && run("tell application id \"\(rootshell)\"\ncreate tab \(arguments)\nactivate\nend tell")) {
+                run("tell application id \"\(rootshell)\"\ncreate window \(arguments)\nactivate\nend tell")
+            }
         } else if NSWorkspace.shared.urlForApplication(withBundleIdentifier: ghostty) != nil {
-            run("tell application id \"\(ghostty)\"\nnew window with configuration {initial input:\(quoted) & linefeed}\nactivate\nend tell")
+            let input = (directory.map { "cd '\($0.replacingOccurrences(of: "'", with: "'\\''"))' && " } ?? "") + command
+            run("tell application id \"\(ghostty)\"\nnew window with configuration {initial input:\(quoted(input)) & linefeed}\nactivate\nend tell")
         }
     }
 
-    private static func run(_ source: String) {
+    @discardableResult
+    private static func run(_ source: String) -> Bool {
         var error: NSDictionary?
         NSAppleScript(source: source)?.executeAndReturnError(&error)
         if let error { log.error("AppleScript failed: \(error, privacy: .public)") }
+        return error == nil
     }
 }
 

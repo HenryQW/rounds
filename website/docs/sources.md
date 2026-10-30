@@ -24,7 +24,7 @@ Rounds reads the Codex threads on this Mac, with hooks for live state. Codex has
 
 Rounds shows each pi session on this Mac, in any terminal, on any model that pi runs: Claude, GPT, Gemini, DeepSeek, Qwen, local models and more. It reads the session files in `~/.pi/agent/sessions`. For live state, Rounds installs a small pi extension, `~/.pi/agent/extensions/rounds.ts`. The extension writes the state of each session (working, a dialog that waits for you, done, failed, stopped) to a local file. It writes no prompt and no model text. pi loads the extension when a session starts, so restart a pi that already runs.
 
-A click on a pi row brings its terminal to the front. If pi no longer runs, Rounds opens a new terminal window that resumes the session (`pi --session`). A forked pi session shows under the session it came from.
+A click on a pi row brings its terminal to the front. If pi no longer runs, Rounds resumes the session (`pi --session`) in a new tab of rootshell, or in a new terminal window. A forked pi session shows under the session it came from.
 
 ## herdr
 

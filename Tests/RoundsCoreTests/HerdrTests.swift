@@ -79,3 +79,11 @@ func herdrSubAgentParentIsTheOneSessionInItsWorkspace(sessions: Int, linked: Boo
     let folderOnly = try parseHerdrAgents(Data(#"{"id":"1","result":{"agents":[{"agent":"pi","pane_id":"a","agent_status":"idle","name":"d-ab12","cwd":"/w/repo","terminal_title_stripped":"π - repo"}]}}"#.utf8))
     #expect(folderOnly[0].title == "d-ab12")
 }
+
+@Test func piSessionJoinsTheHerdrPaneThatRunsIt() throws {
+    let json = #"{"id":"1","result":{"agents":[{"agent":"pi","agent_status":"working","cwd":"/w","pane_id":"w8B:pAN"},{"agent":"pi","agent_status":"idle","cwd":"/w","pane_id":"w8B:pAK","agent_session":{"kind":"path","value":"/s/a.jsonl"}}]}}"#
+    let agents = joiningSessions(try parseHerdrAgents(Data(json.utf8)), paneSessions: ["w8B:pAN": "/s/b.jsonl", "w8B:pAK": "/s/other.jsonl"])
+    // The pane without a session file gets the one its pi process names; a reported one stays.
+    #expect(agents.map(\.sessionPath) == ["/s/b.jsonl", "/s/a.jsonl"])
+    #expect(agents.map(\.id) == ["herdr:/s/b.jsonl", "herdr:/s/a.jsonl"] && agents.allSatisfy(\.isListed))
+}

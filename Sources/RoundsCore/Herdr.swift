@@ -51,6 +51,17 @@ public func parseHerdrAgents(_ data: Data) throws(HerdrError) -> [HerdrAgent] {
     }
 }
 
+/// herdr reports the session file of some pi agents only. `paneSessions` (herdr pane id to session file, from the
+/// `HERDR_PANE_ID` of each running pi process; spec 2.7) fills in the others, so a pi session in herdr shows once, as
+/// its herdr agent.
+public func joiningSessions(_ agents: [HerdrAgent], paneSessions: [String: String]) -> [HerdrAgent] {
+    agents.map { a in
+        guard a.sessionPath == nil, let path = paneSessions[a.paneId] else { return a }
+        return HerdrAgent(id: "herdr:" + path, paneId: a.paneId, agent: a.agent, agentStatus: a.agentStatus, title: a.title,
+                          cwd: a.cwd, sessionPath: path, parentId: a.parentId)
+    }
+}
+
 /// Agents set the terminal title as "<icon> - <name> - <folder>" (pi: "π - Fix login - repo"); keep the name, else
 /// `agent` (the agent name, or a sub-agent's own name).
 func herdrTitle(_ terminalTitle: String, cwd: String, agent: String) -> String {
