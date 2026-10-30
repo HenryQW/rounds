@@ -6,7 +6,7 @@ description: Download Rounds or install it with Homebrew, start it, and connect 
 ## Requirements
 
 - macOS 27 on a Mac with Apple silicon.
-- At least one source: Claude Code in the Claude desktop app (the Code tab), Codex, or herdr. Rounds does not read Claude Code sessions started in a terminal, except inside herdr.
+- At least one source: Claude Code in the Claude desktop app (the Code tab), Codex, or pi agents in herdr. Rounds does not read Claude Code sessions started in a terminal, except inside herdr.
 
 ## Download
 

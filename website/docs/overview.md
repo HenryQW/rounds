@@ -10,7 +10,7 @@ Rounds is a macOS app that shows the live state of your AI coding sessions in on
 
 ## What it shows
 
-Rounds shows each session of Claude Code, Codex and herdr agents, with its state: working, needs your input, ready, and more. It runs in the background. It has no Dock icon and no menu bar item. The pill is its only entry point.
+Rounds shows each session of Claude Code and Codex, and each pi agent that runs in herdr, on any model that pi runs (Claude, GPT, Gemini, DeepSeek, Qwen, local models and more), with its state: working, needs your input, ready, and more. It runs in the background. It has no Dock icon and no menu bar item. The pill is its only entry point.
 
 ## The name
 

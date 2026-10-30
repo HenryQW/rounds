@@ -6,7 +6,7 @@
 
 <p align="center"><a href="https://rounds.henry.wang">Docs</a> · <a href="LICENSE">MIT License</a> · Made with <a href="https://henry.wang">Henry</a> by AI 🤖.</p>
 
-Rounds is a native macOS app that shows the live state of your AI coding sessions from Claude Code, Codex and herdr in one list. A pill at the screen edge shows how many sessions run and turns orange when one needs you. Hover over the pill to open the session window, then press Return to go to a session.
+Rounds is a native macOS app that shows the live state of your AI coding sessions from Claude Code, Codex and pi agents (any model, through herdr) in one list. A pill at the screen edge shows how many sessions run and turns orange when one needs you. Hover over the pill to open the session window, then press Return to go to a session.
 
 The name is a round of drinks, one for each session. When nothing needs you, Rounds asks: "🍹 Another round?"
 
@@ -15,7 +15,7 @@ The name is a round of drinks, one for each session. When nothing needs you, Rou
 ## Features
 
 - **Pill at the screen edge:** blue with the running count while sessions run, green when an agent finished and its result waits for you, and orange or red when a session needs your input or failed (it peeks out until you look). Its count is always the Last Call count.
-- **One list for every source:** Claude Code, Codex and herdr agents (pi and others), grouped by project. Child sessions show under their parent, as Direct (the same folder) or Isolated (a folder of their own).
+- **One list for every source:** Claude Code, Codex and pi agents on any model pi runs (Claude, GPT, Gemini, DeepSeek, Qwen, local models and more), through herdr; grouped by project. Child sessions show under their parent, as Direct (the same folder) or Isolated (a folder of their own).
 - **Tiles:** Last Call (Your Turn), On Tap (Running), Served (Quiet) and Aged (Older). Each tile filters the list.
 - **Live state from hooks:** Needs input, Failed, Working, Background, Ready, Finished, Stopped and Offline, with the tool or question as detail. Working rows show a small glass that fills and empties.
 - **Marks:** Star, Mark as Done and Hide, with Undo.
@@ -25,7 +25,7 @@ The name is a round of drinks, one for each session. When nothing needs you, Rou
 
 - macOS 27 or later.
 - To build from source: Xcode Command Line Tools (`xcode-select --install`). Xcode is not needed.
-- At least one source: Claude Code in the Claude desktop app (the Code tab), Codex, or herdr. Rounds does not read Claude Code sessions started in a terminal, except inside herdr.
+- At least one source: Claude Code in the Claude desktop app (the Code tab), Codex, or pi agents in herdr. Rounds does not read Claude Code sessions started in a terminal, except inside herdr.
 
 ## Install
 
