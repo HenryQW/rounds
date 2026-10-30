@@ -5,21 +5,22 @@ description: The words that Rounds uses, each with one meaning.
 
 ## States
 
-Each source uses its own words for what a session does. Rounds puts these words into eight states, so a session from Claude, Codex or herdr reads the same. The word of the source shows as the detail on the row, after the state: "Needs input · Permission: Bash".
+Each source uses its own words for what a session does. Rounds puts these words into eight states, so a session from Claude, Codex, herdr or pi reads the same. The word of the source shows as the detail on the row, after the state: "Needs input · Permission: Bash".
 
 <div class="states-scroll">
 <table class="states-table">
   <thead>
-    <tr><th>State</th><th>Tile</th><th>Claude</th><th>Codex</th><th>herdr</th></tr>
+    <tr><th>State</th><th>Tile</th><th>Claude</th><th>Codex</th><th>herdr</th><th>pi</th></tr>
   </thead>
   <tbody>
-    <tr class="group"><th colspan="5">Waits for you</th></tr>
+    <tr class="group"><th colspan="6">Waits for you</th></tr>
     <tr>
       <td><span class="state filled" style="--dot: #ff9500">Needs input</span></td>
       <td>Last Call</td>
       <td>A permission request, a question, a plan to approve, an MCP input, an interrupted turn that waits for you, a blocked summary</td>
       <td><code>PermissionRequest</code></td>
       <td><code>blocked</code></td>
+      <td><code>blocked</code> (a dialog)</td>
     </tr>
     <tr>
       <td><span class="state filled" style="--dot: #ff3b30">Failed</span></td>
@@ -27,13 +28,15 @@ Each source uses its own words for what a session does. Rounds puts these words 
       <td><code>StopFailure</code>, an error in the last 7 days, a failed summary</td>
       <td class="none">None</td>
       <td class="none">None</td>
+      <td><code>error</code>, a reply that ended in an error</td>
     </tr>
-    <tr class="group"><th colspan="5">Runs</th></tr>
+    <tr class="group"><th colspan="6">Runs</th></tr>
     <tr>
       <td><span class="state filled" style="--dot: #007aff">Working</span></td>
       <td>On Tap</td>
       <td>A turn in progress (turn hooks or the transcript)</td>
       <td><code>task_started</code>, turn hooks</td>
+      <td><code>working</code></td>
       <td><code>working</code></td>
     </tr>
     <tr>
@@ -42,14 +45,16 @@ Each source uses its own words for what a session does. Rounds puts these words 
       <td>A turn that ended with background tasks (for 2 hours at most), a scheduled wake in the next 15 minutes</td>
       <td class="none">None</td>
       <td class="none">None</td>
+      <td class="none">None</td>
     </tr>
-    <tr class="group"><th colspan="5">Has a result</th></tr>
+    <tr class="group"><th colspan="6">Has a result</th></tr>
     <tr>
       <td><span class="state filled" style="--dot: #34c759">Ready</span></td>
       <td>Last Call, then Served</td>
       <td>A summary that says the result is ready for review</td>
       <td class="none">None</td>
       <td><code>done</code> (a turn you did not look at)</td>
+      <td class="none">None</td>
     </tr>
     <tr>
       <td><span class="state" style="--dot: #8e8e93">Finished</span></td>
@@ -57,6 +62,7 @@ Each source uses its own words for what a session does. Rounds puts these words 
       <td>A completed turn, a new session</td>
       <td><code>task_complete</code>, <code>Stop</code></td>
       <td><code>idle</code>, <code>unknown</code></td>
+      <td><code>done</code>, <code>idle</code></td>
     </tr>
     <tr>
       <td><span class="state" style="--dot: #8e8e93">Stopped</span></td>
@@ -64,14 +70,16 @@ Each source uses its own words for what a session does. Rounds puts these words 
       <td>A turn that you interrupted</td>
       <td><code>turn_aborted</code>, <code>Interrupt</code></td>
       <td class="none">None</td>
+      <td><code>stopped</code></td>
     </tr>
-    <tr class="group"><th colspan="5">Not known</th></tr>
+    <tr class="group"><th colspan="6">Not known</th></tr>
     <tr>
       <td><span class="state dashed" style="--dot: #8e8e93">Offline</span></td>
       <td>Served</td>
       <td>Claude does not run, a hook from before Claude started, a session on another Mac</td>
       <td>Codex does not run</td>
       <td class="none">None</td>
+      <td>pi does not run</td>
     </tr>
   </tbody>
 </table>
@@ -95,7 +103,7 @@ Each tile is a filter for one group. A click shows only that group; a click on t
 - **Seen:** You opened the session, in Rounds or in its app, after its current state began. A seen result leaves Last Call. A seen wait stays in Last Call, but the pill no longer rings for it. A new state makes the session unseen again.
 - **Pill:** The tab at a screen edge. It shows the Last Call count, or the running count while nothing needs you, and it opens the session window. [How it works](/how-it-works#4-the-pill-shows-the-number) gives its colours.
 - **Session window:** The list that slides out from the pill: the tiles, one toggle for each source, and the sessions grouped by project.
-- **Source:** The tool that runs a session and reports its state: Claude Code, Codex, or herdr (for pi agents). A source is On or Off. A toggle under the tiles hides the sessions of one source in the window; the pill still counts them.
+- **Source:** The tool that runs a session and reports its state: Claude Code, Codex, pi, or herdr (the agents in its panes, pi too). A source is On or Off. A toggle under the tiles hides the sessions of one source in the window; the pill still counts them.
 - **Child session:** A session that another session started. It shows under its parent, after a chevron that folds it. Direct: it works in its parent's folder. Isolated: it works in a folder of its own.
 - **Context row:** Under a tile, a parent session that is not in that tile, shown above its children that are. It is grey, has no dot and cannot be selected: it only shows where the children belong. Its chevron folds it. Click All to see the parent as a normal row.
 - **Background task:** A shell, sub-agent or workflow that a session runs after its turn. It shows as one grey line under the session, with no dot.

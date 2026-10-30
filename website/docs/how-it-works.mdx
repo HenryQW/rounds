@@ -8,7 +8,7 @@ import PillStates from "../components/PillStates.astro";
 Rounds does four things, in this order:
 
 <ol class="flow">
-  <li><b>Sources report</b>Hooks, session files and the herdr socket</li>
+  <li><b>Sources report</b>Hooks, a pi extension, session files and the herdr socket</li>
   <li><b>One state each</b>Eight standard states</li>
   <li><b>Last Call</b>What needs you now</li>
   <li><b>The pill</b>Shows the Last Call count</li>
@@ -17,7 +17,8 @@ Rounds does four things, in this order:
 ## 1. Sources report what each agent does
 
 - **Claude Code and Codex:** at each event (a prompt, a tool, a permission request, the end of a turn), the hooks run a small helper, `rounds-hook`. It writes one line to a local state file. Rounds also reads the session files of the Claude desktop app and the Codex threads.
-- **pi agents:** herdr tells Rounds the state of each agent through its local socket. pi runs almost any model, so this includes agents on Claude, GPT, Gemini, local models and more.
+- **pi:** a small pi extension writes the state of each session to a local file, and Rounds reads the pi session files. pi runs almost any model, so this includes sessions on Claude, GPT, Gemini, local models and more.
+- **herdr:** herdr tells Rounds the state of each agent in its panes through its local socket.
 
 [Sources](/sources) tells what each source needs.
 
@@ -58,4 +59,4 @@ Hover or click the pill to open the session window. When the pill has a colour, 
 
 ## Privacy
 
-Rounds sends nothing anywhere. It has no account, no analytics and no network calls of its own. It reads local files and herdr's local socket, and it does not change your sessions. It writes hook entries into the Claude Code and Codex settings only when you click Install Hooks, after a preview, and it keeps a backup of each file it changes. Report a Bug opens a prefilled GitHub page with version numbers only; you decide whether to send it.
+Rounds sends nothing anywhere. It has no account, no analytics and no network calls of its own. It reads local files and herdr's local socket, and it does not change your sessions. It writes hook entries into the Claude Code and Codex settings only when you click Install Hooks, after a preview, and it keeps a backup of each file it changes. It adds its pi extension only when you click Install Extension. Report a Bug opens a prefilled GitHub page with version numbers only; you decide whether to send it.

@@ -3,7 +3,7 @@ title: Why Rounds
 description: The problem Rounds solves, and what its name means.
 ---
 
-You run many AI coding agents at the same time: Claude Code in one window, Codex in another, pi agents in herdr on models from many vendors. The agents work in parallel. Your attention does not. An agent that waits for your answer does nothing until you see it, and a finished result is of no use until you read it.
+You run many AI coding agents at the same time: Claude Code in one window, Codex in another, pi on models from many vendors in a terminal or in herdr. The agents work in parallel. Your attention does not. An agent that waits for your answer does nothing until you see it, and a finished result is of no use until you read it.
 
 To find what needs you, you look through each window in turn. That costs focus, and an agent that waits for an hour while you look at the wrong window costs that hour.
 
@@ -11,7 +11,7 @@ Rounds puts every session in one list and gives you one number: the sessions tha
 
 ## What Rounds does not do
 
-Rounds only reads the state of your sessions. It does not run agents, and it does not change a session. A click on a row opens the session in its own app: Claude, Codex or the herdr pane.
+Rounds only reads the state of your sessions. It does not run agents, and it does not change a session. A click on a row opens the session in its own app: Claude, Codex, the pi terminal or the herdr pane.
 
 ## The name
 

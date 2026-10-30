@@ -1,12 +1,12 @@
 ---
 title: Install
-description: Download Rounds or install it with Homebrew, start it, and connect Claude Code and Codex.
+description: Download Rounds or install it with Homebrew, start it, and connect Claude Code, Codex and pi.
 ---
 
 ## Requirements
 
 - macOS 27 on a Mac with Apple silicon.
-- At least one source: Claude Code in the Claude desktop app (the Code tab), Codex, or pi agents in herdr. Rounds does not read Claude Code sessions started in a terminal, except inside herdr.
+- At least one source: Claude Code in the Claude desktop app (the Code tab), Codex, pi, or herdr. Rounds does not read Claude Code sessions started in a terminal, except inside herdr.
 
 ## Download
 
@@ -52,6 +52,14 @@ A hook is a command that Claude Code or Codex runs at each turn event. Rounds ne
 4. Check the entries in the preview, then confirm.
 
 Rounds keeps a backup of each file it changes. herdr needs no hooks. Rounds connects to it while it runs.
+
+## Install the pi extension
+
+pi has no hooks. Rounds gets the live state of pi sessions from a small pi extension.
+
+1. On the Sources page, in the pi row, click Install Extension.
+2. Check the preview, then confirm. Rounds copies `rounds.ts` to `~/.pi/agent/extensions`.
+3. Restart the pi sessions that run. pi loads the extension when a session starts.
 
 ## After a rename or a move
 
