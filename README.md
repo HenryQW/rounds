@@ -57,7 +57,7 @@ Then open Settings (right-click the pill) > Sources and click **Install Hooks…
 | Make the disk image | `scripts/dmg.sh` |
 | Make a release | Push a tag `v<VERSION>`; see `website/docs/release.md` |
 | Render the app icon | `swift scripts/make-icon.swift` |
-| Take the docs screenshots (demo data) | `scripts/screenshots.sh` |
+| Take the README picture (demo data) | `scripts/screenshots.sh` |
 | Run the docs site | `cd website && pnpm install && pnpm dev` |
 
 The version is in `VERSION`. The design is in [DESIGN.md](DESIGN.md), the words in [GLOSSARY.md](GLOSSARY.md), and the full behaviour in [docs/spec.md](docs/spec.md). The app build (`Sources/`) does not include the docs site (`website/`).

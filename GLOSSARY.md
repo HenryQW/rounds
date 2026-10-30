@@ -26,6 +26,10 @@ herdr's word for the coding agent in one pane (pi, Claude, droid); used only whe
 A session that another session (its parent) started: a fork, a side session or a sub-agent. It shows under its parent while the parent is listed, else on its own.
 _Avoid_: subsession, nested session
 
+**Context row**:
+Under a status tile, a parent session that is not in that tile, shown grey and without a dot above its children that are. It only shows where the children belong: it cannot be selected, and its chevron folds it.
+_Avoid_: ghost row, placeholder parent
+
 **Sub-agent**:
 A child session that another session started to do part of its work. It never makes the pill alert: the session that started it handles its result and asks the user itself.
 _Avoid_: worker

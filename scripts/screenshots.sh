@@ -1,6 +1,6 @@
 #!/bin/sh
-# Screenshots for the docs site: each demo scene (Sources/Rounds/Demo.swift) in light and dark, of the window only, to
-# website/public/screenshots/<scene>-<appearance>.png. Run scripts/bundle.sh first. It sends no keys or pointer events,
+# The README picture: the demo session window (Sources/Rounds/Demo.swift) in light, of the window only, to
+# website/public/screenshots/window-light.png. The docs site has no screenshots (the home page demo shows the app). Run scripts/bundle.sh first. It sends no keys or pointer events,
 # but windows show and take focus, so it waits until the user is idle for 20 s. The installed app has the same global
 # shortcut, so it is quit for the run and opened again at the end.
 set -e
@@ -37,8 +37,8 @@ cleanup() {
 trap cleanup EXIT
 if [ "$RUNNING" = 1 ]; then pkill -x Rounds; sleep 1; fi
 
-for scene in window window-quiet window-children settings-general settings-pill settings-filters settings-sources settings-keys; do
-    for appearance in light dark; do
+for scene in window; do
+    for appearance in light; do
         "$APP" --demo --demo-scene "$scene" --demo-appearance "$appearance" >/dev/null 2>&1 &
         pid=$!
         tries=0

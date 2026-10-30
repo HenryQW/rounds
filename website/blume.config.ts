@@ -26,14 +26,11 @@ export default defineConfig({
   navigation: {
     sidebar: [
       "/overview",
-      "/install",
-      "/pill",
-      "/session-window",
-      "/states",
+      "/how-it-works",
+      "/glossary",
       "/sources",
-      "/settings",
+      "/install",
       "/keys",
-      "/privacy",
       "/build",
       "/release",
     ],

@@ -56,6 +56,3 @@ Rounds keeps a backup of each file it changes. herdr needs no hooks. Rounds conn
 ## After a rename or a move
 
 If the Claude Code or Codex row says "Needs repair", the hook command points to a path that is not valid now. Click Repair Hooks in that row.
-
-<img class="shot-light" src="/screenshots/settings-sources-light.png" alt="The Sources page in Settings">
-<img class="shot-dark" src="/screenshots/settings-sources-dark.png" alt="The Sources page in Settings">

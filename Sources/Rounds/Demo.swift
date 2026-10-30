@@ -25,7 +25,7 @@ private final class EmptyDefaults: UserDefaults {
     override func set(_ value: Any?, forKey defaultName: String) {}
 }
 
-/// Demo mode, for the screenshots of the docs site (`scripts/screenshots.sh`). `--demo` shows fixed placeholder
+/// Demo mode, for the README picture (`scripts/screenshots.sh`) and the frame checks (`scripts/check-frames.sh`). `--demo` shows fixed placeholder
 /// sessions and reads no source, hook file or setting; every source is on. `--demo-scene <name>` opens one window after
 /// launch, with no key or pointer events; `--demo-appearance light|dark` sets the appearance.
 enum Demo {
@@ -52,20 +52,7 @@ enum Demo {
         // After the first layout pass, so the window opens at its fitted height.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             MainActor.assumeIsolated {
-                let page: SettingsPage? = switch scene {
-                case "settings-general": .general
-                case "settings-pill": .pill
-                case "settings-filters": .filters
-                case "settings-sources": .sources
-                case "settings-keys": .keys
-                default: nil
-                }
-                if let page {
-                    SettingsState.shared.page = page
-                    // SwiftUI opens the Settings scene only from its own controls; the app menu's Settings… item is one.
-                    let item = NSApp.mainMenu?.items.first?.submenu?.items.first { $0.keyEquivalent == "," }
-                    if let item, let menu = item.menu { menu.performActionForItem(at: menu.index(of: item)) }
-                } else if scene?.hasPrefix("window") == true {
+                if scene?.hasPrefix("window") == true {
                     if scene == "window-children" { PanelController.shared.state.expanded = ["demo-parser", "demo-notes"] }
                     if quiet { PanelController.shared.state.filter = .yourTurn }
                     NSApp.activate(ignoringOtherApps: true)

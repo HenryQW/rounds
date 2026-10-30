@@ -33,20 +33,39 @@ footer a[href="https://henry.wang"]::before {
   width: 20px;
 }
 
-/* Screenshot pairs: show the light image, or the dark one in dark mode. */
-.shot-dark {
-  display: none;
+/* How It Works: the four steps as boxes in a row, one under the other on a narrow screen. */
+.flow {
+  counter-reset: step;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  list-style: none;
+  margin: 1.5rem 0;
+  padding: 0;
 }
 
-:root[data-theme="dark"] .shot-light {
-  display: none;
+.flow li {
+  border: 1px solid var(--blume-border);
+  border-radius: 8px;
+  color: var(--blume-muted-foreground);
+  counter-increment: step;
+  font-size: 0.875rem;
+  margin: 0;
+  padding: 12px 14px;
 }
 
-:root[data-theme="dark"] .shot-dark {
-  display: inline;
+.flow li b {
+  color: var(--blume-foreground);
+  display: block;
+  font-weight: 600;
 }
 
-/* The States page: the app's state dots (Rounds DESIGN.md colours). A filled dot wants the user or runs; a ring is
+.flow li b::before {
+  color: var(--blume-muted-foreground);
+  content: counter(step) ". ";
+}
+
+/* The Glossary's state table: the app's state dots (Rounds DESIGN.md colours). A filled dot wants the user or runs; a ring is
    quiet; a dashed ring is unknown. */
 .state {
   white-space: nowrap;

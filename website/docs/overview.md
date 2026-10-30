@@ -1,16 +1,17 @@
 ---
-title: Overview
-description: What Rounds is, and what its name means.
+title: Why Rounds
+description: The problem Rounds solves, and what its name means.
 ---
 
-Rounds is a macOS app that shows the live state of your AI coding sessions in one list. A small pill sits at a screen edge. Hover or click it, and the session window slides out.
+You run many AI coding agents at the same time: Claude Code in one window, Codex in another, pi agents in herdr on models from many vendors. The agents work in parallel. Your attention does not. An agent that waits for your answer does nothing until you see it, and a finished result is of no use until you read it.
 
-<img class="shot-light" src="/screenshots/window-light.png" alt="The Rounds session window with sessions in a list">
-<img class="shot-dark" src="/screenshots/window-dark.png" alt="The Rounds session window with sessions in a list">
+To find what needs you, you look through each window in turn. That costs focus, and an agent that waits for an hour while you look at the wrong window costs that hour.
 
-## What it shows
+Rounds puts every session in one list and gives you one number: the sessions that need you now. A small pill at the screen edge shows that number. While the pill is clear or blue, stay on your work. When it turns orange, red or green, an agent needs you, and one click shows which.
 
-Rounds shows each session of Claude Code and Codex, and each pi agent that runs in herdr, on any model that pi runs (Claude, GPT, Gemini, DeepSeek, Qwen, local models and more), with its state: working, needs your input, ready, and more. It runs in the background. It has no Dock icon and no menu bar item. The pill is its only entry point.
+## What Rounds does not do
+
+Rounds only reads the state of your sessions. It does not run agents, and it does not change a session. A click on a row opens the session in its own app: Claude, Codex or the herdr pane.
 
 ## The name
 
@@ -22,6 +23,6 @@ Rounds is free and open source under the [MIT license](https://github.com/HenryQ
 
 ## Next
 
+- [How it works](/how-it-works): from the state of each agent to the number on the pill.
+- [Glossary](/glossary): the words that Rounds uses.
 - [Install](/install) Rounds and set up the hooks.
-- Learn the [pill](/pill) and the [session window](/session-window).
-- Read the [privacy](/privacy) page: Rounds sends nothing anywhere.

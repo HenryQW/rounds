@@ -1,0 +1,61 @@
+---
+title: How It Works
+description: From the state of each agent to one number on the pill.
+---
+
+import PillStates from "../components/PillStates.astro";
+
+Rounds does four things, in this order:
+
+<ol class="flow">
+  <li><b>Sources report</b>Hooks, session files and the herdr socket</li>
+  <li><b>One state each</b>Eight standard states</li>
+  <li><b>Last Call</b>What needs you now</li>
+  <li><b>The pill</b>Shows the Last Call count</li>
+</ol>
+
+## 1. Sources report what each agent does
+
+- **Claude Code and Codex:** at each event (a prompt, a tool, a permission request, the end of a turn), the hooks run a small helper, `rounds-hook`. It writes one line to a local state file. Rounds also reads the session files of the Claude desktop app and the Codex threads.
+- **pi agents:** herdr tells Rounds the state of each agent through its local socket. pi runs almost any model, so this includes agents on Claude, GPT, Gemini, local models and more.
+
+[Sources](/sources) tells what each source needs.
+
+## 2. Each session gets one state
+
+Each source uses its own words. Rounds puts them into eight standard states, so a session from any source reads the same: Needs input, Failed, Working, Background, Ready, Finished, Stopped and Offline. The [Glossary](/glossary#states) gives each state and the words of each source.
+
+## 3. The Last Call rule
+
+Last Call holds what needs you:
+
+- **A wait** (Needs input, Failed) stays until the agent goes on, also after you open it. The agent is blocked until you act.
+- **A result** (Ready, Finished, Stopped) stays until you open it, in Rounds or in its app. Then it goes to Served.
+
+Everything else has its own tile: a session at work is On Tap, opened results and Offline sessions are Served, and a session with no activity for a day (that does not run or wait) is Aged.
+
+A session is **Seen** when you opened it after its state began. A new state makes it unseen again. Right-click Last Call for Mark All as Seen.
+
+A sub-agent of Codex or herdr does not go into Last Call, because the agent that started it asks you itself. Settings > Filters can count sub-agents.
+
+## 4. The pill shows the number
+
+The pill is a small tab at a screen edge. Its number is always the Last Call count: when the pill shows 3, Last Call shows 3.
+
+| Pill | Meaning |
+| --- | --- |
+| Clear glass | Nothing runs and nothing needs you. |
+| Blue | Sessions run. The count is the number that run. |
+| Orange | A session needs your input. |
+| Red | A session failed. Red shows before orange. |
+| Green | Only results wait for you. The pill is still. |
+
+The pill rings only for a wait that you have not opened: it peeks out of the edge, and its shaker shakes, or its glass breaks. After you open the wait, the pill keeps its colour and is still.
+
+<PillStates />
+
+Hover or click the pill to open the session window. When the pill has a colour, the window opens on Last Call. Right-click the pill for Settings and Quit. Hold ⌘ and drag the pill to move it along the edge.
+
+## Privacy
+
+Rounds sends nothing anywhere. It has no account, no analytics and no network calls of its own. It reads local files and herdr's local socket, and it does not change your sessions. It writes hook entries into the Claude Code and Codex settings only when you click Install Hooks, after a preview, and it keeps a backup of each file it changes. Report a Bug opens a prefilled GitHub page with version numbers only; you decide whether to send it.

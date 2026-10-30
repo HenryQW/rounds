@@ -27,7 +27,7 @@ After the first launch, install the hooks. See [Install](/install#install-the-ho
 | --- | --- |
 | Run the tests | `scripts/test.sh` |
 | Make the disk image `build/Rounds-<version>.dmg` | `scripts/dmg.sh` (after `scripts/bundle.sh`) |
-| Take the docs screenshots (demo data) | `scripts/screenshots.sh` |
+| Take the README picture (demo data) | `scripts/screenshots.sh` |
 | Run the docs site | `cd website && pnpm install && pnpm dev` |
 
 The version is in the `VERSION` file. The build writes it into the app.
