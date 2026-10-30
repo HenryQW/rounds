@@ -92,7 +92,10 @@ func piStateFromTheExtension(raw: String, detail: String, expected: SessionState
     #expect(classifyPi(session(turn: working), state: state("done", at: 5), live: true).state == .working)
     #expect(classifyPi(session(turn: working), state: nil, live: false).state == .offline)
     #expect(classifyPi(session(turn: PiTurn(kind: .done, at: at(2))), state: state("blocked", at: 5), live: false).state == .offline)
-    #expect(classifyPi(session(turn: PiTurn(kind: .done, at: at(2))), state: state("error", "x", at: 5), live: false).state == .failed)
+    // A closed session that ended in an error does not wait in Last Call for ever.
+    #expect(classifyPi(session(turn: PiTurn(kind: .done, at: at(2))), state: state("error", "x", at: 5), live: false).state == .offline)
+    #expect(classifyPi(session(turn: PiTurn(kind: .error, detail: "x", at: at(8))), state: nil, live: false).state == .offline)
+    #expect(classifyPi(session(turn: PiTurn(kind: .error, detail: "x", at: at(8))), state: nil, live: true).state == .failed)
     #expect(classifyPi(session(turn: nil), state: nil, live: true).state == .finished)
 }
 

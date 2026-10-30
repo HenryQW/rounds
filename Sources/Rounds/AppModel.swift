@@ -242,15 +242,14 @@ final class AppModel {
         piStateCache.keep(only: Set(stateFiles))
         let folders = (try? fm.contentsOfDirectory(at: piHome.appending(path: "sessions"), includingPropertiesForKeys: nil)) ?? []
         let files = folders.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? [] }.filter { $0.pathExtension == "jsonl" }
-        let anyPi = Processes.isRunning("pi")
         let now = Date()
         piRows = files.compactMap { url -> SessionRow? in
             guard let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
                   let session = piCache.value(at: url, read: { readPiSession($0) }, decode: { parsePiSession($0, path: url.path, updatedAt: modified) }) ?? nil
             else { return nil }
             let state = piStates[session.id].flatMap { $0.sessionPath == session.path ? $0 : nil }
-            // The extension names the process; without it, any pi process may run the session.
-            let live = state.map { kill($0.pid, 0) == 0 && Processes.name(of: $0.pid) == "pi" } ?? anyPi
+            // The extension names the process; a session without its line runs in a pi from before the install, or not at all.
+            let live = state.map { Processes.isPi($0.pid) } ?? false
             // A session quiet for the Aged time is Older whatever its last message says.
             let aged = now.timeIntervalSince(modified) > lastCall.agedAfter
             return SessionRow(pi: session, status: classifyPi(session, state: state, live: live && !aged))
@@ -262,7 +261,7 @@ final class AppModel {
     /// was never prompted has no session file yet).
     private func prunePiStates() {
         let paths = Set(piRows.compactMap { if case .pi(let s) = $0.source { s.path } else { nil } })
-        for (id, state) in piStates where !paths.contains(state.sessionPath) && Processes.name(of: state.pid) != "pi" {
+        for (id, state) in piStates where !paths.contains(state.sessionPath) && !Processes.isPi(state.pid) {
             try? FileManager.default.removeItem(at: piStateDir.appending(path: id))
         }
     }
@@ -399,7 +398,7 @@ final class AppModel {
 
     /// A running pi session: its terminal (in rootshell, its pane). Else a new terminal window resumes it.
     private func openPi(_ session: PiSession) {
-        let pid = piStates[session.id].flatMap { $0.sessionPath == session.path && Processes.name(of: $0.pid) == "pi" ? $0.pid : nil }
+        let pid = piStates[session.id].flatMap { $0.sessionPath == session.path && Processes.isPi($0.pid) ? $0.pid : nil }
         let quote = { (s: String) in "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
         TerminalOpener.show(pid.flatMap(TerminalOpener.client(above:)), command: "cd \(quote(session.cwd)) && pi --session \(quote(session.path))")
     }

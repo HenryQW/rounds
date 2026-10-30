@@ -125,14 +125,15 @@ public func piStateDirectory() -> URL {
 
 /// A pi session's state: the newer of the extension's state and the last message in the session file. The extension
 /// carries the waiting state and the process; the file covers sessions that ran without it. `live`: the session's pi
-/// process runs (with no extension state: any pi process runs).
+/// process runs (the extension names it). A wait (Needs input, Failed) never ages, so like
+/// Working it needs that process: an old session that ended in an error and was closed is Offline, not in Last Call.
 public func classifyPi(_ session: PiSession, state: PiState?, live: Bool) -> SessionStatus {
     func quiet(_ s: SessionState) -> SessionStatus { SessionStatus(s, since: session.updatedAt) }
     if let turn = session.turn, state.map({ turn.at > $0.at }) ?? true {
         switch turn.kind {
         case .working: return live ? SessionStatus(.working, since: turn.at) : quiet(.offline)
         case .done: return quiet(.finished)
-        case .error: return SessionStatus(.failed, turn.detail, since: turn.at)
+        case .error: return live ? SessionStatus(.failed, turn.detail, since: turn.at) : quiet(.offline)
         case .stopped: return quiet(.stopped)
         }
     }
@@ -140,7 +141,7 @@ public func classifyPi(_ session: PiSession, state: PiState?, live: Bool) -> Ses
     switch state.state {
     case "blocked": return live ? SessionStatus(.needsInput, state.detail, since: state.at) : quiet(.offline)
     case "working": return live ? SessionStatus(.working, state.detail, since: state.at) : quiet(.offline)
-    case "error": return SessionStatus(.failed, state.detail, since: state.at)
+    case "error": return live ? SessionStatus(.failed, state.detail, since: state.at) : quiet(.offline)
     case "stopped": return SessionStatus(.stopped, since: state.at)
     case "idle": return quiet(.finished)
     default: return SessionStatus(.finished, since: state.at)
