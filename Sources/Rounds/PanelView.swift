@@ -15,8 +15,8 @@ struct StatusDot: View {
         case .failed: dot(seen ? "circle" : "circle.fill", .red)
         case .working: dot("circle.fill", .blue).symbolEffect(.pulse)
         case .background: dot("circle", .blue)
-        case .ready: dot(seen ? "circle" : "circle.fill", .green)
-        case .finished, .stopped: dot("circle", .gray)
+        // A result waiting in Last Call is green like the pill; once opened, or out of Last Call, it is a grey ring.
+        case .ready, .finished, .stopped: status.group == .yourTurn && !seen ? dot("circle.fill", .green) : dot("circle", .gray)
         case .offline: dot("circle.dashed", .gray)
         }
     }

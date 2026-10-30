@@ -46,6 +46,9 @@ public enum SessionState: String, Sendable {
         case .finished, .stopped, .offline: .quiet
         }
     }
+
+    /// The agent waits for the user (Needs input, Failed): it stays in Last Call until it goes on, seen or not.
+    public var waits: Bool { self == .needsInput || self == .failed }
 }
 
 public struct SessionStatus: Sendable, Equatable {

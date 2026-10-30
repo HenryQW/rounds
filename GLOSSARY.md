@@ -93,7 +93,7 @@ The live state is unknown: the source app is not running, or the session runs on
 _Avoid_: stale, unknown
 
 **Seen**:
-A session the user opened, in Rounds or in its app, since its current state began. It no longer makes the pill alert, and it leaves Last Call unless it still waits.
+A session the user opened, in Rounds or in its app, since its current state began. A seen result leaves Last Call; a seen wait stays in Last Call, but the pill no longer rings for it.
 _Avoid_: read, clicked, acknowledged
 
 ## Groups and tiles
@@ -103,7 +103,7 @@ The place of a state in the list and the filters. Each group has a plain name, u
 _Avoid_: category, bucket, queue
 
 **Your Turn** (tile name **Last Call**):
-The group of sessions that want the user: each unseen session in a counted state (Needs input, Failed, Ready, Finished, Stopped by default), and a seen one that still waits (Needs input, Failed).
+The group of sessions that need the user, in a counted state (Needs input, Failed, Ready, Finished, Stopped by default): every wait (Needs input, Failed) until the agent goes on, and every result (Ready, Finished, Stopped) until the user opens it. The pill shows its count.
 _Avoid_: Need input, attention required
 
 **Running** (tile name **On Tap**):
@@ -111,7 +111,7 @@ The group of sessions at work: Working and Background.
 _Avoid_: active, busy
 
 **Quiet** (tile name **Served**):
-The group of sessions with nothing to do now: Finished, Stopped and Offline.
+The group of sessions with nothing to do now: opened results (Ready, Finished, Stopped) and Offline.
 _Avoid_: idle, done
 
 **Older** (tile name **Aged**):
@@ -154,7 +154,7 @@ Claude Code's record of a session's messages.
 ## Window
 
 **Pill**:
-The tab at a screen edge that shows the counts and opens the session window. It turns blue with the running count while sessions run, orange with the Your Turn count while a session that needs input is not yet seen, red while a failed one is not yet seen, and green with that count while only results (Ready, Finished, Stopped) are not yet seen. It is the app's only entry point.
+The tab at a screen edge that shows the counts and opens the session window. It shows the Your Turn count: red while a session in it failed, orange while one needs input, and green while it holds only results (Ready, Finished, Stopped); with no Your Turn session it turns blue with the running count while sessions run. It rings (peeks out) only while a wait is not yet seen. It is the app's only entry point.
 _Avoid_: handle, badge, edge tab
 
 **Session window**:

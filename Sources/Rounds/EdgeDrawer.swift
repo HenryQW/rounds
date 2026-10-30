@@ -363,9 +363,9 @@ final class EdgeDrawer {
 }
 
 /// The pill: an edge tab, square on the screen side, of clear glass with a hairline edge. While sessions run it turns
-/// opaque deep blue with the running count in white (about 5:1). While only unseen results (Ready, Finished, Stopped) wait it turns opaque green
-/// and still. While a session needs input or failed it grows (the panel frame, spec 5.7) and turns opaque orange; both
-/// show the Your Turn count in near-black. The blue tab is a glass
+/// opaque deep blue with the running count in white (about 5:1). While Last Call has sessions it shows their count in
+/// near-black: green while only results wait (Ready, Finished, Stopped), still; orange while a session needs input, or
+/// red while one failed. A wait the user has not opened makes it ring: it grows (the panel frame, spec 5.7) and peeks. The blue tab is a glass
 /// two-thirds full, with fizz that rises behind the count; on the orange tab a cocktail shaker shakes over the count.
 /// Both are flat colour with a hairline dark edge, so no wallpaper shows through and the tab reads on any wallpaper. Every 2 s it peeks: it eases `peek` points out from the edge
 /// with a small bounce, rests, and slides back; never a colour change.
@@ -392,7 +392,7 @@ private struct EdgePill: View {
         let waiting = model.yourTurnCount, running = model.runningCount, ringing = model.ringing, failing = model.failedCount > 0
         Button(action: open) {
             ZStack {
-                if ringing {
+                if model.waitCount > 0 {
                     // Red wins over orange: a failed turn stopped and does not go on by itself.
                     tab(failing ? Color(nsColor: .systemRed) : Color(nsColor: .systemOrange), count: waiting,
                         ink: failing ? Color(red: 0.2, green: 0.02, blue: 0.02) : Color(red: 0.17, green: 0.1, blue: 0), broken: failing)
@@ -427,11 +427,11 @@ private struct EdgePill: View {
         }
         .help("Open Rounds. ⌘-drag to move.")
         .accessibilityLabel("Open Rounds")
-        .accessibilityValue(ringing ? "\(waiting) your turn" + (failing ? ", \(model.failedCount) failed" : "") : waiting > 0 ? "\(waiting) unseen" : running > 0 ? "\(running) running" : "")
+        .accessibilityValue(waiting > 0 ? "\(waiting) in Last Call" + (failing ? ", \(model.failedCount) failed" : "") : running > 0 ? "\(running) running" : "")
     }
 
     /// An opaque tab with the count: poured (`pour`), with a drink and fizz behind the count, or under a cocktail shaker
-    /// that shakes as the pill peeks, or a glass that shakes and breaks (`broken`). Still with Reduce Motion (the glass
+    /// that shakes as the pill peeks, or a glass that shakes and breaks (`broken`). Still with Reduce Motion, and while no unseen wait rings (the glass
     /// broken).
     private func tab(_ fill: Color, count: Int, ink: Color, pour: Bool = false, symbol: String? = nil, broken: Bool = false) -> some View {
         ZStack {
@@ -458,7 +458,7 @@ private struct EdgePill: View {
                         if broken {
                             // At rest the glass is broken (the start and the end); each peek makes it whole, shakes it like
                             // the shaker, then breaks it.
-                            KeyframeAnimator(initialValue: Break(), trigger: reduceMotion ? nil : context.date) { b in
+                            KeyframeAnimator(initialValue: Break(), trigger: reduceMotion || !model.ringing ? nil : context.date) { b in
                                 BrokenGlass(broken: b.broken, color: ink, lineWidth: 1.5).frame(width: 11, height: 14)
                                     .rotationEffect(.degrees(b.angle), anchor: .bottom)
                             } keyframes: { _ in
@@ -474,7 +474,7 @@ private struct EdgePill: View {
                             }
                         } else {
                             Shaker().frame(width: 10, height: 16)
-                                .keyframeAnimator(initialValue: 0.0, trigger: reduceMotion ? nil : context.date) { view, angle in
+                                .keyframeAnimator(initialValue: 0.0, trigger: reduceMotion || !model.ringing ? nil : context.date) { view, angle in
                                     view.rotationEffect(.degrees(angle))
                                 } keyframes: { _ in
                                     KeyframeTrack {

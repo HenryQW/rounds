@@ -75,8 +75,6 @@ private func row(_ id: String, _ group: StatusGroup = .quiet, activity: Double, 
                 row("focused", .yourTurn, activity: 10, focused: 15), row("new", .yourTurn, activity: 10)]
     let g = group(rows, query: "", marks: marks)
     #expect(Set(g.yourTurn.filter(\.isSeen).map(\.id)) == ["opened", "focused"])
-    // Only unseen sessions call for the user: the pill and the tile count them.
-    #expect(g.unseenYourTurn == 2)
 }
 
 @Test func filteredSubtitleDropsTheStateWord() {

@@ -13,11 +13,11 @@ The pill is a small tab at a screen edge. It shows the state of your sessions at
 | --- | --- |
 | Clear glass | No session runs and none needs you. |
 | Blue, with a count | Sessions are running. The count is the number running. |
-| Orange, with a count | A session needs your input, and you have not seen it. The pill peeks out of the edge and shakes a cocktail shaker. The count is all of Your Turn. |
-| Red, with a count | A session failed, and you have not seen it. The pill peeks out of the edge, and its glass shakes and breaks. Red shows before orange. The count is all of Your Turn. |
-| Green, with a count | Only results wait: Ready, Finished or Stopped sessions you have not seen. The pill is still. |
+| Orange, with a count | A session needs your input. If you have not seen it, the pill peeks out of the edge and shakes a cocktail shaker. |
+| Red, with a count | A session failed. If you have not seen it, the pill peeks out of the edge, and its glass shakes and breaks. Red shows before orange. |
+| Green, with a count | Only results wait: Ready, Finished or Stopped sessions you have not opened. The pill is still. |
 
-A session you opened is Seen. It does not make the pill alert again.
+The count is always the Last Call count: when the pill shows 3, Last Call shows 3. A session you opened is Seen: a result leaves Last Call, and a wait stays until the agent goes on, but the pill no longer peeks for it. When the pill has a colour, the session window opens on Last Call.
 
 <PillStates />
 

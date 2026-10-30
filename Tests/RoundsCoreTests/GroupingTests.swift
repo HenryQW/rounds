@@ -26,23 +26,21 @@ private func row(_ id: String, _ group: StatusGroup?, activity: Double, since: D
 
 private let now = Date(timeIntervalSince1970: 3600)
 
-/// Last Call (spec 3.2) has every unread session in a counted state, until the user opens it; a waiting one (Needs
-/// input, Failed) stays after it is opened while `keepWaiting`. The pill tells the results apart from the waits.
-@Test func lastCallHasUnreadUntilOpened() {
+/// Last Call (spec 3.2) holds what needs the user: every wait (Needs input, Failed) until the agent goes on, and every
+/// result until the user opens it. The pill shows its count; only an unseen wait makes it ring.
+@Test func lastCallHoldsWaitsAndUnreadResults() {
     let rows = [row("r", nil, activity: 1, state: .ready), row("n", nil, activity: 2, state: .needsInput),
                 row("f", nil, activity: 3, state: .finished), row("o", nil, activity: 4, state: .offline)]
     let g = group(rows, query: "", rule: LastCallRule(), now: now)
     #expect(g.yourTurn.map(\.id).sorted() == ["f", "n", "r"] && g.quiet.map(\.id) == ["o"])
-    #expect(g.unseenYourTurn == 3 && g.unseenResults == 2)
+    #expect(g.lastCallCount == 3 && g.waitCount == 1 && g.unseenWaitCount == 1)
     var marks = SessionMarks()
     for id in ["r", "n", "f"] { marks.markSeen(id, at: Date(timeIntervalSince1970: 1)) }
     let read = group(rows, query: "", marks: marks, rule: LastCallRule(), now: now)
-    #expect(read.yourTurn.map(\.id) == ["n"] && read.quiet.map(\.id).sorted() == ["f", "o", "r"] && read.unseenYourTurn == 0)
-    // Without keepWaiting an opened wait leaves too, to Running: its work waits to go on.
-    var rule = LastCallRule()
-    rule.keepWaiting = false
-    #expect(group(rows, query: "", marks: marks, rule: rule, now: now).running.map(\.id) == ["n"])
+    #expect(read.yourTurn.map(\.id) == ["n"] && read.quiet.map(\.id).sorted() == ["f", "o", "r"])
+    #expect(read.lastCallCount == 1 && read.waitCount == 1 && read.unseenWaitCount == 0)
     // A state left out of Last Call goes to its own tile.
+    var rule = LastCallRule()
     rule.states = [.needsInput]
     #expect(group(rows, query: "", rule: rule, now: now).yourTurn.map(\.id) == ["n"])
 }
@@ -58,13 +56,15 @@ private let now = Date(timeIntervalSince1970: 3600)
     #expect(g.older.map(\.id) == ["f"] && g.yourTurn.map(\.id) == ["n"])
 }
 
-/// An unseen failure turns the pill red, over orange (spec 5.7); an opened one leaves the count.
+/// A failure turns the pill red, over orange (spec 5.7), until it goes on; opening it only stops the ringing.
 @Test func failedCountsApart() {
     let rows = [row("x", nil, activity: 1, state: .failed), row("n", nil, activity: 2, state: .needsInput)]
-    #expect(group(rows, query: "", rule: LastCallRule(), now: now).unseenFailed == 1)
+    let g = group(rows, query: "", rule: LastCallRule(), now: now)
+    #expect(g.failedCount == 1 && g.unseenWaitCount == 2)
     var marks = SessionMarks()
     marks.markSeen("x", at: Date(timeIntervalSince1970: 1))
-    #expect(group(rows, query: "", marks: marks, rule: LastCallRule(), now: now).unseenFailed == 0)
+    let opened = group(rows, query: "", marks: marks, rule: LastCallRule(), now: now)
+    #expect(opened.failedCount == 1 && opened.unseenWaitCount == 1 && opened.lastCallCount == 2)
 }
 
 /// A sub-agent never alerts: the agent that started it handles its result and asks the user itself. A waiting one keeps
@@ -77,12 +77,12 @@ private let now = Date(timeIntervalSince1970: 3600)
     let rows = [thread("main", .working), thread("a", .needsInput, parent: "main"), thread("b", .ready, parent: "main"),
                 thread("c", .failed, parent: "main")]
     let g = group(rows, query: "", rule: LastCallRule(), now: Date(timeIntervalSince1970: 2))
-    #expect(g.yourTurn.isEmpty && g.unseenYourTurn == 0)
+    #expect(g.yourTurn.isEmpty && g.lastCallCount == 0)
     #expect(g.running.map(\.id) == ["codex:main"] && g.running[0].children.count == 3)
     // Count sub-agents (Settings > Filters): they alert like other sessions.
     var rule = LastCallRule()
     rule.subAgents = true
-    #expect(group(rows, query: "", rule: rule, now: Date(timeIntervalSince1970: 2)).unseenYourTurn == 3)
+    #expect(group(rows, query: "", rule: rule, now: Date(timeIntervalSince1970: 2)).lastCallCount == 3)
 }
 
 @Test func olderOnlyWhenSearching() {

@@ -14,7 +14,7 @@ The name is a round of drinks, one for each session. When nothing needs you, Rou
 
 ## Features
 
-- **Pill at the screen edge:** blue with the running count while sessions run, green when an agent finished and its result waits for you, and orange (it peeks out and shakes a cocktail shaker) when a session needs your input or failed.
+- **Pill at the screen edge:** blue with the running count while sessions run, green when an agent finished and its result waits for you, and orange or red when a session needs your input or failed (it peeks out until you look). Its count is always the Last Call count.
 - **One list for every source:** Claude Code, Codex and herdr agents (pi and others), grouped by project. Child sessions show under their parent, as Direct (the same folder) or Isolated (a folder of their own).
 - **Tiles:** Last Call (Your Turn), On Tap (Running), Served (Quiet) and Aged (Older). Each tile filters the list.
 - **Live state from hooks:** Needs input, Failed, Working, Background, Ready, Finished, Stopped and Offline, with the tool or question as detail. Working rows show a small glass that fills and empties.

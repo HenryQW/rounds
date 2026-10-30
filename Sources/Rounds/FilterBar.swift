@@ -16,10 +16,10 @@ struct FilterBar: View {
         let count = { (group: StatusGroup) in shown.count { $0.status.group == group } }
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                tile(.yourTurn, "Last Call", "Your Turn", "sessions that need you", "exclamationmark.circle.fill", .orange, count(.yourTurn), key: 2)
+                tile(.yourTurn, "Last Call", "Your Turn", "waits, and results you have not opened", "exclamationmark.circle.fill", .orange, count(.yourTurn), key: 2)
                     .contextMenu { Button("Mark All as Seen") { model.markAllSeen() } }
                 tile(.running, "On Tap", "Running", "sessions at work", "spigot.fill", .blue, count(.running), key: 3)
-                tile(.quiet, "Served", "Quiet", "finished, stopped or offline sessions", "checkmark.circle.fill", .green, count(.quiet), key: 4)
+                tile(.quiet, "Served", "Quiet", "opened results, stopped or offline sessions", "checkmark.circle.fill", .secondary, count(.quiet), key: 4)
                 tile(.older, "Aged", "Older", "quiet for more than a day", "clock", .gray, nil, key: 5)
             }
             HStack(spacing: 8) {

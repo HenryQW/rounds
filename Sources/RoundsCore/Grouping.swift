@@ -114,26 +114,25 @@ public struct GroupedSessions: Sendable, Equatable {
 
     /// Every session of the list groups, children too: the filter and pill counts.
     public var sessions: [SessionRow] { (starred + yourTurn + running + quiet).flatMap(\.withChildren) }
-    /// Last Call sessions the user has not opened since: the pill and the Last Call tile count these.
-    public var unseenYourTurn: Int { sessions.count { $0.status.group == .yourTurn && !$0.isSeen } }
-    /// The unseen results among them (not Needs input or Failed): while these are all, the pill is green and still (spec 5.7).
-    public var unseenResults: Int {
-        sessions.count { $0.status.group == .yourTurn && !$0.isSeen && $0.status.state != .needsInput && $0.status.state != .failed }
-    }
-    /// The unseen Failed ones: while one waits, the pill is red, over orange (spec 5.7).
-    public var unseenFailed: Int { sessions.count { $0.status.state == .failed && $0.status.group == .yourTurn && !$0.isSeen } }
+    /// Last Call sessions: the pill and the Last Call tile show this one number (spec 5.7).
+    public var lastCallCount: Int { sessions.count { $0.status.group == .yourTurn } }
+    /// The waits among them (Needs input, Failed): the pill is orange while one waits, else green for the results.
+    public var waitCount: Int { sessions.count { $0.status.group == .yourTurn && $0.status.state.waits } }
+    /// The Failed ones: the pill is red, over orange.
+    public var failedCount: Int { sessions.count { $0.status.group == .yourTurn && $0.status.state == .failed } }
+    /// The waits the user has not opened since they began: only these make the pill ring.
+    public var unseenWaitCount: Int { sessions.count { $0.status.group == .yourTurn && $0.status.state.waits && !$0.isSeen } }
 }
 
 /// What Last Call counts and when a session is Older (Settings > Filters; spec 3.2, decided 2026-10-30). Last Call
-/// takes an unseen session (not opened since its state began) in one of `states`, and with `keepWaiting` a waiting one
-/// (Needs input, Failed) also after the user opened it, until it goes on. A sub-agent (Codex, herdr) counts only with
+/// holds what needs the user, in one of `states`: a wait (Needs input, Failed) until the agent goes on, and a result
+/// until the user opens it. A sub-agent (Codex, herdr) counts only with
 /// `subAgents`: the agent that started it handles its result and asks the user itself. Out of Last Call, Needs input
 /// is Running (its work waits to go on) and the rest Quiet. A row with no activity for `agedHours` is Older, unless it
 /// runs or waits.
 public struct LastCallRule: Sendable, Equatable {
     public static let counted: [SessionState] = [.needsInput, .failed, .ready, .finished, .stopped]
     public var states: Set<SessionState> = Set(counted)
-    public var keepWaiting = true
     public var subAgents = false
     public var agedHours = 24
     public var agedAfter: TimeInterval { TimeInterval(agedHours) * 3600 }
@@ -143,10 +142,10 @@ public struct LastCallRule: Sendable, Equatable {
     func place(_ r: SessionRow, seen: Bool, now: Date) -> SessionRow {
         let s = r.status
         guard s.group != .hidden else { return r }
-        let waiting = s.state == .needsInput || s.state == .failed, runs = s.state.group == .running
+        let waiting = s.state.waits, runs = s.state.group == .running
         let subAgent = r.parentId != nil && r.session == nil
         let group: StatusGroup = if !waiting && !runs && now.timeIntervalSince(r.lastActivityAt) > agedAfter { .older }
-            else if states.contains(s.state) && (!subAgent || subAgents) && (!seen || keepWaiting && waiting) { .yourTurn }
+            else if states.contains(s.state) && (!subAgent || subAgents) && (!seen || waiting) { .yourTurn }
             else if runs || s.state == .needsInput { .running }
             else { .quiet }
         var placed = r

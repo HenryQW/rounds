@@ -256,9 +256,9 @@ struct SettingsView: View {
             }
             .help("How long the session window stays open after the pointer leaves it or you go to another app.")
             Toggle(isOn: Binding(get: { model.seenStopsAlert }, set: { model.seenStopsAlert = $0 })) {
-                described("Stop the alert for opened sessions", "An opened session stops the pill alert.")
+                described("Stop the alert for opened sessions", "An opened wait stops the pill ringing.")
             }
-            .help("When you open a session, the pill stops its alert for that session, and the row dot becomes a ring. When this is off, the pill alerts until you answer.")
+            .help("When you open a session, its row dot becomes a ring. An opened result leaves Last Call; an opened wait stays there, but the pill no longer rings for it. When this is off, the pill rings until you answer, and results stay until their state changes.")
             LabeledContent {
                 let ids = Set(drawer.displays.map(\.id))
                 if !drawer.displaysOff.isDisjoint(with: ids) {
@@ -293,13 +293,9 @@ struct SettingsView: View {
                     }
                 }
             } label: {
-                described("Count in Last Call", "Unseen sessions, until you open them.")
+                described("Count in Last Call", "Waits stay; opened results leave.")
             }
-            .help("A session is unseen when its state began after you last opened it, in Rounds or in Claude. Right-click Last Call for Mark All as Seen.")
-            Toggle(isOn: Binding(get: { model.lastCall.keepWaiting }, set: { model.lastCall.keepWaiting = $0 })) {
-                described("Keep waiting sessions in Last Call", "After you open them, until they go on.")
-            }
-            .help("A session that needs input or failed stays in Last Call after you open it, until the agent goes on. When this is off, it goes to On Tap or Served when you open it.")
+            .help("Needs input and Failed stay in Last Call until the agent goes on. Ready, Finished and Stopped stay until you open them, in Rounds or in Claude. Right-click Last Call for Mark All as Seen.")
             Toggle(isOn: Binding(get: { model.lastCall.subAgents }, set: { model.lastCall.subAgents = $0 })) {
                 described("Count sub-agents in Last Call", "Codex and herdr sub-agents.")
             }

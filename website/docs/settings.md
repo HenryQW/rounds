@@ -21,7 +21,7 @@ The screen edge, the time before the window closes after the pointer leaves, whe
 
 ## Filters
 
-What Last Call counts and when a session is Aged. Last Call shows the sessions in the checked states that you have not seen, until you open them. Keep waiting sessions in Last Call keeps a session that needs input or failed after you open it, until the agent goes on. Count sub-agents in Last Call is off, because the agent that started a sub-agent asks you itself. Move to Aged after sets how long a quiet session stays out of Aged: 1 day by default, in hours or days.
+What Last Call counts and when a session is Aged. Last Call shows the sessions in the checked states: a session that needs input or failed until the agent goes on, and a result until you open it. Count sub-agents in Last Call is off, because the agent that started a sub-agent asks you itself. Move to Aged after sets how long a quiet session stays out of Aged: 1 day by default, in hours or days.
 
 <img class="shot-light" src="/screenshots/settings-filters-light.png" alt="The Filters page in Settings">
 <img class="shot-dark" src="/screenshots/settings-filters-dark.png" alt="The Filters page in Settings">

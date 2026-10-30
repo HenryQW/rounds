@@ -14,8 +14,8 @@ final class AppModel {
     var query = "" { didSet { regroup() } }
     /// The panel's Older filter: older rows join the panel's groups without a search.
     var includeOlder = false { didSet { if includeOlder != oldValue { regroup() } } }
-    /// A session that needs input and that the user opened since stops the pill's alert (Settings > Pill); off, every
-    /// such session alerts until it is answered.
+    /// A wait the user opened since it began stops the pill's ringing, and a result the user opened leaves Last Call
+    /// (Settings > Pill); off, no session counts as opened.
     var seenStopsAlert = appDefaults.object(forKey: "seenStopsAlert") as? Bool ?? true {
         didSet {
             appDefaults.set(seenStopsAlert, forKey: "seenStopsAlert")
@@ -27,7 +27,6 @@ final class AppModel {
         didSet {
             guard lastCall != oldValue else { return }
             appDefaults.set(lastCall.states.map(\.rawValue).sorted(), forKey: "lastCallStates")
-            appDefaults.set(lastCall.keepWaiting, forKey: "keepWaiting")
             appDefaults.set(lastCall.subAgents, forKey: "countSubAgents")
             appDefaults.set(lastCall.agedHours, forKey: "agedHours")
             regroup()
@@ -38,16 +37,16 @@ final class AppModel {
     /// All groups without the search: the filter counts.
     private(set) var allGroups = GroupedSessions()
     /// The pill's counts of sessions (children too), from `allGroups`; set only when they change, so other row changes
-    /// do not redraw the pill.
+    /// do not redraw the pill. `yourTurnCount` is the Last Call count, the number on the pill.
     private(set) var yourTurnCount = 0
-    /// The unseen results among `yourTurnCount` (not Needs input or Failed); while they are all of it, the pill is green
-    /// and still.
-    private(set) var resultCount = 0
-    /// The unseen Failed sessions among `yourTurnCount`; while one waits, the ringing pill is red with a broken glass.
+    /// The waits among them (Needs input, Failed): the pill is orange while one waits, else green for the results.
+    private(set) var waitCount = 0
+    /// The Failed ones: the pill is red with a broken glass.
     private(set) var failedCount = 0
+    /// The waits the user has not opened since they began: only these make the pill ring (grow and peek).
+    private(set) var unseenWaitCount = 0
     private(set) var runningCount = 0
-    /// An unseen session needs input or failed: the pill rings, orange, or red while a failure waits.
-    var ringing: Bool { yourTurnCount > resultCount }
+    var ringing: Bool { unseenWaitCount > 0 }
     private(set) var marks = AppModel.loadMarks()
     private(set) var banner: String?
     private(set) var hookStatus: HookInstallStatus = .missing
@@ -327,25 +326,25 @@ final class AppModel {
         groups = group(rows, query: query, marks: marks, includeOlder: includeOlder, trackSeen: seenStopsAlert, rule: lastCall, now: now)
         allGroups = group(rows, query: "", marks: marks, trackSeen: seenStopsAlert, rule: lastCall, now: now)
         let sessions = allGroups.sessions
-        // The pill calls only for sessions the user has not opened since they began to wait.
-        let waiting = allGroups.unseenYourTurn, results = allGroups.unseenResults, failed = allGroups.unseenFailed, running = sessions.count { $0.status.group == .running }
-        if yourTurnCount != waiting { yourTurnCount = waiting }
-        if resultCount != results { resultCount = results }
-        if failedCount != failed { failedCount = failed }
+        // The pill shows the Last Call count; it rings only for a wait the user has not opened.
+        let g = allGroups, running = sessions.count { $0.status.group == .running }
+        if yourTurnCount != g.lastCallCount { yourTurnCount = g.lastCallCount }
+        if waitCount != g.waitCount { waitCount = g.waitCount }
+        if failedCount != g.failedCount { failedCount = g.failedCount }
+        if unseenWaitCount != g.unseenWaitCount { unseenWaitCount = g.unseenWaitCount }
         if runningCount != running { runningCount = running }
     }
 
     private static func loadLastCall() -> LastCallRule {
         var rule = LastCallRule()
         if let states = appDefaults.stringArray(forKey: "lastCallStates") { rule.states = Set(states.compactMap(SessionState.init)) }
-        rule.keepWaiting = appDefaults.object(forKey: "keepWaiting") as? Bool ?? rule.keepWaiting
         rule.subAgents = appDefaults.object(forKey: "countSubAgents") as? Bool ?? rule.subAgents
         rule.agedHours = appDefaults.object(forKey: "agedHours") as? Int ?? rule.agedHours
         return rule
     }
 
-    /// Mark All as Seen (the Last Call tile's menu): every unseen Last Call session is seen now, so it leaves Last Call
-    /// (a waiting one stays while `keepWaiting`) and stops alerting.
+    /// Mark All as Seen (the Last Call tile's menu): every unseen Last Call session is seen now, so a result leaves Last
+    /// Call and a wait stops the pill's ringing.
     func markAllSeen() {
         let now = Date()
         updateMarks { marks in

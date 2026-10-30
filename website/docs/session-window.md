@@ -14,9 +14,9 @@ Each tile is a filter for one group of states. A click shows only that group. A 
 
 | Tile | Plain name | States in it |
 | --- | --- | --- |
-| Last Call | Your Turn | Each session you have not seen since its state changed: Needs input, Failed, Ready, Finished, Stopped. A session that waits for you stays after you open it. |
+| Last Call | Your Turn | What needs you: each session that waits for you (Needs input, Failed) until the agent goes on, and each result (Ready, Finished, Stopped) until you open it. The pill shows the same count. |
 | On Tap | Running | Working, Background |
-| Served | Quiet | Finished, Stopped and Offline sessions you have seen |
+| Served | Quiet | Results you opened, and Offline sessions |
 | Aged | Older | Sessions with no activity for more than a day (you can change the time) |
 
 Settings > Filters sets which states Last Call counts and when a session is Aged. Right-click Last Call for Mark All as Seen. [States](/states) lists each state and the words each source uses for it.
