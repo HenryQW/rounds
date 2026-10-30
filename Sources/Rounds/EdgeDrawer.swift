@@ -263,7 +263,7 @@ final class EdgeDrawer {
 
     func fit() {
         guard let window = PanelController.shared.panel, window.isVisible, let screen else { return }
-        let target = fittedFrame(window, on: screen)
+        let target = fittedFrame(window, on: screen, keepTop: !sliding)
         guard target != window.frame else { return }
         frameLog.debug("fit h=\(window.frame.height) -> \(target.height) sliding=\(self.sliding)")
         if sliding { return slideIn(window) }
@@ -271,16 +271,17 @@ final class EdgeDrawer {
     }
 
     /// The window's frame at the edge: the list's rows plus the search, filters and bottom bar around them (the
-    /// content height from SwiftUI layout), from `minHeight` up to the visible frame, centred on the pill and kept
-    /// inside the visible frame (spec 5.7).
-    private func fittedFrame(_ window: NSWindow, on screen: NSScreen) -> NSRect {
+    /// content height from SwiftUI layout), from `minHeight` up to the visible frame, and kept inside the visible frame
+    /// (spec 5.7). A window that slides in is centred on the pill; an open one (`keepTop`) keeps its top edge and changes
+    /// size at the bottom, so a shorter list does not move the rows, or the window away from the pointer (2026-10-30).
+    private func fittedFrame(_ window: NSWindow, on screen: NSScreen, keepTop: Bool = false) -> NSRect {
         let visible = screen.visibleFrame, width = min(window.frame.width, visible.width)
         // Whole points, as AppKit sets them, so a fitted frame compares equal to the window's.
         let height = min(max(PanelController.shared.state.contentHeight, Self.minHeight), visible.height).rounded()
         let atMax = height >= visible.height
         if PanelController.shared.state.windowAtMaxHeight != atMax { PanelController.shared.state.windowAtMaxHeight = atMax }
-        let centre = visible.minY + visible.height * settings.pillPosition
-        let y = min(max(centre - height / 2, visible.minY), visible.maxY - height)
+        let top = keepTop ? window.frame.maxY : visible.minY + visible.height * settings.pillPosition + height / 2
+        let y = min(max(top - height, visible.minY), visible.maxY - height)
         return NSRect(x: settings.edge == .right ? visible.maxX - width : visible.minX, y: y, width: width, height: height)
     }
 
