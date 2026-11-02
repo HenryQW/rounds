@@ -273,7 +273,9 @@ final class AppModel {
             if live, let state, let pane = Processes.environment(of: state.pid, "HERDR_PANE_ID") { panes[pane] = session.path }
             // A session quiet for the Aged time is Older whatever its last message says.
             let aged = now.timeIntervalSince(session.updatedAt) > lastCall.agedAfter
-            return SessionRow(pi: session, status: classifyPi(session, state: state, live: live && !aged))
+            // Only a recent session can be in Last Call, so only its folder is checked.
+            let gone = !aged && !FileManager.default.fileExists(atPath: session.cwd)
+            return SessionRow(pi: session, status: classifyPi(session, state: state, live: live && !aged, folderGone: gone))
         }
         if panes != piPanes {
             piPanes = panes

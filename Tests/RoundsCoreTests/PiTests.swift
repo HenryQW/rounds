@@ -99,6 +99,14 @@ func piStateFromTheExtension(raw: String, detail: String, expected: SessionState
     #expect(classifyPi(session(turn: nil), state: nil, live: true).state == .finished)
 }
 
+@Test func sessionWhoseFolderIsGoneLeavesTheList() {
+    // A removed worktree: the session file stays, but the session cannot go on.
+    let done = session(turn: PiTurn(kind: .done, at: at(2)))
+    #expect(classifyPi(done, state: nil, live: false, folderGone: true).group == .hidden)
+    // A pi that still runs in the removed folder keeps its state.
+    #expect(classifyPi(done, state: state("blocked", at: 5), live: true, folderGone: true).state == .needsInput)
+}
+
 @Test func aPiForkAlertsLikeTheUsersOwnSession() {
     let fork = PiSession(id: "s2", path: "/p/fork.jsonl", cwd: "/Users/test/api", parentPath: path, title: "Fork", updatedAt: at(1), turn: nil)
     let row = SessionRow(pi: fork, status: SessionStatus(.needsInput, since: at(1)))

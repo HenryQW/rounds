@@ -127,8 +127,10 @@ public func piStateDirectory() -> URL {
 /// carries the waiting state and the process; the file covers sessions that ran without it. `live`: the session's pi
 /// process runs (the extension names it). A wait (Needs input, Failed) never ages, so like
 /// Working it needs that process: an old session that ended in an error and was closed is Offline, not in Last Call.
-public func classifyPi(_ session: PiSession, state: PiState?, live: Bool) -> SessionStatus {
+public func classifyPi(_ session: PiSession, state: PiState?, live: Bool, folderGone: Bool = false) -> SessionStatus {
     func quiet(_ s: SessionState) -> SessionStatus { SessionStatus(s, since: session.updatedAt) }
+    // A removed folder (a deleted worktree) ends the session, like an archived Claude session.
+    if folderGone && !live { return SessionStatus(.finished, since: session.updatedAt, group: .hidden) }
     if let turn = session.turn, state.map({ turn.at > $0.at }) ?? true {
         switch turn.kind {
         case .working: return live ? SessionStatus(.working, since: turn.at) : quiet(.offline)
