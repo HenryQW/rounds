@@ -13,6 +13,8 @@ final class PanelState {
     var hoveredControl: String?
     /// The window is as tall as the screen allows, so the list may scroll; below that it fits its rows and shows no scroller.
     var windowAtMaxHeight = false
+    /// The window is open. Row animations run only then: a hidden window still draws them on each frame.
+    var shown = false
     /// The height the list's rows and the bars around them take, from SwiftUI layout; the window fits it (spec 5.7).
     @ObservationIgnored var contentHeight: CGFloat = 0
     /// The Quit confirmation shows on the window.
@@ -75,6 +77,7 @@ final class PanelController: NSObject, NSWindowDelegate {
         // is. Demo scenes keep the filter they set.
         if !panel.isVisible, model.yourTurnCount > 0, !Demo.isOn { state.filter = .yourTurn }
         NSApp.activate()
+        state.shown = true
         EdgeDrawer.shared.slideIn(panel)
         state.focusToken += 1
         keyMonitor = keyMonitor ?? NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
@@ -85,6 +88,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     func close() {
         if let panel { EdgeDrawer.shared.slideOut(panel) }
+        state.shown = false
         model.query = ""
     }
 

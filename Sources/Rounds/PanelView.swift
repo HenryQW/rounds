@@ -13,7 +13,7 @@ struct StatusDot: View {
         switch status.state {
         case .needsInput: dot(seen ? "circle" : "circle.fill", .orange)
         case .failed: dot(seen ? "circle" : "circle.fill", .red)
-        case .working: dot("circle.fill", .blue).symbolEffect(.pulse)
+        case .working: dot("circle.fill", .blue).symbolEffect(.pulse, isActive: PanelController.shared.state.shown)
         case .background: dot("circle", .blue)
         // A result waiting in Last Call is green like the pill; once opened, or out of Last Call, it is a grey ring.
         case .ready, .finished, .stopped: status.group == .yourTurn && !seen ? dot("circle.fill", .green) : dot("circle", .gray)
@@ -72,7 +72,7 @@ struct PourGlass: View {
                 glass(0.66)
             } else {
                 let period = 2.4 + 0.8 * Self.unit(seed, 1), start = 100 * Self.unit(seed, 2)
-                TimelineView(.animation(minimumInterval: 1 / 20)) { context in
+                TimelineView(.animation(minimumInterval: 1 / 20, paused: !PanelController.shared.state.shown)) { context in
                     let t = (context.date.timeIntervalSinceReferenceDate + start) / period
                     glass(Self.level(t - t.rounded(.down)))
                 }
