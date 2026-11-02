@@ -77,7 +77,7 @@ The session is in a turn now.
 _Avoid_: thinking, busy
 
 **Background**:
-The session is between turns but still has work scheduled: background tasks or a timed wake-up.
+The session is between turns but still has work scheduled: background tasks, a sub-agent at work or a timed wake-up.
 _Avoid_: waiting, scheduled
 
 **Ready**:

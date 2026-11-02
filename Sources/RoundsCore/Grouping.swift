@@ -60,6 +60,15 @@ public struct SessionRow: Sendable, Equatable, Identifiable {
 
     public var withChildren: [SessionRow] { [self] + children }
 
+    /// A child that another agent started to do part of its work (Codex, herdr). Claude side sessions and forks, and pi
+    /// forks, are the user's own work.
+    public var isSubAgent: Bool {
+        switch source {
+        case .codex, .herdr: parentId != nil
+        case .claude, .pi: false
+        }
+    }
+
     /// The list group of the row with its children: the most urgent of their groups.
     public var listGroup: StatusGroup { children.map(\.status.group).reduce(status.group) { $1.rawValue < $0.rawValue ? $1 : $0 } }
 
@@ -149,13 +158,8 @@ public struct LastCallRule: Sendable, Equatable {
         let s = r.status
         guard s.group != .hidden else { return r }
         let waiting = s.state.waits, runs = s.state.group == .running
-        // Claude side sessions and forks, and pi forks, are the user's own work.
-        let subAgent = switch r.source {
-        case .codex, .herdr: r.parentId != nil
-        case .claude, .pi: false
-        }
         let group: StatusGroup = if !waiting && !runs && now.timeIntervalSince(r.lastActivityAt) > agedAfter { .older }
-            else if Self.counted.contains(s.state) && (!subAgent || subAgents) && (!seen || waiting) { .yourTurn }
+            else if Self.counted.contains(s.state) && (!r.isSubAgent || subAgents) && (!seen || waiting) { .yourTurn }
             else if runs || s.state == .needsInput { .running }
             else { .quiet }
         var placed = r
@@ -171,7 +175,15 @@ public struct LastCallRule: Sendable, Equatable {
 /// (Last Call, Older); without it the classifier's groups stay.
 public func group(_ rows: [SessionRow], query: String, marks: SessionMarks = SessionMarks(), includeOlder: Bool = false,
                   trackSeen: Bool = true, rule: LastCallRule? = nil, now: Date = Date()) -> GroupedSessions {
-    let rows = rule.map { rule in rows.map { rule.place($0, seen: trackSeen && marks.isSeen($0), now: now) } } ?? rows
+    // A result with a sub-agent at work is not done: the session waits for it (Background).
+    let atWork = Dictionary(grouping: rows.filter { $0.isSubAgent && $0.status.state.group == .running }.compactMap(\.parentId)) { $0 }
+    let waitingRows = rows.map { r -> SessionRow in
+        guard let n = atWork[r.id]?.count, [.ready, .finished].contains(r.status.state) else { return r }
+        var r = r
+        r.status = SessionStatus(.background, n == 1 ? "1 sub-agent" : "\(n) sub-agents", since: r.status.since)
+        return r
+    }
+    let rows = rule.map { rule in waitingRows.map { rule.place($0, seen: trackSeen && marks.isSeen($0), now: now) } } ?? waitingRows
     let q = query.trimmingCharacters(in: .whitespaces)
     func matches(_ r: SessionRow) -> Bool {
         guard !q.isEmpty else {
