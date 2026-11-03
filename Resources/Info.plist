@@ -8,9 +8,11 @@
     <key>CFBundleName</key><string>Rounds</string>
     <key>CFBundleDisplayName</key><string>Rounds</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleVersion</key><string>1</string>
     <key>LSMinimumSystemVersion</key><string>27.0</string>
     <key>LSUIElement</key><true/>
+    <key>SUFeedURL</key><string>https://github.com/HenryQW/rounds/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key><string>n5iJrA3GDL/42w46i5ZwNBGG/Dc62jpZPpE+7d5hd/s=</string>
+    <key>SUEnableAutomaticChecks</key><true/>
     <key>NSAppleEventsUsageDescription</key><string>Rounds opens herdr agents in rootshell or Ghostty: it focuses the terminal pane of the agent or opens a window that runs herdr.</string>
 </dict>
 </plist>

@@ -1,8 +1,9 @@
 name: Release
 
 # A tag v<VERSION> (the VERSION file) builds Rounds (ad hoc signed, no Developer ID) and publishes Rounds-<VERSION>.dmg
-# and Rounds.dmg (the "latest" link on the docs site) on a GitHub release. With TAP_TOKEN set, the cask in
-# HenryQW/homebrew-tap moves to this version. See website/docs/release.md.
+# and Rounds.dmg (the "latest" link on the docs site) on a GitHub release, with Rounds-<VERSION>.zip and appcast.xml
+# for Sparkle updates (signed with SPARKLE_ED_PRIVATE_KEY). With TAP_TOKEN set, the cask in HenryQW/homebrew-tap moves
+# to this version. See website/docs/release.md.
 on:
   push:
     tags: ["v*"]
@@ -15,6 +16,7 @@ jobs:
     runs-on: xcode-27
     env:
       TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
+      SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -33,6 +35,33 @@ jobs:
           scripts/bundle.sh
           scripts/dmg.sh
 
+      - name: Sign the update and write the appcast
+        run: |
+          # Sparkle checks the EdDSA signature: Rounds has no Developer ID to fall back on, so a release without the key
+          # would strand every installed copy.
+          test -n "$SPARKLE_ED_PRIVATE_KEY"
+          ditto -c -k --sequesterRsrc --keepParent build/Rounds.app "build/Rounds-$VERSION.zip"
+          # The sign_update of the Sparkle package that `swift build` fetched, so the tool matches the framework.
+          SIGNATURE="$(printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/sign_update --ed-key-file - "build/Rounds-$VERSION.zip")"
+          cat > build/appcast.xml <<EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>Rounds</title>
+              <item>
+                <title>Rounds $VERSION</title>
+                <pubDate>$(date -R)</pubDate>
+                <sparkle:version>$VERSION</sparkle:version>
+                <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>27.0</sparkle:minimumSystemVersion>
+                <sparkle:releaseNotesLink>https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME</sparkle:releaseNotesLink>
+                <enclosure url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/Rounds-$VERSION.zip" $SIGNATURE type="application/octet-stream"/>
+              </item>
+            </channel>
+          </rss>
+          EOF
+          xmllint --noout build/appcast.xml
+
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -49,6 +78,7 @@ jobs:
             echo "First release." > build/notes.md
           fi
           gh release create "$GITHUB_REF_NAME" "build/Rounds-$VERSION.dmg" "build/Rounds-$VERSION.dmg.sha256" build/Rounds.dmg \
+            "build/Rounds-$VERSION.zip" build/appcast.xml \
             --title "Rounds $VERSION" --notes-file build/notes.md
 
       - name: Update the Homebrew tap

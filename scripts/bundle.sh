@@ -6,12 +6,13 @@ swift build -c release
 BIN="$(swift build -c release --show-bin-path)"
 APP="build/Rounds.app"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN/Rounds" "$APP/Contents/MacOS/Rounds"
 cp "$BIN/rounds-hook" "$APP/Contents/Helpers/rounds-hook"
+ditto "$BIN/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
-# VERSION is the one place the version lives; Settings reads it from there.
-/usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $(cat VERSION)" "$APP/Contents/Info.plist"
+# VERSION is the one place the version lives; Settings reads it from there, and Sparkle compares CFBundleVersion.
+/usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $(cat VERSION)" -c "Add :CFBundleVersion string $(cat VERSION)" "$APP/Contents/Info.plist"
 cp Resources/*.svg Resources/rounds-pi.ts "$APP/Contents/Resources/"
 cp Resources/AppIcon.icns Resources/henry.png "$APP/Contents/Resources/"
 codesign --force --deep -s - "$APP"

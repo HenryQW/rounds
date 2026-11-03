@@ -14,8 +14,8 @@ final class SettingsState {
     var isOpen = false
     /// The page the sidebar shows; optional, as `List` selection is.
     var page: SettingsPage? = .general
-    /// The pointer is on Report a Bug, which then shows the grey hover fill.
-    var bugHovered = false
+    /// The sidebar button under the pointer (Report a Bug or Check for Updates), which then shows the grey hover fill.
+    var hoveredButton: String?
     @ObservationIgnored weak var window: NSWindow?
 }
 
@@ -59,13 +59,14 @@ struct SettingsView: View {
     let model: AppModel
     @Bindable var state: SettingsState
     @Bindable private var drawer = DrawerSettings.shared
+    @Bindable private var updater = Updater.shared
 
     /// Five pages in a sidebar (spec 5.4), each a short grouped form under its title.
     var body: some View {
         NavigationSplitView {
             List(SettingsPage.allCases, selection: $state.page) { Label($0.title, systemImage: $0.symbol) }
                 .safeAreaInset(edge: .top, spacing: 8) { appHeader }
-                .safeAreaInset(edge: .bottom) { VStack(spacing: 0) { reportBug; signature } }
+                .safeAreaInset(edge: .bottom) { VStack(spacing: 0) { checkForUpdates; reportBug; signature } }
                 .navigationSplitViewColumnWidth(230)
                 .toolbar(removing: .sidebarToggle)
         } detail: {
@@ -127,16 +128,28 @@ struct SettingsView: View {
 
     /// Opens a new GitHub issue with the versions filled in (spec 5.4).
     private var reportBug: some View {
-        Button { NSWorkspace.shared.open(Self.bugReportURL()) } label: {
-            Label("Report a Bug", systemImage: "ladybug")
+        sidebarButton("Report a Bug", "ladybug", help: "Open a new GitHub issue with the versions filled in") {
+            NSWorkspace.shared.open(Self.bugReportURL())
+        }
+    }
+
+    /// Sparkle's check for a new version (spec 5.8).
+    private var checkForUpdates: some View {
+        sidebarButton("Check for Updates…", "arrow.down.circle", help: "Look for a new version of Rounds now", action: Updater.shared.check)
+    }
+
+    /// A plain sidebar button with the grey hover fill, like the rows.
+    private func sidebarButton(_ title: String, _ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: symbol)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, 8).padding(.vertical, 6)
-                .background(Color.primary.opacity(state.bugHovered ? 0.08 : 0), in: .rect(cornerRadius: 6))
+                .background(Color.primary.opacity(state.hoveredButton == title ? 0.08 : 0), in: .rect(cornerRadius: 6))
                 .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .onHover { state.bugHovered = $0 }
-        .help("Open a new GitHub issue with the versions filled in")
+        .onHover { if $0 { state.hoveredButton = title } else if state.hoveredButton == title { state.hoveredButton = nil } }
+        .help(help)
         .padding(.horizontal, 8)
     }
 
@@ -227,6 +240,9 @@ struct SettingsView: View {
                 described("Session window shortcut", "Opens or closes the session window.")
             }
             .help("Works in any app. With no shortcut, open the window from the pill.")
+            Toggle(isOn: $updater.automaticChecks) {
+                described("Check for updates automatically", "Look for a new version once a day.")
+            }
         } footer: {
             footer(state.error ?? state.recorder.message)
         }

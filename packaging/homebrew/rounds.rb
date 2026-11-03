@@ -9,6 +9,8 @@ cask "rounds" do
   desc "Keeps a tab on your AI coding agents from the edge of your screen"
   homepage "https://rounds.henry.wang/"
 
+  # Rounds updates itself with Sparkle, so brew upgrade leaves it alone unless --greedy.
+  auto_updates true
   depends_on arch: :arm64
   depends_on macos: :golden_gate
 
@@ -22,7 +24,7 @@ cask "rounds" do
   caveats <<~EOS
     Rounds has no Developer ID signature, so macOS blocks it at first. To open it, run:
       xattr -dr com.apple.quarantine /Applications/Rounds.app
-    Run it again after each upgrade.
+    Run it again after each brew upgrade. Updates from Rounds itself need no step.
 
     Before you uninstall Rounds, click Remove Hooks in Settings > Sources, for Claude Code and Codex.
     The hooks run a helper inside Rounds.app.

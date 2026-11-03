@@ -16,6 +16,7 @@ struct RoundsApp: App {
             EdgeDrawer.shared.start()
             PanelController.shared.prepare()
             Demo.start()
+            Updater.shared.start()
         }
     }
 

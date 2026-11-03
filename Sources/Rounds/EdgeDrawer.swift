@@ -371,7 +371,7 @@ final class EdgeDrawer {
 /// a shaker on orange and a broken glass on red.
 /// Both are flat colour with a hairline dark edge, so no wallpaper shows through and the tab reads on any wallpaper. Every 2 s it peeks: it eases `peek` points out from the edge
 /// with a small bounce, rests, and slides back; never a colour change.
-/// Right-click: Settings and Quit, since there is no menu bar item. ⌘-drag moves it along the edge; a hover with ⌘
+/// Right-click: Settings, Check for Updates and Quit, since there is no menu bar item. ⌘-drag moves it along the edge; a hover with ⌘
 /// down does not open the window, so the pill can be grabbed.
 private struct EdgePill: View {
     static let peek: CGFloat = 12, ripple: CGFloat = 30
@@ -430,6 +430,7 @@ private struct EdgePill: View {
                 NSApp.activate(ignoringOtherApps: true)
                 openSettings()
             }
+            Button("Check for Updates…") { Updater.shared.check() }
             Divider()
             Button("Quit Rounds") { NSApp.terminate(nil) }
         }

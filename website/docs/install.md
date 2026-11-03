@@ -18,7 +18,13 @@ Download [Rounds.dmg](https://github.com/HenryQW/rounds/releases/latest/download
 brew trust --tap henryqw/tap && brew install --cask henryqw/tap/rounds
 ```
 
-Homebrew loads a cask from a tap that is not official only after you trust the tap. The first part of the command does that. `brew upgrade --cask rounds` installs a new release.
+Homebrew loads a cask from a tap that is not official only after you trust the tap. The first part of the command does that.
+
+## Updates
+
+Rounds looks for a new version once a day and asks before it installs one. To look now, right-click the pill and choose Check for Updates…. To stop the daily check, turn off "Check for updates automatically" in Settings > General.
+
+Rounds 0.1.1 and earlier cannot update themselves: download the next release, or run `brew upgrade --cask rounds`, one time.
 
 ## Build from source
 
@@ -26,7 +32,7 @@ See [Build from source](/build).
 
 ## Open Rounds the first time
 
-Rounds has no Developer ID signature and Apple does not notarize it. So macOS blocks a downloaded copy at the first launch, with a message that it cannot check the app. Do one of these, after each download or upgrade:
+Rounds has no Developer ID signature and Apple does not notarize it. So macOS blocks a downloaded copy at the first launch, with a message that it cannot check the app. Do one of these after you download Rounds or install it with Homebrew (an update from Rounds itself needs neither):
 
 - In Terminal, remove the quarantine flag that the download added:
 

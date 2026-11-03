@@ -21,15 +21,24 @@ The workflow stops if the tag is not `v` followed by the version in `VERSION`.
 
 1. It runs the tests.
 2. It builds `Rounds.app` with `scripts/bundle.sh` and the disk image with `scripts/dmg.sh`.
-3. It publishes a GitHub release with `Rounds-<version>.dmg`, its SHA-256 file, and `Rounds.dmg`. The download link on the home page always points to the `Rounds.dmg` of the latest release. The release notes list the subject of each commit since the previous tag, with a link to all changes. The first release says "First release."
-4. If `TAP_TOKEN` is set, it writes the new version and checksum into `Casks/rounds.rb` in `HenryQW/homebrew-tap`.
+3. It zips the app as `Rounds-<version>.zip`, signs the zip with the Sparkle key, and writes `appcast.xml`, the feed that installed copies of Rounds read for updates. It stops if the key is not set.
+4. It publishes a GitHub release with `Rounds-<version>.dmg`, its SHA-256 file, `Rounds.dmg`, the zip and `appcast.xml`. The download link on the home page always points to the `Rounds.dmg` of the latest release. The release notes list the subject of each commit since the previous tag, with a link to all changes. The first release says "First release."
+5. If `TAP_TOKEN` is set, it writes the new version and checksum into `Casks/rounds.rb` in `HenryQW/homebrew-tap`.
 
 
 ## Signing
 
 A release has an ad-hoc signature: Rounds has no Developer ID, so Apple does not notarize it. macOS blocks the downloaded app at the first launch, and users remove the quarantine flag or click Open Anyway (see [Install](/install#open-rounds-the-first-time)). The cask shows the same command after each install.
 
-## The secret
+## The secrets
+
+`SPARKLE_ED_PRIVATE_KEY` is the private half of the EdDSA key that signs updates. Its public half is `SUPublicEDKey` in `Resources/Info.plist`. The key is in 1Password (account 35brookroad, vault Employee, item "Rounds Sparkle EdDSA key"). To set the secret again:
+
+```sh
+op read --account 35brookroad.1password.com "op://Employee/Rounds Sparkle EdDSA key/private key" | gh secret set SPARKLE_ED_PRIVATE_KEY -R HenryQW/rounds
+```
+
+Keep the key. Rounds has no Developer ID, so Sparkle accepts an update only with a signature from this key. If the key is lost, no installed copy can update, and users must download the next release by hand.
 
 Set `TAP_TOKEN` in the repository settings, under Secrets and variables > Actions: a fine-grained token with write access to the contents of `HenryQW/homebrew-tap`. Without it the release still publishes, and the tap does not change.
 
