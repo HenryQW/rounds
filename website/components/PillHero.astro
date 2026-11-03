@@ -49,7 +49,7 @@ const desk = pool.map(([name, src]) => {
     y = between(-6, 360);
   } while (x > 64 && y > 200 && y < 330); // the hint and the pill stay clear
   const motion = random();
-  const badge = pick(["", "", "", "", "", "", "", "", "", "", "", "", "", "", "1", "1", "2", "3", "!"]);
+  const badge = pick(["", "", "", "", "", "", "", "", "", "", "", "", "", "", "1", "1", "2", "3", "!", "!", "!", "!", "!", "!", "!"]);
   return {
     name, src, badge,
     motion: motion < 0.3 ? "shake" : motion < 0.6 ? "jump" : "",
