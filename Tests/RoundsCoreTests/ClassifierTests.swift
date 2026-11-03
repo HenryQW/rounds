@@ -52,6 +52,7 @@ nonisolated(unsafe) private let blockedSummary: [String: Any] = ["status_categor
     (line("Elicitation", "github"), "MCP input"),
     (line("PreToolUse", "AskUserQuestion"), "Question"),
     (line("PreToolUse", "ExitPlanMode"), "Plan approval"),
+    (line("PreToolUse", "mcp__ccd_session__start_session:offer"), "New session"),
 ])
 func rule3Blocked(l: HookLine, label: String) {
     let st = classify(session(), hook(l))
@@ -73,6 +74,7 @@ func rule3Blocked(l: HookLine, label: String) {
 @Test(arguments: [
     (line("PreToolUse", "Bash"), "Bash"), (line("UserPromptSubmit"), "Thinking"), (line("PostToolUse", "Bash"), "Thinking"),
     (line("PostToolUseFailure", "Bash"), "Thinking"), (line("ElicitationResult", "github"), "Thinking"), (line("PreCompact", "auto"), "Compacting"),
+    (line("PreToolUse", "mcp__ccd_session__start_session"), "start_session"),
 ])
 func rule5Running(l: HookLine, label: String) {
     expect(classify(session(), hook(l)), .working, label)

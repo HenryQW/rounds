@@ -61,12 +61,15 @@ public struct HookLine: Sendable, Equatable {
               let event = p["hook_event_name"] as? String else { throw .invalidJSON }
         guard let id = p["session_id"] as? String, isValidSessionId(id) else { throw .badSessionId }
         let raw = ["tool_name", "notification_type", "mcp_server_name", "error"].lazy.compactMap { p[$0] as? String }.first ?? ""
+        // A "New session" offer card waits for the user's answer; of the tool input, only `initiation` is read.
+        let offer = event == "PreToolUse" && raw == "mcp__ccd_session__start_session"
+            && (p["tool_input"] as? [String: Any])?["initiation"] as? String == "offer"
         let isStop = event == "Stop"
         let crons = isStop ? (p["session_crons"] as? [[String: Any]] ?? []).compactMap { ($0["schedule"] as? String).map(clean) } : []
         // Monitors (artifact watches, event streams) stay open after the turn ends; they are not work in progress.
         let tasks = isStop ? (p["background_tasks"] as? [[String: Any]] ?? []).filter { $0["type"] as? String != "monitor" } : []
         let line = HookLine(at: Date(timeIntervalSince1970: (now.timeIntervalSince1970 * 1000).rounded() / 1000),
-                            event: clean(event), detail: clean(raw),
+                            event: clean(event), detail: clean(offer ? raw + ":offer" : raw),
                             backgroundTasks: isStop ? tasks.count : nil, cronSchedules: crons,
                             tasks: tasks.map { t in
                                 // Free text up to 1000 characters: one short line for the row.

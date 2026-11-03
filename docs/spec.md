@@ -73,6 +73,7 @@ Path: `~/Library/Application Support/Rounds/state/<session_id>`. One line per ev
 - `cron_schedules`: the `schedule` cron expressions of `session_crons[]` (items are `{id, schedule, recurring, prompt}`), joined with `;` (Stop only, else empty). The app checks if one fires in the next 15 min, in local time.
 - The app uses the line with the highest time, plus the last `Stop` line for background and cron data.
 - No prompt text, tool input or message text is written, except the short task descriptions of `task_list` (the row shows them).
+- A "New session" offer card (`PreToolUse` for `mcp__ccd_session__start_session` with `initiation` `offer`) waits until the user answers it; the helper writes its tool name with `:offer` added. `initiation` is the only tool input field the helper reads. Other `start_session` calls do not wait for the user, except on a permission prompt (`PermissionRequest`).
 - When the file is larger than 64 KiB, the app rewrites it with the last line only.
 
 ### 2.4 Hook entries
@@ -155,7 +156,7 @@ pi is a coding agent that can run almost any model. herdr shows the pi agents in
 | 0 | `isArchived` | hidden | |
 | 1 | Claude desktop is not running, or last hook event is `SessionEnd` | Quiet | Stale |
 | 2 | `sshConfig` or `remoteTarget` set | Quiet | No live state |
-| 3 | Last hook event is `PermissionRequest`, `Notification`, `Elicitation`, or `PreToolUse` for `AskUserQuestion` or `ExitPlanMode`, and reconcile (3.1) finds no interrupt after it | Needs your input | Permission: `<tool>` / Question / Plan approval / MCP input |
+| 3 | Last hook event is `PermissionRequest`, `Notification`, `Elicitation`, or `PreToolUse` for `AskUserQuestion`, `ExitPlanMode` or a `start_session` offer (2.3), and reconcile (3.1) finds no interrupt after it | Needs your input | Permission: `<tool>` / Question / Plan approval / New session / MCP input |
 | 4 | `interruptedAwaitingPerson == true` | Needs your input | Interrupted, resume? |
 | 5 | Last hook event is a running event (`UserPromptSubmit`, `PreToolUse` other tools, `PostToolUse`, `PostToolUseFailure`, `ElicitationResult`, `PreCompact`). Claude also compacts idle sessions between turns: a `PreCompact`, maybe a `StopFailure`, after a `Stop` and no prompt. Such events change nothing; the `Stop` stays the last event, so a failed idle compaction is not Failed, or reconcile (3.1) says Running | Running | `<tool>` or Thinking or Compacting |
 | 6 | Last `Stop` has `bg_tasks > 0` | Running | Background tasks (the `task_list` of that `Stop` shows as lines under the row, 5.2) |
@@ -176,7 +177,7 @@ Every source maps into the standard states of `GLOSSARY.md` (`SessionState`); th
 
 | State | Group | Dot | Claude | Codex | herdr | pi |
 |---|---|---|---|---|---|---|
-| Needs input | Your Turn (3.2) | orange | permission, question, plan approval, MCP input, interrupted, blocked summary | PermissionRequest | blocked | blocked (a dialog) |
+| Needs input | Your Turn (3.2) | orange | permission, question, plan approval, new session offer, MCP input, interrupted, blocked summary | PermissionRequest | blocked | blocked (a dialog) |
 | Failed | Your Turn | red | StopFailure, error, failed summary | | | error, a reply that ended in an error |
 | Working | Running | blue, pulsing | turn hooks, transcript in progress | task_started, turn hooks | working | working, compacting |
 | Background | Running | blue ring | Stop with background tasks (at most 2 h; detail "2 tasks"), cron wake within 15 min | | | |
@@ -213,7 +214,6 @@ Runs before rule 5 when rules 0 to 4 did not match, and also for rule 3: an inte
 
 - Sessions that started before hook install show from desktop JSON only until their next hook event.
 - An approved permission for a long tool stays in Needs your input until the tool ends: no hook fires between the decision and `PostToolUse`, and the transcript has no entry before the tool result.
-- A "New session" offer card from `start_session` shows as Running until it is answered.
 - A background `Bash` that `Stop.background_tasks` does not list shows as Finished/idle.
 
 ## 4. Components

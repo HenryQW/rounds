@@ -72,6 +72,17 @@ func encodeDecodeRoundTrip(fields: [String: any Sendable], detail: String) throw
     #expect(HookLine(encoded: line.encoded.dropLast()) == line)
 }
 
+/// A "New session" offer card waits for the user; other `start_session` calls return at once.
+@Test func startSessionOfferIsMarked() throws {
+    let tool = "mcp__ccd_session__start_session"
+    func detail(_ initiation: String) throws -> String {
+        try HookLine.from(payload: payload(["hook_event_name": "PreToolUse", "tool_name": tool,
+                                            "tool_input": ["initiation": initiation, "prompt": "secret"]]), now: now).line.detail
+    }
+    #expect(try detail("offer") == "\(tool):offer")
+    #expect(try detail("user_asked") == tool)
+}
+
 @Test func detailDropsTabsAndNewlines() throws {
     let (_, line) = try HookLine.from(payload: payload(["hook_event_name": "PreToolUse", "tool_name": "a\tb\nc"]), now: now)
     #expect(line.detail == "abc")

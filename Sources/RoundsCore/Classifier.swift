@@ -114,6 +114,7 @@ func blockedLabel(_ l: HookLine) -> String? {
     case ("Notification", _), ("Elicitation", _): "MCP input"
     case ("PreToolUse", "AskUserQuestion"): "Question"
     case ("PreToolUse", "ExitPlanMode"): "Plan approval"
+    case ("PreToolUse", "mcp__ccd_session__start_session:offer"): "New session"
     default: nil
     }
 }
