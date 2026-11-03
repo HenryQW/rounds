@@ -82,7 +82,10 @@ const desk = pool.map(([name, src]) => {
       </div>
       <p class="copy-status" id="copy-status" aria-live="polite">Trusts the tap, then start your Rounds…</p>
     </article>
-    <p class="needs">Needs macOS 27. Free and <a href="https://github.com/HenryQW/rounds">open source</a> under the <a href="https://github.com/HenryQW/rounds/blob/main/LICENSE">MIT license</a>. Works best with <a href="https://pi.henry.wang">Henry Pi Harness</a>.</p>
+    <p class="needs">
+      <span>macOS 27 · Free, <a href="https://github.com/HenryQW/rounds">open source</a>, <a href="https://github.com/HenryQW/rounds/blob/main/LICENSE">MIT license</a></span>
+      <span>Works best with <a href="https://pi.henry.wang">Henry Pi Harness</a></span>
+    </p>
   </div>
 
   <div class="stage" id="stage">
@@ -256,6 +259,11 @@ const desk = pool.map(([name, src]) => {
     color: var(--blume-muted-foreground);
     font-size: 0.8rem;
     margin: 8px 0 0;
+  }
+
+  /* One fact per line, so a line never breaks inside a name. */
+  .needs span {
+    display: block;
   }
 
   .needs a {
