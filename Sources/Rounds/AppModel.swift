@@ -80,7 +80,8 @@ final class AppModel {
     @ObservationIgnored private var piPanes: [String: String] = [:]
     private(set) var piInstalled = false
     private(set) var piExtensionStatus: HookInstallStatus = .missing
-    let piHome = URL.homeDirectory.appending(path: ".pi/agent")
+    /// With symlinks resolved, so listed session files compare with `sessionFilePath`.
+    let piHome = URL.homeDirectory.appending(path: ".pi/agent").resolvingSymlinksInPath()
     private var piExtension: URL { piHome.appending(path: "extensions/rounds.ts") }
     private let piStateDir = piStateDirectory()
     @ObservationIgnored private let piCache = FileCache<PiSession?>()

@@ -68,7 +68,15 @@ public func parsePiSession(_ data: Data, path: String, updatedAt: Date) -> PiSes
         }
     }
     let title = name ?? prompt ?? URL(fileURLWithPath: cwd).lastPathComponent
-    return PiSession(id: id, path: path, cwd: cwd, parentPath: header["parentSession"] as? String, title: title, updatedAt: updatedAt, turn: turn)
+    return PiSession(id: id, path: path, cwd: cwd, parentPath: (header["parentSession"] as? String).map(sessionFilePath), title: title,
+                     updatedAt: updatedAt, turn: turn)
+}
+
+/// A session file path as the folder listing spells it. pi names the session folder after the cwd as typed, so herdr,
+/// the extension and a fork's header can spell "evermark" a folder that is "Evermark" on disk, and the file system
+/// ignores letter case; the path with the disk's letter case (and no symlinks) is the one Rounds compares.
+public func sessionFilePath(_ path: String) -> String {
+    URL(fileURLWithPath: path).resolvingSymlinksInPath().path
 }
 
 /// A whole small file; of a large one the first `head` bytes (the header and the first prompt) and the last `tail`
@@ -114,7 +122,7 @@ public struct PiState: Sendable, Equatable {
     public init?(_ contents: String) {
         let f = contents.trimmingCharacters(in: .newlines).split(separator: "\t", omittingEmptySubsequences: false)
         guard f.count == 5, let ms = Int64(f[0]), !f[1].isEmpty, let pid = Int32(f[3]), !f[4].isEmpty else { return nil }
-        self.init(at: Date(timeIntervalSince1970: Double(ms) / 1000), state: String(f[1]), detail: String(f[2]), pid: pid, sessionPath: String(f[4]))
+        self.init(at: Date(timeIntervalSince1970: Double(ms) / 1000), state: String(f[1]), detail: String(f[2]), pid: pid, sessionPath: sessionFilePath(String(f[4])))
     }
 }
 

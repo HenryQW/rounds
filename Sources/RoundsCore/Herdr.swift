@@ -31,7 +31,7 @@ public func parseHerdrAgents(_ data: Data) throws(HerdrError) -> [HerdrAgent] {
     if let error = response["error"] as? [String: Any] { throw .server(error["message"] as? String ?? "unknown error") }
     guard let agents = (response["result"] as? [String: Any])?["agents"] as? [[String: Any]] else { throw .invalidResponse }
     func session(_ a: [String: Any]) -> String? {
-        (a["agent_session"] as? [String: Any]).flatMap { $0["kind"] as? String == "path" ? $0["value"] as? String : nil }
+        (a["agent_session"] as? [String: Any]).flatMap { $0["kind"] as? String == "path" ? ($0["value"] as? String).map(sessionFilePath) : nil }
     }
     // A sub-agent's parent: the one agent with a session file in the same workspace; none or two leave it unknown.
     var sessionsByWorkspace: [String: [String]] = [:]

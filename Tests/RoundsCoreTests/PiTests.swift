@@ -113,3 +113,19 @@ func piStateFromTheExtension(raw: String, detail: String, expected: SessionState
     #expect(row.parentId == "pi:" + path && row.sourceName == "pi")
     #expect(group([row], query: "", rule: LastCallRule(), now: at(60)).yourTurn.map(\.id) == ["pi:/p/fork.jsonl"])
 }
+
+@Test func sessionFilePathsTakeTheLetterCaseOnDisk() throws {
+    // pi names the session folder after the cwd as typed (~/Git/evermark), so herdr, the extension and a fork's
+    // header can spell a folder that is "Evermark" on disk; Rounds lists the disk spelling and must match it.
+    let root = try tempDir().resolvingSymlinksInPath()
+    let folder = root.appending(path: "--Users-test-Evermark--")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    let onDisk = folder.appending(path: "2026-10-29T12-14-59-163Z_s1.jsonl")
+    try Data().write(to: onDisk)
+    let typed = root.appending(path: "--Users-test-evermark--/2026-10-29T12-14-59-163Z_s1.jsonl").path
+
+    let list = #"{"id":"1","result":{"agents":[{"agent":"pi","pane_id":"a","agent_status":"done","agent_session":{"kind":"path","value":"\#(typed)"}}]}}"#
+    #expect(try parseHerdrAgents(Data(list.utf8))[0].sessionPath == onDisk.path)
+    #expect(PiState("1\tdone\t\t1\t\(typed)")?.sessionPath == onDisk.path)
+    #expect(parsePiSession(file([], parent: #","parentSession":"\#(typed)""#), path: path, updatedAt: at(9))?.parentPath == onDisk.path)
+}
