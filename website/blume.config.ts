@@ -15,6 +15,19 @@ export default defineConfig({
     ],
   },
   logo: { image: "/icon.png", text: "Rounds" },
+  // Share cards in the colours of the dark site, with the app icon; the home page has its own picture (pages/index.astro).
+  seo: {
+    og: {
+      logo: "/icon.svg",
+      palette: {
+        accent: colors.accentSoft,
+        background: colors.inverseBackground,
+        foreground: colors.inverseForeground,
+        muted: colors.inverseMuted,
+        border: colors.inverseBorder,
+      },
+    },
+  },
   deployment: {
     site: "https://rounds.henry.wang",
   },
