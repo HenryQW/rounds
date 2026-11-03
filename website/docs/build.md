@@ -17,7 +17,7 @@ scripts/bundle.sh --install
 open /Applications/Rounds.app
 ```
 
-`scripts/bundle.sh` builds `build/Rounds.app` and signs it with an ad-hoc signature. `--install` also copies it to `/Applications`. To start a new build, quit Rounds first: `pkill -x Rounds`.
+`scripts/bundle.sh` builds `build/Rounds.app` and signs it. It uses the identity "Rounds Self-Signed" when a keychain has it, as releases do, else an ad-hoc signature. `--install` also copies it to `/Applications`. To start a new build, quit Rounds first: `pkill -x Rounds`.
 
 After the first launch, install the hooks. See [Install](/install#install-the-hooks).
 
@@ -26,7 +26,7 @@ After the first launch, install the hooks. See [Install](/install#install-the-ho
 | Task | Command |
 | --- | --- |
 | Run the tests | `scripts/test.sh` |
-| Make the disk image `build/Rounds-<version>.dmg` | `scripts/dmg.sh` (after `scripts/bundle.sh`) |
+| Make the disk image `build/Rounds.dmg` | `scripts/dmg.sh` (after `scripts/bundle.sh`) |
 | Take the README picture (demo data) | `scripts/screenshots.sh` |
 | Run the docs site | `cd website && pnpm install && pnpm dev` |
 

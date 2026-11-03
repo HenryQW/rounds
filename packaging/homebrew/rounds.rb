@@ -4,7 +4,7 @@ cask "rounds" do
   version "@VERSION@"
   sha256 "@SHA256@"
 
-  url "https://github.com/HenryQW/rounds/releases/download/v#{version}/Rounds-#{version}.dmg"
+  url "https://github.com/HenryQW/rounds/releases/download/v#{version}/Rounds.dmg"
   name "Rounds"
   desc "Keeps a tab on your AI coding agents from the edge of your screen"
   homepage "https://rounds.henry.wang/"

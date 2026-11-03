@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build "build/Rounds.app" (ad-hoc signed). --install also copies it to /Applications.
+# Build "build/Rounds.app". --install also copies it to /Applications.
 set -e
 cd "$(dirname "$0")/.."
 swift build -c release
@@ -15,7 +15,11 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $(cat VERSION)" -c "Add :CFBundleVersion string $(cat VERSION)" "$APP/Contents/Info.plist"
 cp Resources/*.svg Resources/rounds-pi.ts "$APP/Contents/Resources/"
 cp Resources/AppIcon.icns Resources/henry.png "$APP/Contents/Resources/"
-codesign --force --deep -s - "$APP"
+# The stable self-signed identity when a keychain has it (the release, website/docs/release.md): each build then has the
+# same designated requirement, so macOS permissions and Sparkle's code signature check hold across updates. Else ad hoc.
+IDENTITY="Rounds Self-Signed"
+security find-identity -p codesigning | grep -q "\"$IDENTITY\"" || IDENTITY=-
+codesign --force --deep -s "$IDENTITY" "$APP"
 if [ "$1" = "--install" ]; then
     rm -rf "/Applications/Rounds.app"
     cp -R "$APP" /Applications/

@@ -1,9 +1,9 @@
 #!/bin/sh
-# Pack build/Rounds.app into build/Rounds-<VERSION>.dmg, with a link to /Applications to drag it onto.
+# Pack build/Rounds.app into build/Rounds.dmg, with a link to /Applications to drag it onto. A release publishes this
+# one file for the download, the Homebrew cask and Sparkle updates.
 set -e
 cd "$(dirname "$0")/.."
-VERSION="$(cat VERSION)"
-DMG="build/Rounds-$VERSION.dmg"
+DMG="build/Rounds.dmg"
 STAGE="$(mktemp -d)"
 cp -R build/Rounds.app "$STAGE/"
 ln -s /Applications "$STAGE/Applications"
