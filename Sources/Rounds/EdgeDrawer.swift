@@ -391,21 +391,27 @@ private struct EdgePill: View {
 
     var body: some View {
         let waiting = model.yourTurnCount, running = model.runningCount, ringing = model.ringing, failing = model.failedCount > 0
+        let peeking = ringing && !reduceMotion
         Button(action: open) {
             ZStack {
                 if model.waitCount > 0 {
                     // Red wins over orange: a failed turn stopped and does not go on by itself.
-                    tab(failing ? Color(nsColor: .systemRed) : Color(nsColor: .systemOrange), count: waiting,
-                        ink: failing ? Color(red: 0.2, green: 0.02, blue: 0.02) : Color(red: 0.17, green: 0.1, blue: 0), broken: failing)
+                    let fill: NSColor = failing ? .systemRed : .systemOrange
+                    let ink = failing ? NSColor(srgbRed: 0.2, green: 0.02, blue: 0.02, alpha: 1) : NSColor(srgbRed: 0.17, green: 0.1, blue: 0, alpha: 1)
+                    if peeking {
+                        RingingTab(fill: fill, ink: ink, count: waiting, broken: failing, right: DrawerSettings.shared.edge == .right)
+                    } else {
+                        tab(Color(nsColor: fill), count: waiting, ink: Color(nsColor: ink), broken: failing)
+                    }
                 } else if waiting > 0 {
                     tab(Color(nsColor: .systemGreen), count: waiting, ink: Color(red: 0.02, green: 0.16, blue: 0.06), symbol: "wineglass.fill")
                 } else if running > 0 {
                     tab(.roundsBlue, count: running, ink: .white, pour: true)
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: ringing ? EdgePill.height : .infinity)
+            // A ringing pill keeps its rest width; its layers peek and ring past it, into the panel's spare room.
+            .frame(maxWidth: peeking ? EdgePill.width : .infinity, maxHeight: ringing ? EdgePill.height : .infinity)
             .contentShape(EdgePill.shape)
-            .modifier(Peek(on: ringing && !reduceMotion, color: Color(nsColor: failing ? .systemRed : .systemOrange)))
             .animation(.smooth(duration: 0.6), value: ringing)
         }
         .buttonStyle(.plain)
@@ -431,9 +437,8 @@ private struct EdgePill: View {
         .accessibilityValue(waiting > 0 ? "\(waiting) in Last Call" + (failing ? ", \(model.failedCount) failed" : "") : running > 0 ? "\(running) running" : "")
     }
 
-    /// An opaque tab with the count: poured (`pour`), with a drink and fizz behind the count, or under a cocktail shaker
-    /// that shakes as the pill peeks, or a glass that shakes and breaks (`broken`). Still with Reduce Motion, and while no unseen wait rings (the glass
-    /// broken).
+    /// An opaque tab with the count: poured (`pour`), with a drink and fizz behind the count, or under a cocktail shaker,
+    /// or a broken glass (`broken`). Still: a ringing pill is a `RingingTab`, or this tab with Reduce Motion.
     private func tab(_ fill: Color, count: Int, ink: Color, pour: Bool = false, symbol: String? = nil, broken: Bool = false) -> some View {
         ZStack {
             EdgePill.shape.fill(fill)
@@ -453,38 +458,10 @@ private struct EdgePill: View {
                 if let symbol {
                     // A served glass, still: a result waits, nothing is blocked.
                     Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
+                } else if broken {
+                    BrokenGlass(color: ink, lineWidth: 1.5).frame(width: 11, height: 14)
                 } else if !pour {
-                    // The same 2 s cycle as the peek, which starts 0.1 s after the pill turns orange.
-                    TimelineView(.periodic(from: .now.addingTimeInterval(-1.9), by: 2)) { context in
-                        if broken {
-                            // At rest the glass is broken (the start and the end); each peek makes it whole, shakes it like
-                            // the shaker, then breaks it.
-                            KeyframeAnimator(initialValue: Break(), trigger: reduceMotion || !model.ringing ? nil : context.date) { b in
-                                BrokenGlass(broken: b.broken, color: ink, lineWidth: 1.5).frame(width: 11, height: 14)
-                                    .rotationEffect(.degrees(b.angle), anchor: .bottom)
-                            } keyframes: { _ in
-                                KeyframeTrack(\.angle) {
-                                    for angle in [-16.0, 16, -16, 16, -16, 16] { LinearKeyframe(angle, duration: 0.09) }
-                                    SpringKeyframe(0, duration: 0.2)
-                                }
-                                KeyframeTrack(\.broken) {
-                                    MoveKeyframe(0)
-                                    LinearKeyframe(0, duration: 0.6)
-                                    LinearKeyframe(1, duration: 0.4)
-                                }
-                            }
-                        } else {
-                            Shaker().frame(width: 10, height: 16)
-                                .keyframeAnimator(initialValue: 0.0, trigger: reduceMotion || !model.ringing ? nil : context.date) { view, angle in
-                                    view.rotationEffect(.degrees(angle))
-                                } keyframes: { _ in
-                                    KeyframeTrack {
-                                        for angle in [-16.0, 16, -16, 16, -16, 16] { LinearKeyframe(angle, duration: 0.09) }
-                                        SpringKeyframe(0, duration: 0.2)
-                                    }
-                                }
-                        }
-                    }
+                    Shaker().frame(width: 10, height: 16)
                 }
                 Text("\(count)")
                     .font(.system(size: 14, weight: .semibold).monospacedDigit())
@@ -495,9 +472,6 @@ private struct EdgePill: View {
             .foregroundStyle(ink)
         }
     }
-
-    /// The failed pill's glass in one peek: its shake angle and how far it is broken (`BrokenGlass.broken`).
-    private struct Break { var angle = 0.0, broken = 1.0 }
 
     /// A cocktail shaker (no SF Symbol has one): a cap, a strainer top and a tin that narrows to the base.
     private struct Shaker: Shape {
@@ -528,42 +502,181 @@ private struct EdgePill: View {
         }
     }
 
-    /// Every 2 s the attention pill peeks, and a ring in its colour (orange, or red for a failure) grows out of it and fades (`ring` goes 0 to 1); off, the
-    /// pill fills its panel (and no animation runs). The timeline starts each cycle, so no frames are drawn while the
-    /// pill rests between peeks.
-    private struct Peek: ViewModifier {
-        let on: Bool, color: Color
+    /// The ringing pill (an unseen wait, without Reduce Motion), as layers that Core Animation runs. Every 2 s the pill
+    /// peeks `peek` points out from the edge with a small bounce, rests and slides back; a ring in its colour grows out of
+    /// it and fades; the shaker shakes, or the glass becomes whole, shakes and breaks. The render server runs the cycle,
+    /// so Rounds does no work on each frame (the same keyframes in SwiftUI took about 15% CPU). The layers draw past the
+    /// view, into the panel's spare room.
+    private struct RingingTab: NSViewRepresentable {
+        let fill: NSColor, ink: NSColor, count: Int, broken: Bool, right: Bool
 
-        private struct Phase { var width: CGFloat, ring = 0.0 }
+        func makeNSView(context: Context) -> LayerView { LayerView() }
+        func updateNSView(_ view: LayerView, context: Context) { view.show(self) }
 
-        func body(content: Content) -> some View {
-            if on {
-                let edge: UnitPoint = DrawerSettings.shared.edge == .right ? .trailing : .leading
-                // The first tick is 1.9 s back, so the first peek starts 0.1 s after the pill turns orange.
-                TimelineView(.periodic(from: .now.addingTimeInterval(-1.9), by: 2)) { context in
-                    content.keyframeAnimator(initialValue: Phase(width: EdgePill.width), trigger: context.date) { view, phase in
-                        view.frame(width: phase.width)
-                            .overlay {
-                                // Grows from the screen edge, inwards and up and down, into the panel's spare room.
-                                EdgePill.shape.strokeBorder(color, lineWidth: 3)
-                                    .scaleEffect(1 + 0.7 * phase.ring, anchor: edge)
-                                    .opacity(phase.ring == 0 ? 0 : 1 - phase.ring)
-                                    .allowsHitTesting(false)
-                            }
-                    } keyframes: { _ in
-                        KeyframeTrack(\.width) {
-                            SpringKeyframe(EdgePill.width + EdgePill.peek, duration: 0.35, spring: .bouncy)
-                            LinearKeyframe(EdgePill.width + EdgePill.peek, duration: 0.3)
-                            SpringKeyframe(EdgePill.width, duration: 0.45, spring: .smooth)
-                        }
-                        KeyframeTrack(\.ring) {
-                            MoveKeyframe(0)
-                            CubicKeyframe(1, duration: 1.2)
-                        }
-                    }
+        /// One cycle: how far the pill peeks (`extra`), the ring (0 to 1), the shake angle and how far the glass is
+        /// broken (`BrokenGlass.broken`). At rest the glass is broken (the start and the end).
+        private struct Cycle { var extra = 0.0, ring = 0.0, angle = 0.0, broken = 1.0 }
+        private static let cycle = KeyframeTimeline(initialValue: Cycle()) {
+            KeyframeTrack(\.extra) {
+                SpringKeyframe(EdgePill.peek, duration: 0.35, spring: .bouncy)
+                LinearKeyframe(EdgePill.peek, duration: 0.3)
+                SpringKeyframe(0, duration: 0.45, spring: .smooth)
+            }
+            KeyframeTrack(\.ring) {
+                MoveKeyframe(0)
+                CubicKeyframe(1, duration: 1.2)
+            }
+            KeyframeTrack(\.angle) {
+                for angle in [-16.0, 16, -16, 16, -16, 16] { LinearKeyframe(angle, duration: 0.09) }
+                SpringKeyframe(0, duration: 0.2)
+            }
+            KeyframeTrack(\.broken) {
+                MoveKeyframe(0)
+                LinearKeyframe(0, duration: 0.6)
+                LinearKeyframe(1, duration: 0.4)
+            }
+        }
+        /// The cycle at 60 points a second; Core Animation runs straight lines between them.
+        private static let samples = (0...120).map { cycle.value(time: Double($0) / 60) }
+
+        /// A layer-hosting view, top-down like SwiftUI. It takes no clicks: the pill's button does.
+        final class LayerView: NSView {
+            private var tab: RingingTab?
+            private var built: (RingingTab, CGSize)?
+
+            init() {
+                super.init(frame: .zero)
+                layer = CALayer()
+                layer?.isGeometryFlipped = true
+                wantsLayer = true
+            }
+            required init?(coder: NSCoder) { fatalError() }
+
+            override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+            func show(_ tab: RingingTab) {
+                self.tab = tab
+                needsLayout = true
+            }
+
+            override func layout() {
+                super.layout()
+                guard let tab, built.map({ $0.0.fill != tab.fill || $0.0.count != tab.count || $0.0.broken != tab.broken
+                    || $0.0.right != tab.right || $0.1 != bounds.size }) ?? true else { return }
+                built = (tab, bounds.size)
+                build(tab)
+            }
+
+            override func viewDidChangeEffectiveAppearance() { built = nil; needsLayout = true }
+            override func viewDidChangeBackingProperties() { built = nil; needsLayout = true }
+
+            /// Makes the layers at rest and starts the cycle 0.1 s from now.
+            private func build(_ tab: RingingTab) {
+                guard let root = layer else { return }
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                defer { CATransaction.commit() }
+                root.sublayers = nil
+                let size = bounds.size, scale = window?.backingScaleFactor ?? 2
+                var fill = CGColor.clear, ink = CGColor.clear
+                effectiveAppearance.performAsCurrentDrawingAppearance { fill = tab.fill.cgColor; ink = tab.ink.cgColor }
+                // The pill with `extra` points of peek on the inner side.
+                func pill(_ extra: Double, inset: CGFloat) -> CGPath {
+                    let rect = CGRect(x: tab.right ? -extra : 0, y: 0, width: size.width + extra, height: size.height)
+                    return EdgePill.shape.inset(by: inset).path(in: rect).cgPath
                 }
-            } else {
-                content
+                func shape(_ path: CGPath, fill: CGColor? = nil, stroke: CGColor? = nil, width: CGFloat = 0) -> CAShapeLayer {
+                    let layer = CAShapeLayer()
+                    layer.frame = CGRect(origin: .zero, size: size)
+                    (layer.path, layer.fillColor, layer.strokeColor, layer.lineWidth) = (path, fill, stroke, width)
+                    layer.lineCap = .round
+                    layer.lineJoin = .round
+                    return layer
+                }
+                var cycle: [(CALayer, String, [Any])] = []
+
+                let body = shape(pill(0, inset: 0), fill: fill)
+                let edge = shape(pill(0, inset: 0.25), stroke: NSColor.black.withAlphaComponent(0.3).cgColor, width: 0.5)
+                cycle += [(body, "path", RingingTab.samples.map { pill($0.extra, inset: 0) }),
+                          (edge, "path", RingingTab.samples.map { pill($0.extra, inset: 0.25) })]
+
+                // The count under the shaker or the glass, in the middle of the visible pill.
+                let content = CALayer()
+                content.frame = body.frame
+                cycle.append((content, "transform.translation.x", RingingTab.samples.map { (tab.right ? -0.5 : 0.5) * $0.extra }))
+                var font = NSFont.monospacedDigitSystemFont(ofSize: 14, weight: .semibold)
+                func text() -> NSAttributedString {
+                    NSAttributedString(string: "\(tab.count)", attributes: [.font: font, .foregroundColor: ink, .kern: -0.2])
+                }
+                if text().size().width > size.width - 4 {
+                    font = .monospacedDigitSystemFont(ofSize: max(7, 14 * (size.width - 4) / text().size().width), weight: .semibold)
+                }
+                let count = CATextLayer()
+                count.string = text()
+                count.alignmentMode = .center
+                count.contentsScale = scale
+                let textHeight = ceil(text().size().height)
+                let iconSize = tab.broken ? CGSize(width: 11, height: 14) : CGSize(width: 10, height: 16)
+                let top = (size.height - iconSize.height - 7 - textHeight) / 2
+                count.frame = CGRect(x: 0, y: top + iconSize.height + 7, width: size.width, height: textHeight)
+                let icon = CALayer()
+                icon.frame = CGRect(origin: CGPoint(x: (size.width - iconSize.width) / 2, y: top), size: iconSize)
+                let unit = CGRect(origin: .zero, size: iconSize)
+                cycle.append((icon, "transform.rotation.z", RingingTab.samples.map { $0.angle * .pi / 180 }))
+                if tab.broken {
+                    // Shakes from its base.
+                    icon.anchorPoint = CGPoint(x: 0.5, y: 1)
+                    icon.position = CGPoint(x: icon.position.x, y: icon.frame.maxY + iconSize.height / 2)
+                    func lines(_ points: [CGPoint]) -> CGPath {
+                        Path { $0.addLines(points.map { CGPoint(x: $0.x * iconSize.width, y: $0.y * iconSize.height) }) }.cgPath
+                    }
+                    func glass(_ points: [CGPoint]) -> CAShapeLayer {
+                        let layer = shape(lines(points), stroke: ink, width: 1.5)
+                        layer.frame = unit
+                        return layer
+                    }
+                    let crack = RingingTab.samples.map { min($0.broken * 2, 1) }, fall = RingingTab.samples.map { max($0.broken * 2 - 1, 0) }
+                    let outline = glass(BrokenGlass.outline), split = glass(BrokenGlass.split), line = glass(BrokenGlass.crack)
+                    // The shard tips off; whole, its own break line is hidden, so the rim reads as one line.
+                    let shard = CALayer(), rim = glass(Array(BrokenGlass.shard.prefix(3))), cut = glass(Array(BrokenGlass.shard.suffix(3)))
+                    shard.frame = unit
+                    shard.addSublayer(rim)
+                    shard.addSublayer(cut)
+                    let pivot = CGPoint(x: 0.96 * iconSize.width, y: 0.35 * iconSize.height)
+                    func tip(_ fall: Double) -> CATransform3D {
+                        // About the pivot, as SwiftUI's rotation then offset.
+                        var t = CATransform3DMakeTranslation(pivot.x - unit.midX, pivot.y - unit.midY, 0)
+                        t = CATransform3DRotate(t, 15 * fall * .pi / 180, 0, 0, 1)
+                        t = CATransform3DTranslate(t, unit.midX - pivot.x, unit.midY - pivot.y, 0)
+                        return CATransform3DConcat(t, CATransform3DMakeTranslation(0.5 * fall, 2.5 * fall, 0))
+                    }
+                    shard.transform = tip(1)
+                    cycle += [(line, "strokeEnd", crack), (split, "strokeEnd", crack),
+                              (shard, "transform", fall.map { NSValue(caTransform3D: tip($0)) }),
+                              (cut, "opacity", fall.map { $0 > 0 ? 1 : 0 })]
+                    [outline, line, split, shard].forEach(icon.addSublayer)
+                } else {
+                    icon.addSublayer(shape(Shaker().path(in: unit).cgPath, fill: ink))
+                }
+                content.addSublayer(icon)
+                content.addSublayer(count)
+
+                // Grows from the screen edge, inwards and up and down.
+                let ring = shape(pill(0, inset: 1.5), stroke: fill, width: 3)
+                ring.anchorPoint = CGPoint(x: tab.right ? 1 : 0, y: 0.5)
+                ring.position = CGPoint(x: tab.right ? size.width : 0, y: size.height / 2)
+                ring.opacity = 0
+                cycle += [(ring, "path", RingingTab.samples.map { pill($0.extra, inset: 1.5) }),
+                          (ring, "transform.scale", RingingTab.samples.map { 1 + 0.7 * $0.ring }),
+                          (ring, "opacity", RingingTab.samples.map { $0.ring == 0 ? 0 : 1 - $0.ring })]
+
+                [body, edge, content, ring].forEach(root.addSublayer)
+                let start = CACurrentMediaTime() + 0.1
+                for (layer, key, values) in cycle {
+                    let animation = CAKeyframeAnimation(keyPath: key)
+                    (animation.values, animation.duration, animation.beginTime, animation.repeatCount) = (values, 2, start, .infinity)
+                    layer.add(animation, forKey: key)
+                }
             }
         }
     }

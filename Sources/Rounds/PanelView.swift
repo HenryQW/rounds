@@ -100,10 +100,10 @@ struct BrokenGlass: View {
             Path { $0.addLines(points.map { CGPoint(x: r.minX + $0.x * r.width, y: r.minY + $0.y * r.height) }) }
         }
     }
-    private static let outline = [CGPoint(x: 0.7, y: 0), CGPoint(x: 0, y: 0), CGPoint(x: 0.12, y: 1), CGPoint(x: 0.88, y: 1), CGPoint(x: 0.958, y: 0.35)]
-    private static let crack = [CGPoint(x: 0.7, y: 0), CGPoint(x: 0.75, y: 0.2), CGPoint(x: 0.6, y: 0.5), CGPoint(x: 0.68, y: 0.8)]
-    private static let split = [CGPoint(x: 0.75, y: 0.2), CGPoint(x: 0.958, y: 0.35)]
-    private static let shard = [CGPoint(x: 0.7, y: 0), CGPoint(x: 1, y: 0), CGPoint(x: 0.958, y: 0.35), CGPoint(x: 0.75, y: 0.2), CGPoint(x: 0.7, y: 0)]
+    static let outline = [CGPoint(x: 0.7, y: 0), CGPoint(x: 0, y: 0), CGPoint(x: 0.12, y: 1), CGPoint(x: 0.88, y: 1), CGPoint(x: 0.958, y: 0.35)]
+    static let crack = [CGPoint(x: 0.7, y: 0), CGPoint(x: 0.75, y: 0.2), CGPoint(x: 0.6, y: 0.5), CGPoint(x: 0.68, y: 0.8)]
+    static let split = [CGPoint(x: 0.75, y: 0.2), CGPoint(x: 0.958, y: 0.35)]
+    static let shard = [CGPoint(x: 0.7, y: 0), CGPoint(x: 1, y: 0), CGPoint(x: 0.958, y: 0.35), CGPoint(x: 0.75, y: 0.2), CGPoint(x: 0.7, y: 0)]
 
     var body: some View {
         let ink = prominence == .increased ? Color.white : color
