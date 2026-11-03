@@ -4,6 +4,8 @@
 # The release commit (chore: release x.y.z) and merges are left out.
 # Usage: scripts/release-notes.sh <previous tag> <tag> <owner/repo>
 set -e
+# A missing tag would print notes with no commits: git log's error does not stop a pipe.
+git rev-parse -q --verify "$1^{commit}" >/dev/null && git rev-parse -q --verify "$2^{commit}" >/dev/null
 git log --no-merges --reverse --format='%s' "$1..$2" | awk -v prev="$1" -v tag="$2" -v repo="$3" '
 /^chore: release / { next }
 {
