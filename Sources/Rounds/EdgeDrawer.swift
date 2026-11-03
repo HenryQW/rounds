@@ -446,10 +446,7 @@ private struct EdgePill: View {
                     if pour {
                         // A darker drink, so the white count keeps about 7:1 (a lighter one gave 3.7:1).
                         Color.black.opacity(0.18).frame(height: EdgePill.height * 0.6)
-                        if !reduceMotion {
-                            Fizz(x: -4, size: 4, period: 1.9)
-                            Fizz(x: 3, size: 3, period: 2.6)
-                        }
+                        if !reduceMotion { Fizz() }
                     }
                 }
                 .clipShape(EdgePill.shape)
@@ -488,17 +485,53 @@ private struct EdgePill: View {
         }
     }
 
-    /// A bubble that rises 70 pt from the bottom of the blue tab and fades, every `period` s; `x` is from the middle.
-    private struct Fizz: View {
-        let x: CGFloat, size: CGFloat, period: Double
+    /// Two bubbles that rise 70 pt from the bottom of the blue tab and fade, each in its own period; `x` is from the
+    /// middle. Core Animation runs them, so Rounds does no work on each frame while sessions run.
+    private struct Fizz: NSViewRepresentable {
+        func makeNSView(context: Context) -> LayerView { LayerView() }
+        func updateNSView(_ view: LayerView, context: Context) {}
 
-        var body: some View {
-            Circle().fill(.white).frame(width: size, height: size)
-                .keyframeAnimator(initialValue: 0.0, repeating: true) { view, t in
-                    view.offset(x: x, y: -8 - 70 * t).opacity(t < 0.15 ? t / 0.15 : (1 - t) / 0.85)
-                } keyframes: { _ in
-                    KeyframeTrack { LinearKeyframe(1.0, duration: period) }
+        /// A layer-hosting view, top-down like SwiftUI. It takes no clicks: the pill's button does.
+        final class LayerView: NSView {
+            private var built: CGSize?
+
+            init() {
+                super.init(frame: .zero)
+                layer = CALayer()
+                layer?.isGeometryFlipped = true
+                wantsLayer = true
+            }
+            required init?(coder: NSCoder) { fatalError() }
+
+            override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+            override func layout() {
+                super.layout()
+                guard let root = layer, built != bounds.size else { return }
+                built = bounds.size
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                defer { CATransaction.commit() }
+                root.sublayers = nil
+                for (x, size, period) in [(-4.0, 4.0, 1.9), (3, 3, 2.6)] {
+                    let bubble = CALayer()
+                    bubble.bounds.size = CGSize(width: size, height: size)
+                    bubble.cornerRadius = size / 2
+                    bubble.backgroundColor = .white
+                    bubble.opacity = 0
+                    let bottom = bounds.maxY - 8 - size / 2
+                    bubble.position = CGPoint(x: bounds.midX + x, y: bottom)
+                    let rise = CABasicAnimation(keyPath: "position.y")
+                    (rise.fromValue, rise.toValue) = (bottom, bottom - 70)
+                    let fade = CAKeyframeAnimation(keyPath: "opacity")
+                    (fade.values, fade.keyTimes) = ([0, 1, 0], [0, 0.15, 1])
+                    for animation in [rise, fade] as [CAAnimation] {
+                        (animation.duration, animation.repeatCount) = (period, .infinity)
+                        bubble.add(animation, forKey: nil)
+                    }
+                    root.addSublayer(bubble)
                 }
+            }
         }
     }
 
