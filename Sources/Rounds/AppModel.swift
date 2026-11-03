@@ -267,16 +267,15 @@ final class AppModel {
         }
         let now = Date()
         var panes: [String: String] = [:]
+        let running = livePiSessions(piStates, running: Processes.isPi)
         piRows = piSessions.values.map { session in
             let state = piStates[session.id].flatMap { $0.sessionPath == session.path ? $0 : nil }
             // The extension names the process; a session without its line runs in a pi from before the install, or not at all.
-            let live = state.map { Processes.isPi($0.pid) } ?? false
+            let live = state != nil && running.contains(session.id)
             if live, let state, let pane = Processes.environment(of: state.pid, "HERDR_PANE_ID") { panes[pane] = session.path }
             // A session quiet for the Aged time is Older whatever its last message says.
             let aged = now.timeIntervalSince(session.updatedAt) > lastCall.agedAfter
-            // Only a recent session can be in Last Call, so only its folder is checked.
-            let gone = !aged && !FileManager.default.fileExists(atPath: session.cwd)
-            return SessionRow(pi: session, status: classifyPi(session, state: state, live: live && !aged, folderGone: gone))
+            return SessionRow(pi: session, status: classifyPi(session, state: state, live: live, aged: aged))
         }
         if panes != piPanes {
             piPanes = panes
@@ -440,22 +439,12 @@ final class AppModel {
         }
     }
 
-    /// A running pi session: its terminal (in rootshell, its pane), or its herdr pane. Else it resumes in herdr when herdr has a local
-    /// client (so no second terminal tab opens beside herdr's), else in a new terminal tab.
+    /// A pi session (only a running one has a row): its terminal (in rootshell, its pane), or its herdr pane.
     private func openPi(_ session: PiSession) {
-        let pid = piStates[session.id].flatMap { $0.sessionPath == session.path && Processes.isPi($0.pid) ? $0.pid : nil }
-        if let pid {
-            // A pi in a herdr pane runs under the herdr server, with no terminal app above it.
-            if let client = TerminalOpener.client(above: pid) { TerminalOpener.show(client) }
-            else if let pane = Processes.environment(of: pid, "HERDR_PANE_ID") { herdr?.focus(pane: pane) }
-            return
-        }
-        let inTerminal: @MainActor @Sendable () -> Void = {
-            let file = "'" + session.path.replacingOccurrences(of: "'", with: "'\\''") + "'"
-            TerminalOpener.show(nil, command: "pi --session \(file)", directory: session.cwd)
-        }
-        guard herdrOn, let herdr else { return inTerminal() }
-        herdr.resumePi(file: session.path, cwd: session.cwd, otherwise: inTerminal)
+        guard let pid = piStates[session.id].flatMap({ $0.sessionPath == session.path && Processes.isPi($0.pid) ? $0.pid : nil }) else { return }
+        // A pi in a herdr pane runs under the herdr server, with no terminal app above it.
+        if let client = TerminalOpener.client(above: pid) { TerminalOpener.show(client) }
+        else if let pane = Processes.environment(of: pid, "HERDR_PANE_ID") { herdr?.focus(pane: pane) }
     }
 
     /// Demo mode only: new placeholder rows (`Demo`'s window-turn scene).

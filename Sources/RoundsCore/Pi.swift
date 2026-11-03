@@ -131,27 +131,34 @@ public func piStateDirectory() -> URL {
     hookStateDirectory().deletingLastPathComponent().appending(path: "pi")
 }
 
-/// A pi session's state: the newer of the extension's state and the last message in the session file. The extension
-/// carries the waiting state and the process; the file covers sessions that ran without it. `live`: the session's pi
-/// process runs (the extension names it). A wait (Needs input, Failed) never ages, so like
-/// Working it needs that process: an old session that ended in an error and was closed is Offline, not in Last Call.
-public func classifyPi(_ session: PiSession, state: PiState?, live: Bool, folderGone: Bool = false) -> SessionStatus {
+/// The sessions that a running pi process runs now, by session id: of the lines that name a running pid, the newest.
+/// After /new or /resume the process runs another session, and the session it left keeps a line with the same pid.
+public func livePiSessions(_ states: [String: PiState], running: (Int32) -> Bool) -> Set<String> {
+    let newest = Dictionary(states.map { ($0.value.pid, $0) }) { $0.value.at >= $1.value.at ? $0 : $1 }
+    return Set(newest.values.filter { running($0.value.pid) }.map(\.key))
+}
+
+/// A pi session's state: the newer of the extension's state and the last message in the session file. `live`: a pi
+/// process runs the session (`livePiSessions`); without one the session is closed (its herdr pane or terminal closed,
+/// or pi quit) and gets no row, like an archived Claude session (decided 2026-11-03). `aged`: quiet for the Aged
+/// time, so not Working, and a wait (Needs input, Failed), which never ages, is Offline, not in Last Call for ever.
+public func classifyPi(_ session: PiSession, state: PiState?, live: Bool, aged: Bool = false) -> SessionStatus {
     func quiet(_ s: SessionState) -> SessionStatus { SessionStatus(s, since: session.updatedAt) }
-    // A removed folder (a deleted worktree) ends the session, like an archived Claude session.
-    if folderGone && !live { return SessionStatus(.finished, since: session.updatedAt, group: .hidden) }
+    guard live else { return SessionStatus(.finished, since: session.updatedAt, group: .hidden) }
+    let active = !aged
     if let turn = session.turn, state.map({ turn.at > $0.at }) ?? true {
         switch turn.kind {
-        case .working: return live ? SessionStatus(.working, since: turn.at) : quiet(.offline)
+        case .working: return active ? SessionStatus(.working, since: turn.at) : quiet(.offline)
         case .done: return quiet(.finished)
-        case .error: return live ? SessionStatus(.failed, turn.detail, since: turn.at) : quiet(.offline)
+        case .error: return active ? SessionStatus(.failed, turn.detail, since: turn.at) : quiet(.offline)
         case .stopped: return quiet(.stopped)
         }
     }
     guard let state else { return quiet(.finished) }
     switch state.state {
-    case "blocked": return live ? SessionStatus(.needsInput, state.detail, since: state.at) : quiet(.offline)
-    case "working": return live ? SessionStatus(.working, state.detail, since: state.at) : quiet(.offline)
-    case "error": return live ? SessionStatus(.failed, state.detail, since: state.at) : quiet(.offline)
+    case "blocked": return active ? SessionStatus(.needsInput, state.detail, since: state.at) : quiet(.offline)
+    case "working": return active ? SessionStatus(.working, state.detail, since: state.at) : quiet(.offline)
+    case "error": return active ? SessionStatus(.failed, state.detail, since: state.at) : quiet(.offline)
     case "stopped": return SessionStatus(.stopped, since: state.at)
     case "idle": return quiet(.finished)
     default: return SessionStatus(.finished, since: state.at)

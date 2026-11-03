@@ -49,40 +49,6 @@ final class HerdrMonitor: @unchecked Sendable {
         }
     }
 
-    /// Resumes a stopped pi session inside herdr (spec 2.7), so a herdr tab already open in a terminal is reused: a new
-    /// herdr tab in the session's folder runs `pi --session`, and the client's terminal comes forward. With no local
-    /// client, or when herdr fails, `otherwise` opens a terminal tab instead.
-    func resumePi(file: String, cwd: String, otherwise: @escaping @MainActor () -> Void) {
-        queue.async {
-            guard let client = Self.localClient(),
-                  let pane = Self.cli(["tab", "create", "--cwd", cwd, "--focus"]).flatMap(herdrCreatedPane),
-                  Self.cli(["pane", "run", pane, "pi --session '\(file.replacingOccurrences(of: "'", with: "'\\''"))'"]) != nil else {
-                DispatchQueue.main.async { MainActor.assumeIsolated { otherwise() } }
-                return
-            }
-            DispatchQueue.main.async { MainActor.assumeIsolated { TerminalOpener.show(client) } }
-        }
-    }
-
-    /// Runs the herdr command line; its output, or nil when it fails.
-    private static func cli(_ arguments: [String]) -> Data? {
-        let process = Process()
-        process.executableURL = URL.homeDirectory.appending(path: ".local/bin/herdr")
-        process.arguments = arguments
-        let output = Pipe()
-        (process.standardOutput, process.standardError) = (output, FileHandle.nullDevice)
-        do {
-            try process.run()
-        } catch {
-            log.error("herdr \(arguments.first ?? "", privacy: .public) failed: \(String(describing: error), privacy: .public)")
-            return nil
-        }
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        if process.terminationStatus != 0 { log.error("herdr \(arguments.prefix(2).joined(separator: " "), privacy: .public) exited \(process.terminationStatus)") }
-        return process.terminationStatus == 0 ? data : nil
-    }
-
     /// Shows herdr: the terminal of a local client, else a new terminal window that runs herdr.
     func show() {
         queue.async {
@@ -198,7 +164,7 @@ final class HerdrMonitor: @unchecked Sendable {
     }
 }
 
-/// Shows a terminal program (herdr, a pi session) through AppleScript (macOS asks the user once per app).
+/// Shows herdr, or the terminal of a pi session, through AppleScript (macOS asks the user once per app).
 @MainActor
 enum TerminalOpener {
     struct Client: Sendable {
@@ -224,12 +190,11 @@ enum TerminalOpener {
         return nil
     }
 
-    /// A local client: its exact rootshell pane, else its app. No local client: `command` in `directory`, in a new tab
-    /// of a running rootshell (a new window when it has none), else a new rootshell window, else a new Ghostty window.
-    /// herdr attaches to its session with the agent already selected.
-    static func show(_ client: Client?, command: String = "herdr", directory: String? = nil) {
-        func quoted(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
-        let arguments = "with command \(quoted(command))" + (directory.map { " in directory \(quoted($0))" } ?? "")
+    /// A local client: its exact rootshell pane, else its app. No local client: herdr in a new tab of a running
+    /// rootshell (a new window when it has none), else a new rootshell window, else a new Ghostty window. herdr
+    /// attaches to its session with the agent already selected.
+    static func show(_ client: Client?) {
+        let arguments = "with command \"herdr\""
         if let client {
             if client.app.bundleIdentifier == rootshell, let pane = client.rootshellPane {
                 run("tell application id \"\(rootshell)\" to focus pane with id \"\(pane.uuidString)\"")
@@ -242,8 +207,7 @@ enum TerminalOpener {
                 run("tell application id \"\(rootshell)\"\ncreate window \(arguments)\nactivate\nend tell")
             }
         } else if NSWorkspace.shared.urlForApplication(withBundleIdentifier: ghostty) != nil {
-            let input = (directory.map { "cd '\($0.replacingOccurrences(of: "'", with: "'\\''"))' && " } ?? "") + command
-            run("tell application id \"\(ghostty)\"\nnew window with configuration {initial input:\(quoted(input)) & linefeed}\nactivate\nend tell")
+            run("tell application id \"\(ghostty)\"\nnew window with configuration {initial input:\"herdr\" & linefeed}\nactivate\nend tell")
         }
     }
 

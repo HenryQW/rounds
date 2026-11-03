@@ -86,25 +86,31 @@ func piStateFromTheExtension(raw: String, detail: String, expected: SessionState
     #expect(s.state == expected && s.detail == detail)
 }
 
-@Test func newerOfExtensionAndFileWinsAndADeadProcessIsOffline() {
+@Test func newerOfExtensionAndFileWinsAndAnAgedWaitIsOffline() {
     let working = PiTurn(kind: .working, at: at(8))
     // A prompt after the last state: the file says the turn runs (an extension that no longer loads).
     #expect(classifyPi(session(turn: working), state: state("done", at: 5), live: true).state == .working)
-    #expect(classifyPi(session(turn: working), state: nil, live: false).state == .offline)
-    #expect(classifyPi(session(turn: PiTurn(kind: .done, at: at(2))), state: state("blocked", at: 5), live: false).state == .offline)
-    // A closed session that ended in an error does not wait in Last Call for ever.
-    #expect(classifyPi(session(turn: PiTurn(kind: .done, at: at(2))), state: state("error", "x", at: 5), live: false).state == .offline)
-    #expect(classifyPi(session(turn: PiTurn(kind: .error, detail: "x", at: at(8))), state: nil, live: false).state == .offline)
     #expect(classifyPi(session(turn: PiTurn(kind: .error, detail: "x", at: at(8))), state: nil, live: true).state == .failed)
     #expect(classifyPi(session(turn: nil), state: nil, live: true).state == .finished)
+    // A session quiet for the Aged time is not Working, and its wait does not stay in Last Call for ever.
+    #expect(classifyPi(session(turn: working), state: nil, live: true, aged: true).state == .offline)
+    #expect(classifyPi(session(turn: PiTurn(kind: .done, at: at(2))), state: state("blocked", at: 5), live: true, aged: true).state == .offline)
 }
 
-@Test func sessionWhoseFolderIsGoneLeavesTheList() {
-    // A removed worktree: the session file stays, but the session cannot go on.
-    let done = session(turn: PiTurn(kind: .done, at: at(2)))
-    #expect(classifyPi(done, state: nil, live: false, folderGone: true).group == .hidden)
-    // A pi that still runs in the removed folder keeps its state.
-    #expect(classifyPi(done, state: state("blocked", at: 5), live: true, folderGone: true).state == .needsInput)
+@Test(arguments: ["done", "idle", "stopped", "working", "blocked", "error"])
+func closedSessionLeavesTheList(raw: String) {
+    // Its pi process ended: the user closed the herdr pane or the terminal, or quit pi. It does not show, and so it
+    // does not reopen on a click.
+    #expect(classifyPi(session(turn: PiTurn(kind: .done, at: at(2))), state: state(raw, at: 5), live: false).group == .hidden)
+    #expect(classifyPi(session(turn: PiTurn(kind: .working, at: at(8))), state: nil, live: false).group == .hidden)
+}
+
+@Test func aPiProcessRunsTheSessionOfItsNewestLine() {
+    // After /new or /resume the process runs another session; the session it left keeps a line with the same pid.
+    let left = PiState(at: at(5), state: "idle", detail: "", pid: 7, sessionPath: "/s/a.jsonl")
+    let now = PiState(at: at(9), state: "working", detail: "", pid: 7, sessionPath: "/s/b.jsonl")
+    let closed = PiState(at: at(9), state: "done", detail: "", pid: 8, sessionPath: "/s/c.jsonl")
+    #expect(livePiSessions(["a": left, "b": now, "c": closed], running: { $0 == 7 }) == ["b"])
 }
 
 @Test func aPiForkAlertsLikeTheUsersOwnSession() {
