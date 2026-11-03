@@ -580,11 +580,11 @@ private struct EdgePill: View {
             init() {
                 super.init(frame: .zero)
                 layer = CALayer()
-                layer?.isGeometryFlipped = true
                 wantsLayer = true
             }
             required init?(coder: NSCoder) { fatalError() }
 
+            override var isFlipped: Bool { true }
             override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
             func show(_ tab: RingingTab) {
