@@ -27,6 +27,11 @@ jobs:
           echo "VERSION=$(cat VERSION)" >> "$GITHUB_ENV"
           test "v$(cat VERSION)" = "$GITHUB_REF_NAME"
 
+      - name: Check the tap token
+        if: env.TAP_TOKEN != ''
+        # Before anything is published: an expired token would leave the cask on the old version.
+        run: scripts/check-tap-token.sh 0
+
       - name: Test
         run: swift test
 
@@ -61,6 +66,8 @@ jobs:
           </rss>
           EOF
           xmllint --noout build/appcast.xml
+          # As each installed copy will: the signature against SUPublicEDKey, the length and the version.
+          swift scripts/verify-update.swift build/Rounds.app "build/Rounds-$VERSION.zip" build/appcast.xml
 
       - name: Publish the release
         env:
@@ -69,11 +76,10 @@ jobs:
           cp "build/Rounds-$VERSION.dmg" build/Rounds.dmg
           # In build/, so the checksum file names the bare file name and `shasum -c` works next to the download.
           (cd build && shasum -a 256 "Rounds-$VERSION.dmg" | tee "Rounds-$VERSION.dmg.sha256")
-          # Notes: the subject of each commit since the previous tag; the first release has no previous tag.
+          # Notes: the commits since the previous tag, grouped by type; the first release has no previous tag.
           PREV="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
           if [ -n "$PREV" ]; then
-            git log --no-merges --format='- %s' "$PREV..HEAD" > build/notes.md
-            printf '\nAll changes: https://github.com/%s/compare/%s...%s\n' "$GITHUB_REPOSITORY" "$PREV" "$GITHUB_REF_NAME" >> build/notes.md
+            scripts/release-notes.sh "$PREV" "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY" > build/notes.md
           else
             echo "First release." > build/notes.md
           fi

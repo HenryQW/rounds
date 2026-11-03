@@ -1,0 +1,31 @@
+name: Commits
+
+# Each pushed or proposed commit's subject follows Conventional Commits (AGENTS.md); see scripts/check-commits.sh.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  subjects:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Check the commit subjects
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          # A pull request: its commits. A push: the pushed commits; a new branch has no "before", so its last commit.
+          if [ "$EVENT" = pull_request ]; then RANGE="$BASE..$HEAD"
+          elif [ "$BEFORE" = 0000000000000000000000000000000000000000 ]; then RANGE="$HEAD~1..$HEAD"
+          else RANGE="$BEFORE..$HEAD"; fi
+          scripts/check-commits.sh "$RANGE"

@@ -19,12 +19,17 @@ The workflow stops if the tag is not `v` followed by the version in `VERSION`.
 
 ## What the workflow does
 
-1. It runs the tests.
-2. It builds `Rounds.app` with `scripts/bundle.sh` and the disk image with `scripts/dmg.sh`.
-3. It zips the app as `Rounds-<version>.zip`, signs the zip with the Sparkle key, and writes `appcast.xml`, the feed that installed copies of Rounds read for updates. It stops if the key is not set.
-4. It publishes a GitHub release with `Rounds-<version>.dmg`, its SHA-256 file, `Rounds.dmg`, the zip and `appcast.xml`. The download link on the home page always points to the `Rounds.dmg` of the latest release. The release notes list the subject of each commit since the previous tag, with a link to all changes. The first release says "First release."
-5. If `TAP_TOKEN` is set, it writes the new version and checksum into `Casks/rounds.rb` in `HenryQW/homebrew-tap`.
+1. If `TAP_TOKEN` is set, it checks that the token works (`scripts/check-tap-token.sh`), before it publishes anything.
+2. It runs the tests.
+3. It builds `Rounds.app` with `scripts/bundle.sh` and the disk image with `scripts/dmg.sh`.
+4. It zips the app as `Rounds-<version>.zip`, signs the zip with the Sparkle key, and writes `appcast.xml`, the feed that installed copies of Rounds read for updates. It stops if the key is not set. Then `scripts/verify-update.swift` checks the update as each installed copy will: the signature against `SUPublicEDKey` in the new app, the zip's length, and the version. It stops on a mismatch.
+5. It publishes a GitHub release with `Rounds-<version>.dmg`, its SHA-256 file, `Rounds.dmg`, the zip and `appcast.xml`. The download link on the home page always points to the `Rounds.dmg` of the latest release. The release notes (`scripts/release-notes.sh`) list the commits since the previous tag under Breaking changes, Features, Fixes, Performance, Documentation and Other, by their Conventional Commits type, with the scope in bold and a link to all changes. The first release says "First release."
+6. If `TAP_TOKEN` is set, it writes the new version and checksum into `Casks/rounds.rb` in `HenryQW/homebrew-tap`.
 
+## Checks
+
+- **Commits** (`.github/workflows/commits.yml`): each commit pushed to `main`, or in a pull request, must have a Conventional Commits subject (`scripts/check-commits.sh`), so the release notes can group it.
+- **Tap token** (`.github/workflows/tap-token.yml`): each Monday, it fails when `TAP_TOKEN` does not work or expires within 30 days. GitHub emails the owner about a failed scheduled run. Run it by hand from the Actions tab after you set a new token.
 
 ## Signing
 
