@@ -477,36 +477,27 @@ const desk = pool.map(([name, src]) => {
     color: #05290f;
   }
 
-  /* Running: a darker drink 60 % high, with two bubbles that rise 70 pt and fade. */
-  .pill :global(.drink) {
-    background: rgb(0 0 0 / 0.18);
-    bottom: 0;
-    height: 60%;
-    left: 0;
-    position: absolute;
-    right: 0;
+  /* Running: the working rows' tumbler over the count fills to 80 %, stays full and empties to 10 %. */
+  .pill :global(.tumbler) {
+    display: block;
+    height: 14px;
+    position: relative;
+    width: 11px;
   }
 
-  .pill :global(.fizz) {
-    animation: fizz linear infinite;
-    background: #fff;
-    border-radius: 50%;
-    bottom: 8px;
+  .pill :global(.tumbler svg) {
+    inset: 0;
     position: absolute;
   }
 
-  @keyframes fizz {
-    0% {
-      opacity: 0;
-      transform: translateY(0);
-    }
-    15% {
-      opacity: 1;
-    }
-    100% {
-      opacity: 0;
-      transform: translateY(-70px);
-    }
+  .pill :global(.tumbler i) {
+    animation: pour 2.8s ease-in-out infinite;
+    background: currentColor;
+    clip-path: polygon(0 0, 100% 0, 88% 100%, 12% 100%);
+    inset: 0;
+    position: absolute;
+    transform: scaleY(0.66);
+    transform-origin: bottom;
   }
 
   /* Needs input and Failed: every 2 s the pill peeks 12 pt out with a small bounce, and a ring grows from it. */
@@ -958,7 +949,7 @@ const desk = pool.map(([name, src]) => {
     .icon.jump,
     .pill,
     .ring.on,
-    .pill :global(.fizz),
+    .pill :global(.tumbler i),
     .pill :global(.shake),
     .pill :global(.crack),
     .pill :global(.shard),
@@ -975,10 +966,6 @@ const desk = pool.map(([name, src]) => {
 
     .pill :global(.shard) {
       transform: translate(0.5px, 2.5px) rotate(15deg);
-    }
-
-    .pill :global(.fizz) {
-      display: none;
     }
   }
 </style>
@@ -1033,6 +1020,8 @@ const desk = pool.map(([name, src]) => {
   const broken = `<svg class="shake" width="11" height="14" viewBox="0 0 11 14" fill="none" stroke="currentColor" stroke-width="1.5"
     stroke-linejoin="round" stroke-linecap="round" aria-hidden="true"><path d="M7.7 0.75H0.75l1.3 12.5h6.9l0.8-8.4"/>
     <path class="crack" d="M7.7 0.75l0.55 2.8-1.65 4.2 0.9 4.2"/><path class="shard" d="M7.7 0.75h2.55l-0.45 4.1-1.55-1.3z"/></svg>`;
+  const tumbler = `<span class="tumbler"><i></i><svg width="11" height="14" viewBox="0 0 11 14" aria-hidden="true">
+    <path d="M0.75 0.75h9.5l-1.2 12.5H1.95z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></span>`;
   const wine = `<svg width="11" height="15" viewBox="0 0 11 15" fill="currentColor" aria-hidden="true">
     <path d="M1 0.5h9c0 4-2 6-3.9 6.4v5.4h2.4v1.7H2.5v-1.7h2.4V6.9C3 6.5 1 4.5 1 0.5z"/></svg>`;
 
@@ -1046,8 +1035,7 @@ const desk = pool.map(([name, src]) => {
     pill.className = `pill ${state}`;
     ring.className = `ring${ringing ? " on" : ""}${state === "failed" ? " failed" : ""}`;
     const icon = state === "running"
-      ? `<span class="drink"></span><span class="fizz" style="left:8px;width:4px;height:4px;animation-duration:1.9s"></span>` +
-        `<span class="fizz" style="left:15px;width:3px;height:3px;animation-duration:2.6s"></span>`
+      ? tumbler
       : state === "input" ? shaker : state === "failed" ? broken : wine;
     pill.innerHTML = `${icon}<span class="count">${count}</span>`;
   }

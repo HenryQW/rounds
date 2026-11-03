@@ -37,7 +37,7 @@ struct PourGlass: View {
     @Environment(\.backgroundProminence) private var prominence
 
     /// A tumbler: wide at the rim, narrow at the base.
-    private struct Glass: Shape {
+    struct Glass: Shape {
         func path(in r: CGRect) -> Path {
             let inset = r.width * 0.12
             return Path { $0.addLines([CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY),
@@ -46,7 +46,7 @@ struct PourGlass: View {
     }
 
     /// The level (0...1) at `t`, a part of one pour (0..<1).
-    private static func level(_ t: Double) -> CGFloat {
+    static func level(_ t: Double) -> CGFloat {
         let ease = { (x: Double) in x * x * (3 - 2 * x) }
         return 0.1 + 0.7 * (t < 0.7 ? ease(t / 0.7) : t < 0.85 ? 1 : 1 - ease((t - 0.85) / 0.15))
     }

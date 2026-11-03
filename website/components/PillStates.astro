@@ -17,11 +17,12 @@ const states = [
         {(s.key === "input" || s.key === "failed") && <span class:list={["ring", s.key]} />}
         <span class:list={["pill", s.key]} role="img" aria-label={`${s.name}${s.count ? `, ${s.count}` : ""}`}>
           {s.key === "running" && (
-            <>
-              <span class="drink" />
-              <span class="fizz" style="left:8px;width:4px;height:4px;animation-duration:1.9s" />
-              <span class="fizz" style="left:15px;width:3px;height:3px;animation-duration:2.6s" />
-            </>
+            <span class="tumbler">
+              <i />
+              <svg width="11" height="14" viewBox="0 0 11 14" aria-hidden="true">
+                <path d="M0.75 0.75h9.5l-1.2 12.5H1.95z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+              </svg>
+            </span>
           )}
           {s.key === "input" && (
             <svg class="shake" width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
@@ -130,35 +131,39 @@ const states = [
     color: #05290f;
   }
 
-  /* Running: a darker drink 60 % high, with two bubbles that rise 70 pt and fade. */
-  .drink {
-    background: rgb(0 0 0 / 0.18);
-    bottom: 0;
-    height: 60%;
-    left: 0;
-    position: absolute;
-    right: 0;
+  /* Running: the working rows' tumbler over the count fills to 80 %, stays full and empties to 10 %. */
+  .tumbler {
+    display: block;
+    height: 14px;
+    position: relative;
+    width: 11px;
   }
 
-  .fizz {
-    animation: fizz linear infinite;
-    background: #fff;
-    border-radius: 50%;
-    bottom: 8px;
+  .tumbler svg {
+    inset: 0;
     position: absolute;
   }
 
-  @keyframes fizz {
+  .tumbler i {
+    animation: pour 2.8s ease-in-out infinite;
+    background: currentColor;
+    clip-path: polygon(0 0, 100% 0, 88% 100%, 12% 100%);
+    inset: 0;
+    position: absolute;
+    transform: scaleY(0.66);
+    transform-origin: bottom;
+  }
+
+  @keyframes pour {
     0% {
-      opacity: 0;
-      transform: translateY(0);
+      transform: scaleY(0.1);
     }
-    15% {
-      opacity: 1;
+    70%,
+    85% {
+      transform: scaleY(0.8);
     }
     100% {
-      opacity: 0;
-      transform: translateY(-70px);
+      transform: scaleY(0.1);
     }
   }
 
@@ -276,7 +281,7 @@ const states = [
   @media (prefers-reduced-motion: reduce) {
     .pill,
     .ring,
-    .fizz,
+    .tumbler i,
     .shake,
     .crack,
     .shard {
@@ -293,10 +298,6 @@ const states = [
 
     .shard {
       transform: translate(0.5px, 2.5px) rotate(15deg);
-    }
-
-    .fizz {
-      display: none;
     }
   }
 </style>
