@@ -215,7 +215,7 @@ Runs before rule 5 when rules 0 to 4 did not match, and also for rule 3: an inte
 
 - A session with no hook state (it started before hook install) shows from desktop JSON and the transcript tail until its next hook event. A permission prompt in it does not show as Needs your input, because the transcript has the tool call but not if it waits for approval or runs.
 - An approved permission for a long tool stays in Needs your input until the tool ends: no hook fires between the decision and `PostToolUse`, and the transcript has no entry before the tool result.
-- A background `Bash` that `Stop.background_tasks` does not list shows as Finished/idle.
+- A background `Bash` that `Stop.background_tasks` does not list shows as Finished/idle. No signal tells it apart: in local data, every `Stop` during a `run_in_background` Bash listed it, and a process that a command detaches itself (`&`, `nohup`) is not a task, so no hook event or transcript entry follows it.
 
 ## 4. Components
 
