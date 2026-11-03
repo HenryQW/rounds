@@ -431,9 +431,10 @@ struct TaskLine: View {
 }
 
 extension View {
-    /// The thin line on the leading side of a parent row's children.
+    /// The thin line on the leading side of a parent row's children, under the centre of the parent's origin icon
+    /// (18 pt wide, 8 pt before the title).
     func childLine() -> some View {
-        overlay(alignment: .leading) { Rectangle().fill(.separator).frame(width: 1).padding(.vertical, -3).offset(x: -10) }
+        overlay(alignment: .leading) { Rectangle().fill(.separator).frame(width: 1).padding(.vertical, -3).offset(x: -17.5) }
     }
 
     /// The space between a row's edge (its selection and hover fill) and its content, as in a sidebar list.
