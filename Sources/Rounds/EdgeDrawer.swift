@@ -367,8 +367,8 @@ final class EdgeDrawer {
 /// opaque deep blue with the running count in white (about 5:1). While Last Call has sessions it shows their count in
 /// near-black: green while only results wait (Ready, Finished, Stopped), still; orange while a session needs input, or
 /// red while one failed. A wait the user has not opened makes it ring: it grows (the panel frame, spec 5.7) and peeks. Each
-/// tab has a glass over the count: a tumbler that pours on blue, a wine glass on green, a shaker on orange and a broken
-/// glass on red.
+/// tab has a glass over the count: a tumbler that pours on blue (with fizz that rises behind it), a wine glass on green,
+/// a shaker on orange and a broken glass on red.
 /// Both are flat colour with a hairline dark edge, so no wallpaper shows through and the tab reads on any wallpaper. Every 2 s it peeks: it eases `peek` points out from the edge
 /// with a small bounce, rests, and slides back; never a colour change.
 /// Right-click: Settings and Quit, since there is no menu bar item. ⌘-drag moves it along the edge; a hover with ⌘
@@ -438,11 +438,13 @@ private struct EdgePill: View {
         .accessibilityValue(waiting > 0 ? "\(waiting) in Last Call" + (failing ? ", \(model.failedCount) failed" : "") : running > 0 ? "\(running) running" : "")
     }
 
-    /// An opaque tab with the count under a symbol: a pouring tumbler (`pour`), a still `symbol`, a broken glass
-    /// (`broken`) or a cocktail shaker. Still: a ringing pill is a `RingingTab`, or this tab with Reduce Motion.
+    /// An opaque tab with the count under a symbol: a pouring tumbler with fizz behind it (`pour`), a still `symbol`, a
+    /// broken glass (`broken`) or a cocktail shaker. Still: a ringing pill is a `RingingTab`, or this tab with Reduce Motion.
     private func tab(_ fill: Color, count: Int, ink: Color, pour: Bool = false, symbol: String? = nil, broken: Bool = false) -> some View {
         ZStack {
             EdgePill.shape.fill(fill)
+                .overlay { if pour && !reduceMotion { Fizz() } }
+                .clipShape(EdgePill.shape)
                 .overlay(EdgePill.shape.strokeBorder(.black.opacity(0.3), lineWidth: 0.5))
             VStack(spacing: 7) {
                 if let symbol {
@@ -529,6 +531,56 @@ private struct EdgePill: View {
                     let pour = CAKeyframeAnimation(keyPath: "transform.scale.y")
                     (pour.values, pour.duration, pour.repeatCount) = ((0...56).map { PourGlass.level(Double($0) / 56) }, 2.8, .infinity)
                     drink.add(pour, forKey: nil)
+                }
+            }
+        }
+    }
+
+    /// Two bubbles that rise 70 pt from the bottom of the blue tab, behind the tumbler and the count, and fade, each in its own period; `x` is from the
+    /// middle. Core Animation runs them, so Rounds does no work on each frame while sessions run.
+    private struct Fizz: NSViewRepresentable {
+        func makeNSView(context: Context) -> LayerView { LayerView() }
+        func updateNSView(_ view: LayerView, context: Context) {}
+
+        /// A layer-hosting view, top-down like SwiftUI. It takes no clicks: the pill's button does.
+        final class LayerView: NSView {
+            private var built: CGSize?
+
+            init() {
+                super.init(frame: .zero)
+                layer = CALayer()
+                wantsLayer = true
+            }
+            required init?(coder: NSCoder) { fatalError() }
+
+            override var isFlipped: Bool { true }
+            override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+            override func layout() {
+                super.layout()
+                guard let root = layer, built != bounds.size else { return }
+                built = bounds.size
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                defer { CATransaction.commit() }
+                root.sublayers = nil
+                for (x, size, period) in [(-4.0, 4.0, 1.9), (3, 3, 2.6)] {
+                    let bubble = CALayer()
+                    bubble.bounds.size = CGSize(width: size, height: size)
+                    bubble.cornerRadius = size / 2
+                    bubble.backgroundColor = .white
+                    bubble.opacity = 0
+                    let bottom = bounds.maxY - 8 - size / 2
+                    bubble.position = CGPoint(x: bounds.midX + x, y: bottom)
+                    let rise = CABasicAnimation(keyPath: "position.y")
+                    (rise.fromValue, rise.toValue) = (bottom, bottom - 70)
+                    let fade = CAKeyframeAnimation(keyPath: "opacity")
+                    (fade.values, fade.keyTimes) = ([0, 1, 0], [0, 0.15, 1])
+                    for animation in [rise, fade] as [CAAnimation] {
+                        (animation.duration, animation.repeatCount) = (period, .infinity)
+                        bubble.add(animation, forKey: nil)
+                    }
+                    root.addSublayer(bubble)
                 }
             }
         }

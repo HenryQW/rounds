@@ -17,12 +17,16 @@ const states = [
         {(s.key === "input" || s.key === "failed") && <span class:list={["ring", s.key]} />}
         <span class:list={["pill", s.key]} role="img" aria-label={`${s.name}${s.count ? `, ${s.count}` : ""}`}>
           {s.key === "running" && (
-            <span class="tumbler">
-              <i />
-              <svg width="11" height="14" viewBox="0 0 11 14" aria-hidden="true">
-                <path d="M0.75 0.75h9.5l-1.2 12.5H1.95z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
-              </svg>
-            </span>
+            <>
+              <span class="fizz" style="left:8px;width:4px;height:4px;animation-duration:1.9s" />
+              <span class="fizz" style="left:15px;width:3px;height:3px;animation-duration:2.6s" />
+              <span class="tumbler">
+                <i />
+                <svg width="11" height="14" viewBox="0 0 11 14" aria-hidden="true">
+                  <path d="M0.75 0.75h9.5l-1.2 12.5H1.95z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+                </svg>
+              </span>
+            </>
           )}
           {s.key === "input" && (
             <svg class="shake" width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
@@ -167,6 +171,29 @@ const states = [
     }
   }
 
+  /* Two bubbles rise 70 pt from the bottom, behind the tumbler and the count, and fade. */
+  .fizz {
+    animation: fizz linear infinite;
+    background: #fff;
+    border-radius: 50%;
+    bottom: 8px;
+    position: absolute;
+  }
+
+  @keyframes fizz {
+    0% {
+      opacity: 0;
+      transform: translateY(0);
+    }
+    15% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+      transform: translateY(-70px);
+    }
+  }
+
   /* Needs input and Failed: every 2 s the pill peeks 12 pt out with a small bounce, and a ring grows from it. */
   @keyframes peek {
     0%,
@@ -282,6 +309,7 @@ const states = [
     .pill,
     .ring,
     .tumbler i,
+    .fizz,
     .shake,
     .crack,
     .shard {
@@ -298,6 +326,10 @@ const states = [
 
     .shard {
       transform: translate(0.5px, 2.5px) rotate(15deg);
+    }
+
+    .fizz {
+      display: none;
     }
   }
 </style>

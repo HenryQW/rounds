@@ -56,7 +56,7 @@ spacing:
 
 components:
   pill-idle: { size: 28x100pt, shape: "square on the screen side, 12pt round inside", fill: clear glass, hairline: "primary at 25%, 1pt" }
-  pill-running: { fill: "{colors.rounds-blue}", hairline: "black at 30%, 0.5pt", content: "the working rows' tumbler in white (11x14pt, 1.5pt outline) over the running count; it fills and empties" }
+  pill-running: { fill: "{colors.rounds-blue}", hairline: "black at 30%, 0.5pt", content: "the working rows' tumbler in white (11x14pt, 1.5pt outline) over the running count; it fills and empties, and two white fizz bubbles rise behind it" }
   pill-ready: { fill: "{colors.ready}", ink: "#062910", content: "a still wine glass over the Your Turn count", motion: "none" }
   pill-attention: { fill: "{colors.attention}", ink: "{colors.attention-ink}", content: "a cocktail shaker over the count", motion: "peek 12pt, ring and the shaker shakes every 2s" }
   pill-failed: { fill: "{colors.failed}", ink: "{colors.failed-ink}", content: "a broken glass over the count", motion: "peek 12pt, red ring; the glass is whole, shakes and breaks every 2s" }
@@ -96,7 +96,7 @@ Flat. Depth comes from the system's glass toolbar and from hairlines (0.5 pt sep
 
 ## Motion
 
-Only live work moves, and it moves like a round of drinks. A working row shows a small glass that fills to 80 %, stays full and empties to 10 %, 2.4 to 3.2 s a pour at 20 frames a second, each glass with its own speed and start. The running pill has the same tumbler, in white over the count, and it pours like the rows. The attention pill shakes a cocktail shaker as it peeks 12 pt out every 2 s with an orange ring; the count stays still. While a failure waits the pill is red, and its glass shakes and breaks at each peek. A Failed row shows the broken glass, still. With Reduce Motion, nothing moves.
+Only live work moves, and it moves like a round of drinks. A working row shows a small glass that fills to 80 %, stays full and empties to 10 %, 2.4 to 3.2 s a pour at 20 frames a second, each glass with its own speed and start. The running pill has the same tumbler, in white over the count, and it pours like the rows while fizz rises behind it. The attention pill shakes a cocktail shaker as it peeks 12 pt out every 2 s with an orange ring; the count stays still. While a failure waits the pill is red, and its glass shakes and breaks at each peek. A Failed row shows the broken glass, still. With Reduce Motion, nothing moves.
 
 ## Do and Don't
 
