@@ -99,7 +99,7 @@ Facts this relies on (checked in Claude Code 2.1.308, bundled with the desktop a
 - The desktop starts the CLI with `--setting-sources=user,project,local`, so user hooks run.
 - `UserPromptSubmit` is skipped for wakeup turns (task notification, loop, cron, side session). `PreToolUse` is the running signal for those.
 - `Stop` does not fire on user interrupt or API error. `StopFailure` fires on API error, with `error` in: `authentication_failed`, `oauth_org_not_allowed`, `account_on_hold`, `verification_required`, `billing_error`, `rate_limit`, `overloaded`, `invalid_request`, `model_not_found`, `server_error`, `unknown`, `max_output_tokens`, `cloud_credential_error`.
-- `PermissionRequest` fires only on the "ask" path. A denial in the dialog sends no hook.
+- `PermissionRequest` fires only on the "ask" path. A denial in the dialog sends no hook (`PostToolUseFailure` and `PermissionDenied` do not fire for it), but it ends the turn: the transcript gets the interrupt marker (2.2), and the desktop sets `lastTurnEdgeAt`. An approval sends no hook either.
 
 ### 2.5 herdr agents (socket API, read only except focus)
 
@@ -155,7 +155,7 @@ pi is a coding agent that can run almost any model. herdr shows the pi agents in
 | 0 | `isArchived` | hidden | |
 | 1 | Claude desktop is not running, or last hook event is `SessionEnd` | Quiet | Stale |
 | 2 | `sshConfig` or `remoteTarget` set | Quiet | No live state |
-| 3 | Last hook event is `PermissionRequest`, `Notification`, `Elicitation`, or `PreToolUse` for `AskUserQuestion` or `ExitPlanMode` | Needs your input | Permission: `<tool>` / Question / Plan approval / MCP input |
+| 3 | Last hook event is `PermissionRequest`, `Notification`, `Elicitation`, or `PreToolUse` for `AskUserQuestion` or `ExitPlanMode`, and reconcile (3.1) finds no interrupt after it | Needs your input | Permission: `<tool>` / Question / Plan approval / MCP input |
 | 4 | `interruptedAwaitingPerson == true` | Needs your input | Interrupted, resume? |
 | 5 | Last hook event is a running event (`UserPromptSubmit`, `PreToolUse` other tools, `PostToolUse`, `PostToolUseFailure`, `ElicitationResult`, `PreCompact`). Claude also compacts idle sessions between turns: a `PreCompact`, maybe a `StopFailure`, after a `Stop` and no prompt. Such events change nothing; the `Stop` stays the last event, so a failed idle compaction is not Failed, or reconcile (3.1) says Running | Running | `<tool>` or Thinking or Compacting |
 | 6 | Last `Stop` has `bg_tasks > 0` | Running | Background tasks (the `task_list` of that `Stop` shows as lines under the row, 5.2) |
@@ -189,7 +189,7 @@ The labels in the rules below are now details; the state each rule returns is in
 
 ### 3.1 Turn edge reconcile
 
-Runs before rule 5 when rules 0 to 4 did not match. If `lastTurnEdgeAt` is later than the last hook event time + 500 ms, read the transcript tail. The result replaces the last hook event:
+Runs before rule 5 when rules 0 to 4 did not match, and also for rule 3: an interrupt marker after a turn edge that is later than the wait ends the wait (a denied permission). If `lastTurnEdgeAt` is later than the last hook event time + 500 ms, read the transcript tail. The result replaces the last hook event:
 
 - Last message is the interrupt marker: Finished/idle, "Stopped by you" (skip rules 5 to 9).
 - Last message is an `assistant` entry with `stop_reason == end_turn`: treat as `Stop`, go on to rule 6.
@@ -212,7 +212,7 @@ Runs before rule 5 when rules 0 to 4 did not match. If `lastTurnEdgeAt` is later
 ### 3.3 Known limits (v1)
 
 - Sessions that started before hook install show from desktop JSON only until their next hook event.
-- A denied permission, or an approved permission for a long tool, stays in Needs your input until the next hook event.
+- An approved permission for a long tool stays in Needs your input until the tool ends: no hook fires between the decision and `PostToolUse`, and the transcript has no entry before the tool result.
 - A "New session" offer card from `start_session` shows as Running until it is answered.
 - A background `Bash` that `Stop.background_tasks` does not list shows as Finished/idle.
 

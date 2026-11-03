@@ -59,6 +59,13 @@ func rule3Blocked(l: HookLine, label: String) {
     #expect(st.since == l.at)
 }
 
+@Test func deniedPermissionEndsTheWait() {
+    // A denial sends no hook: the desktop ends the turn (a turn edge), and the transcript ends with the interrupt marker.
+    let asked = hook(line("PermissionRequest", "Bash", at: ago(30)))
+    expect(classify(session(["lastTurnEdgeAt": ms(ago(2))]), asked, tail: .interrupted), .stopped)
+    expect(classify(session(), asked, tail: .interrupted), .needsInput, "Permission: Bash")
+}
+
 @Test func rule4InterruptedAwaitingPerson() {
     expect(classify(session(["interruptedAwaitingPerson": true]), stop), .needsInput, "Interrupted")
 }

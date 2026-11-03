@@ -145,8 +145,10 @@ public func classify(_ input: ClassifierInput) -> SessionStatus {
         SessionStatus(state, detail, since: s.lastActivityAt)
     }
 
-    // Rule 3: blocked on the user (memory-only desktop state, seen through hooks).
-    if let last = hook?.last, let label = blockedLabel(last) {
+    // Rule 3: blocked on the user (memory-only desktop state, seen through hooks). A denial sends no hook, but ends the
+    // turn: a turn edge with the interrupt marker ends the wait (3.1).
+    let denied = needsTail(session: s, hook: hook) && input.tail == .interrupted
+    if let last = hook?.last, let label = blockedLabel(last), !denied {
         return live ? SessionStatus(.needsInput, label, since: last.at) : quiet(.offline)
     }
     // Rule 4.
