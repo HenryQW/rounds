@@ -19,7 +19,7 @@ struct FilterBar: View {
                 tile(.yourTurn, "Last Call", "Your Turn", "waits, and results you have not opened", "exclamationmark.circle.fill", .orange, count(.yourTurn), key: 2)
                     .contextMenu { Button("Mark All as Seen") { model.markAllSeen() } }
                 tile(.running, "On Tap", "Running", "sessions at work", "spigot.fill", .blue, count(.running), key: 3)
-                tile(.quiet, "Served", "Quiet", "opened results, stopped or offline sessions", "checkmark.circle.fill", .secondary, count(.quiet), key: 4)
+                tile(.quiet, "Served", "Quiet", "opened results, stopped or offline sessions", "checkmark.circle.fill", .green, count(.quiet), key: 4)
                 tile(.older, "Aged", "Older", "quiet for more than a day", "clock", .gray, nil, key: 5)
             }
             HStack(spacing: 8) {
