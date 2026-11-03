@@ -138,14 +138,18 @@ struct SettingsView: View {
         sidebarButton("Check for Updates…", "arrow.down.circle", help: "Look for a new version of Rounds now", action: Updater.shared.check)
     }
 
-    /// A plain sidebar button with the grey hover fill, like the rows.
+    /// A plain sidebar button with the grey hover fill, like the rows. The symbol has the signature picture's width
+    /// and spacing, so the symbols, the picture and the titles line up whatever each symbol's own width.
     private func sidebarButton(_ title: String, _ symbol: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Label(title, systemImage: symbol)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 8).padding(.vertical, 6)
-                .background(Color.primary.opacity(state.hoveredButton == title ? 0.08 : 0), in: .rect(cornerRadius: 6))
-                .contentShape(.rect)
+            HStack(spacing: 8) {
+                Image(systemName: symbol).frame(width: 24)
+                Text(title)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .background(Color.primary.opacity(state.hoveredButton == title ? 0.08 : 0), in: .rect(cornerRadius: 6))
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .onHover { if $0 { state.hoveredButton = title } else if state.hoveredButton == title { state.hoveredButton = nil } }
