@@ -1,6 +1,6 @@
 ---
 title: Build from source
-description: Build Rounds with the Command Line Tools, run the tests, and run the docs site.
+description: Build Rounds from source with the Command Line Tools only, run the Swift tests, make the disk image, and run the docs site on your Mac.
 ---
 
 ## Requirements
@@ -30,8 +30,8 @@ After the first launch, install the hooks. See [Install](/install#install-the-ho
 | Take the README picture (demo data) | `scripts/screenshots.sh` |
 | Run the docs site | `cd website && pnpm install && pnpm dev` |
 
-The version is in the `VERSION` file. The build writes it into the app.
+The version is in the `VERSION` file. The build writes it into the app. To publish a version, see [Release](/release).
 
 ## The docs site
 
-Cloudflare Pages builds the docs site from `main` at each push: the project `rounds` runs `pnpm build` in `website` and publishes `website/dist` at [rounds.henry.wang](https://rounds.henry.wang). The pnpm and Node versions come from `website/package.json`.
+Cloudflare Pages builds the docs site from `main` at each push: the project `rounds` runs `pnpm build` in `website` and publishes `website/dist` at [rounds.henry.wang](/). The pnpm and Node versions come from `website/package.json`.

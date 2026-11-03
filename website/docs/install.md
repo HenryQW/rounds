@@ -1,6 +1,6 @@
 ---
 title: Install
-description: Download Rounds or install it with Homebrew, start it, and connect Claude Code, Codex and pi.
+description: Download Rounds or install it with Homebrew on macOS 27, open it the first time, and connect Claude Code, Codex and pi with hooks.
 ---
 
 ## Requirements

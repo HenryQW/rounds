@@ -1,6 +1,6 @@
 ---
 title: Keys
-description: The keys of the session window.
+description: "The keyboard shortcuts of the Rounds session window: filter the list, move through the rows, open a session, mark it as done or hide it."
 ---
 
 | Key | Action |

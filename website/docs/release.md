@@ -1,6 +1,6 @@
 ---
 title: Release
-description: How a release of Rounds is made and put on Homebrew.
+description: "How a Rounds release is made: a tag starts the workflow, which tests, signs and publishes the app, the Sparkle update feed and the Homebrew cask."
 ---
 
 A tag starts a release. The GitHub Actions workflow `.github/workflows/release.yml` runs on the `xcode-27` runner (macOS 27, Apple silicon).

@@ -1,6 +1,6 @@
 ---
 title: Sources
-description: "The tools Rounds reads: Claude Code, Codex, pi agents on any model, and herdr."
+description: "The tools Rounds reads: Claude Code, Codex, pi agents on any model, and herdr. What each source reports, and how to turn a source on or off."
 ---
 
 A source is the tool that runs a session and reports its state. Rounds reads Claude Code, Codex and pi directly, and the agents that herdr runs. pi can run almost any model (Claude, GPT, Gemini, DeepSeek, Qwen, local models and more), so Rounds shows your sessions on all of them in one list. A source is On or Off. The session window shows only sessions of sources that are On.

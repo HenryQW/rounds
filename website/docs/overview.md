@@ -1,6 +1,6 @@
 ---
 title: Why Rounds
-description: The problem Rounds solves, and what its name means.
+description: "Why Rounds exists: you run many AI coding agents at the same time, and an agent that waits for you does nothing. Also what the name means."
 ---
 
 You run many AI coding agents at the same time: Claude Code in one window, Codex in another, pi on models from many vendors in a terminal or in herdr. The agents work in parallel. Your attention does not. An agent that waits for your answer does nothing until you see it, and a finished result is of no use until you read it.
@@ -26,3 +26,4 @@ Rounds is free and open source under the [MIT license](https://github.com/HenryQ
 - [How it works](/how-it-works): from the state of each agent to the number on the pill.
 - [Glossary](/glossary): the words that Rounds uses.
 - [Install](/install) Rounds and set up the hooks.
+- [Keys](/keys): the keyboard shortcuts of the session window.

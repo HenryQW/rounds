@@ -1,6 +1,6 @@
 ---
 title: Glossary
-description: The words that Rounds uses, each with one meaning.
+description: "The words that Rounds uses, each with one meaning: the eight session states, the filter tiles, and the names of the parts of the app."
 ---
 
 ## States
