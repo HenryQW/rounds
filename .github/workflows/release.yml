@@ -66,6 +66,14 @@ jobs:
           test -n "$SPARKLE_ED_PRIVATE_KEY"
           # The sign_update of the Sparkle package that `swift build` fetched, so the tool matches the framework.
           SIGNATURE="$(printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/sign_update --ed-key-file - build/Rounds.dmg)"
+          # Notes: the commits since the previous tag, grouped by type; the first release has no previous tag. The
+          # release page and Sparkle's update window show the same Markdown.
+          PREV="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+          if [ -n "$PREV" ]; then
+            scripts/release-notes.sh "$PREV" "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY" > build/notes.md
+          else
+            echo "First release." > build/notes.md
+          fi
           cat > build/appcast.xml <<EOF
           <?xml version="1.0" encoding="utf-8"?>
           <rss version="2.0" xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
@@ -77,7 +85,9 @@ jobs:
                 <sparkle:version>$VERSION</sparkle:version>
                 <sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>
                 <sparkle:minimumSystemVersion>27.0</sparkle:minimumSystemVersion>
-                <sparkle:releaseNotesLink>https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME</sparkle:releaseNotesLink>
+                <description sparkle:format="markdown"><![CDATA[
+          $(cat build/notes.md)
+          ]]></description>
                 <enclosure url="https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/Rounds.dmg" $SIGNATURE type="application/octet-stream"/>
               </item>
             </channel>
@@ -91,13 +101,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # Notes: the commits since the previous tag, grouped by type; the first release has no previous tag.
-          PREV="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
-          if [ -n "$PREV" ]; then
-            scripts/release-notes.sh "$PREV" "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY" > build/notes.md
-          else
-            echo "First release." > build/notes.md
-          fi
           gh release create "$GITHUB_REF_NAME" build/Rounds.dmg build/appcast.xml \
             --title "Rounds $VERSION" --notes-file build/notes.md
 
