@@ -159,6 +159,9 @@ func rule5Running(l: HookLine, label: String) {
     expect(classify(session(), nil, tail: .inProgress), .working, "Thinking")
     expect(classify(session(["lastActivityAt": ms(ago(3600))]), nil, tail: .inProgress), .finished)
     expect(classify(session(), nil, tail: .interrupted), .stopped)
+    // A question waits with no time limit; it ends with its tool result.
+    expect(classify(session(["lastActivityAt": ms(ago(3600))]), nil, tail: .waiting("Question")), .needsInput, "Question")
+    expect(classify(session(), nil, tail: .waiting("Question"), running: false), .offline)
 }
 
 @Test func hookFromBeforeClaudeLaunchIsStale() {

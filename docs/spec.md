@@ -57,7 +57,7 @@ Required keys: `sessionId`, `cliSessionId`, `cwd`, `title`, `isArchived`, `lastA
 
 Path: `~/.claude/projects/<cwd with "/" and "." replaced by "-">/<cliSessionId>.jsonl`. Read the last 64 KiB only. Used for:
 
-- Reconcile when `lastTurnEdgeAt` is later than the last hook event. Skip non-message entries (`attachment`, `api-request`, `cost-state`, ...). The interrupt marker is a `user` message that starts with `[Request interrupted by user`.
+- Reconcile when `lastTurnEdgeAt` is later than the last hook event, or when the session has no hook state (it started before hook install; Claude Code reads changed hooks with its settings file watcher, so its next hook event writes a line). Skip non-message entries (`attachment`, `api-request`, `cost-state`, ...). The interrupt marker is a `user` message that starts with `[Request interrupted by user`.
 - Wrap-up question: the desktop keeps `turnWrapUp.needsUser` only when the turn is marked as blocked. So when `turnWrapUp` has no `needsUser`, read the tail too: an `mcp__ccd_turn__wrap_up` tool call with a non-empty `ask`, with no user prompt after it, in a turn that ended, is a question (rule 9).
 
 ### 2.3 Hook state (written by `rounds-hook`)
@@ -190,10 +190,11 @@ The labels in the rules below are now details; the state each rule returns is in
 
 ### 3.1 Turn edge reconcile
 
-Runs before rule 5 when rules 0 to 4 did not match, and also for rule 3: an interrupt marker after a turn edge that is later than the wait ends the wait (a denied permission). If `lastTurnEdgeAt` is later than the last hook event time + 500 ms, read the transcript tail. The result replaces the last hook event:
+Runs before rule 5 when rules 0 to 4 did not match, and also for rule 3: an interrupt marker after a turn edge that is later than the wait ends the wait (a denied permission). If `lastTurnEdgeAt` is later than the last hook event time + 500 ms, or the session has no hook state, read the transcript tail. The result replaces the last hook event:
 
 - Last message is the interrupt marker: Finished/idle, "Stopped by you" (skip rules 5 to 9).
 - Last message is an `assistant` entry with `stop_reason == end_turn`: treat as `Stop`, go on to rule 6.
+- A tool call that waits for the user (`AskUserQuestion`, `ExitPlanMode`, a `start_session` offer, 2.3) has no tool result yet, and no prompt came after it: Needs your input, as rule 3 (Question, Plan approval, New session). Only a session with no hook state gets here; with hooks, the tool's `PreToolUse` is later than the turn edge.
 - Otherwise: Running, rule 5 (a turn with no prompt hook has started, or a wakeup turn after `Stop`).
 
 ### 3.2 Sort and count
@@ -212,7 +213,7 @@ Runs before rule 5 when rules 0 to 4 did not match, and also for rule 3: an inte
 
 ### 3.3 Known limits (v1)
 
-- Sessions that started before hook install show from desktop JSON only until their next hook event.
+- A session with no hook state (it started before hook install) shows from desktop JSON and the transcript tail until its next hook event. A permission prompt in it does not show as Needs your input, because the transcript has the tool call but not if it waits for approval or runs.
 - An approved permission for a long tool stays in Needs your input until the tool ends: no hook fires between the decision and `PostToolUse`, and the transcript has no entry before the tool result.
 - A background `Bash` that `Stop.background_tasks` does not list shows as Finished/idle.
 

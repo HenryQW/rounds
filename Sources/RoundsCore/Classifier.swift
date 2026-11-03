@@ -112,9 +112,17 @@ func blockedLabel(_ l: HookLine) -> String? {
     case ("PermissionRequest", let tool): "Permission: \(toolName(tool))"
     case ("Notification", "permission_prompt"): "Permission"
     case ("Notification", _), ("Elicitation", _): "MCP input"
-    case ("PreToolUse", "AskUserQuestion"): "Question"
-    case ("PreToolUse", "ExitPlanMode"): "Plan approval"
-    case ("PreToolUse", "mcp__ccd_session__start_session:offer"): "New session"
+    case ("PreToolUse", let tool): waitingToolLabel(tool)
+    default: nil
+    }
+}
+
+/// A tool call (as `toolDetail` names it) that waits for the user until it returns.
+func waitingToolLabel(_ tool: String) -> String? {
+    switch tool {
+    case "AskUserQuestion": "Question"
+    case "ExitPlanMode": "Plan approval"
+    case "mcp__ccd_session__start_session:offer": "New session"
     default: nil
     }
 }
@@ -165,6 +173,8 @@ public func classify(_ input: ClassifierInput) -> SessionStatus {
         switch tail {
         case .interrupted:
             return quiet(.stopped)
+        case .waiting(let label):
+            return live ? SessionStatus(.needsInput, label, since: s.lastActivityAt) : quiet(.offline)
         case .endTurn, .question:
             running = nil
             turnEnded = true

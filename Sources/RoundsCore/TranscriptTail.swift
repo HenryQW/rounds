@@ -1,14 +1,18 @@
 import Foundation
 
 /// What the end of a session transcript says (spec 2.2). `question`: the turn ended, and its wrap-up asked the user
-/// something (the desktop keeps that question only when the turn is marked as blocked).
+/// something (the desktop keeps that question only when the turn is marked as blocked). `waiting`: a tool call that
+/// waits for the user (`waitingToolLabel`) has no result yet.
 public enum LastMessage: Sendable, Equatable {
     case interrupted, endTurn, question, inProgress, unknown
+    case waiting(String)
 
     /// `data` holds whole JSONL lines (see `readTail`); lines that do not decode are skipped.
     public static func parse(_ data: Data) -> LastMessage {
         var last: LastMessage = .unknown
         var asked = false
+        // Tool calls that wait for the user and have no result yet, by tool_use id.
+        var waits: [String: String] = [:]
         for line in data.split(separator: UInt8(ascii: "\n")) {
             guard let e = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any],
                   let type = e["type"] as? String, type == "user" || type == "assistant",
@@ -19,16 +23,23 @@ public enum LastMessage: Sendable, Equatable {
                 asked = asked || blocks.contains { b in
                     b["name"] as? String == "mcp__ccd_turn__wrap_up" && ((b["input"] as? [String: Any])?["ask"] as? String).map { !$0.isEmpty } == true
                 }
+                for b in blocks where b["type"] as? String == "tool_use" {
+                    if let id = b["id"] as? String, let label = waitingToolLabel(toolDetail(b["name"] as? String ?? "", input: b["input"])) {
+                        waits[id] = label
+                    }
+                }
                 let stop = message["stop_reason"] as? String
                 last = stop == "end_turn" || stop == "stop_sequence" ? .endTurn : .inProgress
             } else {
                 let userText = (message["content"] as? String)
                     ?? blocks.filter { $0["type"] as? String == "text" }.compactMap { $0["text"] as? String }.joined()
+                for b in blocks { if let id = b["tool_use_id"] as? String { waits[id] = nil } }
                 // A new prompt starts a new turn; a tool result does not.
-                if !userText.isEmpty { asked = false }
+                if !userText.isEmpty { (asked, waits) = (false, [:]) }
                 last = userText.hasPrefix("[Request interrupted by user") ? .interrupted : .inProgress
             }
         }
+        if last == .inProgress, let label = waits.values.first { return .waiting(label) }
         return last == .endTurn && asked ? .question : last
     }
 }

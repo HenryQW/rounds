@@ -79,3 +79,13 @@ private func tail(_ lines: [String]) -> LastMessage { LastMessage.parse(Data((li
     #expect(tail([toolUse("w1", wrap, ["recap": "r", "ask": "Commit now?"]), toolResult("w1"), assistantText("Done."),
                   user("yes"), assistantText("Committed.")]) == .endTurn)
 }
+
+/// A session with no hook state yet shows a wait from the tool call that has no result.
+@Test func toolCallThatWaitsForTheUserIsDetected() {
+    #expect(tail([user("go"), toolUse("q1", "AskUserQuestion", ["questions": []])]) == .waiting("Question"))
+    #expect(tail([toolUse("p1", "ExitPlanMode", [:])]) == .waiting("Plan approval"))
+    #expect(tail([toolUse("s1", "mcp__ccd_session__start_session", ["initiation": "offer"])]) == .waiting("New session"))
+    // Answered, or a call that does not wait: the turn goes on.
+    #expect(tail([toolUse("q1", "AskUserQuestion", [:]), toolResult("q1")]) == .inProgress)
+    #expect(tail([toolUse("s1", "mcp__ccd_session__start_session", ["initiation": "user_asked"])]) == .inProgress)
+}
