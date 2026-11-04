@@ -1,17 +1,18 @@
 import Foundation
 
 /// A ticket that a first prompt names (spec "Discovery"): a Linear or GitHub issue, a GitHub PR (the row looks it up as
-/// one of its PRs), or a `#N` after a keyword (`rowRefs` gives it the repository of the session folder).
+/// one of its PRs), or a guess that can also be a PR: `owner/repo#N`, or a `#N` after a keyword (no repository;
+/// `rowRefs` gives it the repository of the session folder).
 public enum TicketRef: Hashable, Codable, Sendable {
     case linearURL(workspace: String, id: String)
     case linearID(String)
     case github(owner: String, repo: String, number: Int)
     case githubPR(owner: String, repo: String, number: Int)
-    case githubNumber(Int)
+    case githubNumber(Int, repository: GitHubRepository?)
 }
 
 /// A repository on github.com, from a folder's `origin` remote.
-public struct GitHubRepository: Hashable, Sendable {
+public struct GitHubRepository: Hashable, Codable, Sendable {
     public var owner: String
     public var name: String
     public init(owner: String, name: String) { (self.owner, self.name) = (owner, name) }
@@ -50,9 +51,10 @@ public func ticketRefs(inPrompt text: String) -> [TicketRef] {
             if let cut = url.firstIndex(where: { $0 == "?" || $0 == "#" }) { url = String(url[..<cut]) }
             ref = urlRef(url)
         } else if m.range(at: 2).location != NSNotFound {
-            ref = Int(ns.substring(with: m.range(at: 4))).map { .github(owner: ns.substring(with: m.range(at: 2)), repo: ns.substring(with: m.range(at: 3)), number: $0) }
+            let repository = GitHubRepository(owner: ns.substring(with: m.range(at: 2)), name: ns.substring(with: m.range(at: 3)))
+            ref = Int(ns.substring(with: m.range(at: 4))).map { .githubNumber($0, repository: repository) }
         } else if m.range(at: 5).location != NSNotFound {
-            ref = Int(ns.substring(with: m.range(at: 5))).map(TicketRef.githubNumber)
+            ref = Int(ns.substring(with: m.range(at: 5))).map { .githubNumber($0, repository: nil) }
         } else {
             ref = .linearID(ns.substring(with: m.range(at: 6)).uppercased())
         }
@@ -73,14 +75,14 @@ private func urlRef(_ url: String) -> TicketRef? {
 }
 
 /// The refs of a row, which it looks up and shows: a bare identifier only when its team key is one of the workspace's
-/// (`teamKeys`, upper case; empty until Linear names them), a `#N` as an issue of `repository` (none without one), then
-/// the first 5 without duplicates.
+/// (`teamKeys`, upper case; empty until Linear names them), a guess as an issue of its own repository or else of
+/// `repository` (none without one), then the first 5 without duplicates.
 public func rowRefs(_ refs: [TicketRef], teamKeys: Set<String>, repository: GitHubRepository?) -> [TicketRef] {
     var row: [TicketRef] = []
     for ref in refs where row.count < rowRefLimit {
         let ref: TicketRef? = switch ref {
         case .linearID(let id): teamKeys.contains(String(id.prefix { $0 != "-" })) ? ref : nil
-        case .githubNumber(let n): repository.map { .github(owner: $0.owner, repo: $0.name, number: n) }
+        case .githubNumber(let n, let own): (own ?? repository).map { .github(owner: $0.owner, repo: $0.name, number: n) }
         default: ref
         }
         if let ref, !row.contains(ref) { row.append(ref) }
@@ -121,7 +123,7 @@ public func gitBranch(folder: URL) -> (branch: String?, defaultBranch: String?, 
             read(common.appendingPathComponent("config")).flatMap { githubRepository(gitConfig: $0) })
 }
 
-private let githubRemote = try! NSRegularExpression(pattern: #"^(?i:git@github\.com:|ssh://git@github\.com/|https://github\.com/)([A-Za-z0-9-]+)/([A-Za-z0-9._-]+?)(?:\.git)?/?$"#)
+private let githubRemote = try! NSRegularExpression(pattern: #"^(?i:git@github\.com:|ssh://git@github\.com/|https://(?:[^@/]+@)?github\.com/)([A-Za-z0-9-]+)/([A-Za-z0-9._-]+?)(?:\.git)?/?$"#)
 
 /// The repository of the `url` of `[remote "origin"]` in a git `config` file; nil when it is not on github.com.
 public func githubRepository(gitConfig: String) -> GitHubRepository? {

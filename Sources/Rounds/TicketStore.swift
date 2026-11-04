@@ -16,8 +16,8 @@ final class TicketStore {
     /// `.noKey` also while a key waits for its first answer (`hasLinearKey` tells the two apart), so nothing says
     /// offline before a request failed.
     private(set) var linearStatus = LinearStatus.noKey
-    /// nil until the first check of `gh` answers.
-    private(set) var githubStatus: GitHubStatus?
+    /// nil until the first check of `gh` answers. A change regroups, as rows hide their guesses without `gh`.
+    private(set) var githubStatus: GitHubStatus? { didSet { if githubStatus != oldValue { changed() } } }
     private(set) var hasLinearKey = false
 
     /// Called once after new data or new lookups, so the app regroups (and sets each row's tickets again).
@@ -76,13 +76,15 @@ final class TicketStore {
 
     // MARK: Rows
 
-    /// The tickets a row shows, from the cache; placeholders for refs without data. A `#N` that GitHub does not know as
-    /// an issue (a PR, say) shows nothing once GitHub answers.
+    /// The tickets a row shows, from the cache; placeholders for refs without data. A guess (`#N`, `owner/repo#N`) that
+    /// GitHub does not know as an issue (a PR, say) shows nothing once GitHub answers, and nothing without `gh`.
     func tickets(for row: SessionRow) -> [Ticket] {
         let p = parts(row)
+        let noGitHub = githubStatus == .notFound || githubStatus == .notSignedIn
         return rowTickets(branch: p.branch, pullRequests: p.prs, refs: p.refs, linearKey: key != "") { lookup, service in
             let stored = cache.tickets(for: lookup, service: service)
-            return p.numbers.contains(lookup) ? stored?.filter { $0.problem != .notFound } : stored
+            guard p.guesses.contains(lookup) else { return stored }
+            return noGitHub ? [] : stored?.filter { $0.problem != .notFound }
         }
     }
 
@@ -114,8 +116,8 @@ final class TicketStore {
     }
 
     /// The lookup branch, PR URLs (the row's, then the prompt's) and other prompt refs of a row, from what is known now
-    /// (no file reads), and the lookups of `#N` refs that no issue URL or `owner/repo#N` also names.
-    private func parts(_ r: SessionRow) -> (branch: String?, prs: [URL], refs: [TicketRef], numbers: Set<Lookup>) {
+    /// (no file reads), and the lookups of guesses that no issue URL also names.
+    private func parts(_ r: SessionRow) -> (branch: String?, prs: [URL], refs: [TicketRef], guesses: Set<Lookup>) {
         let folder = folders[r.cwd]
         let branch: String?, refs: [TicketRef]
         switch r.source {
@@ -130,11 +132,11 @@ final class TicketStore {
             let url = URL(string: "https://github.com/\(owner)/\(repo)/pull/\(number)")!
             if !prs.contains(url) { prs.append(url) }
         }
-        let numbers = refs.compactMap { ref -> TicketRef? in
-            guard case .githubNumber(let n) = ref, let repository else { return nil }
-            return .github(owner: repository.owner, repo: repository.name, number: n)
+        let guesses = refs.compactMap { ref -> TicketRef? in
+            guard case .githubNumber(let n, let own) = ref, let repo = own ?? repository else { return nil }
+            return .github(owner: repo.owner, repo: repo.name, number: n)
         }
-        return (lookupBranch(branch, defaultBranch: folder?.defaultBranch), prs, other, Set(numbers.filter { !refs.contains($0) }.map(Lookup.ref)))
+        return (lookupBranch(branch, defaultBranch: folder?.defaultBranch), prs, other, Set(guesses.filter { !refs.contains($0) }.map(Lookup.ref)))
     }
 
     /// Linear gets the branch, the PRs and the Linear refs; GitHub gets the PRs and the GitHub refs.

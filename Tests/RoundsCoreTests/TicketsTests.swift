@@ -28,12 +28,13 @@ import Testing
 
 @Test func findsOwnerRepoNumberRefsAfterURLs() {
     #expect(ticketRefs(inPrompt: "see my-org/r.js#12 and https://github.com/a/b/issues/1#x, a/b#1")
-        == [.github(owner: "my-org", repo: "r.js", number: 12), .github(owner: "a", repo: "b", number: 1)])
+        == [.githubNumber(12, repository: GitHubRepository(owner: "my-org", name: "r.js")), .github(owner: "a", repo: "b", number: 1),
+            .githubNumber(1, repository: GitHubRepository(owner: "a", name: "b"))])
     #expect(ticketRefs(inPrompt: "src/o/r#1 x.o/r#2 o/r#3a o/r#0 o_x/r#4") == [])
 }
 
 @Test func findsHashNumbersOnlyAfterAKeyword() {
-    #expect(ticketRefs(inPrompt: "fixes #12, Fixes: #13; issue #7 and CLOSES  #8") == [12, 13, 7, 8].map(TicketRef.githubNumber))
+    #expect(ticketRefs(inPrompt: "fixes #12, Fixes: #13; issue #7 and CLOSES  #8") == [12, 13, 7, 8].map { .githubNumber($0, repository: nil) })
     #expect(ticketRefs(inPrompt: "prefix #3 fixes #4x issue#5 fix #0") == [])
 }
 
@@ -50,12 +51,13 @@ import Testing
 }
 
 @Test func rowRefsGiveHashNumbersTheOriginRepositoryThenTheFirstFive() {
-    let refs: [TicketRef] = [.githubNumber(1), .linearID("BBQ-1"), .githubNumber(2), .github(owner: "o", repo: "r", number: 1),
-                             .githubNumber(3), .githubNumber(4), .githubNumber(5)]
+    let refs: [TicketRef] = [.githubNumber(1, repository: nil), .linearID("BBQ-1"), .githubNumber(2, repository: nil), .github(owner: "o", repo: "r", number: 1),
+                             .githubNumber(6, repository: GitHubRepository(owner: "u", name: "v")), .githubNumber(4, repository: nil), .githubNumber(5, repository: nil)]
     #expect(rowRefs(refs, teamKeys: ["BBQ"], repository: GitHubRepository(owner: "o", name: "r"))
         == [.github(owner: "o", repo: "r", number: 1), .linearID("BBQ-1"), .github(owner: "o", repo: "r", number: 2),
-            .github(owner: "o", repo: "r", number: 3), .github(owner: "o", repo: "r", number: 4)])
-    #expect(rowRefs(refs, teamKeys: ["BBQ"], repository: nil) == [.linearID("BBQ-1"), .github(owner: "o", repo: "r", number: 1)])
+            .github(owner: "u", repo: "v", number: 6), .github(owner: "o", repo: "r", number: 4)])
+    #expect(rowRefs(refs, teamKeys: ["BBQ"], repository: nil)
+        == [.linearID("BBQ-1"), .github(owner: "o", repo: "r", number: 1), .github(owner: "u", repo: "v", number: 6)])
 }
 
 @Test func githubRepositoryIsTheOriginURLOfAGitConfig() {
@@ -63,7 +65,7 @@ import Testing
         githubRepository(gitConfig: "[core]\n\turl = git@github.com:x/y\n[remote \"upstream\"]\n\turl = git@github.com:u/v\n[remote \"origin\"]\n\turl = \(url)\n\tfetch = +refs/heads/*\n")
     }
     let o = GitHubRepository(owner: "o", name: "r")
-    #expect(["git@github.com:o/r.git", "git@github.com:o/r", "ssh://git@github.com/o/r.git", "https://github.com/o/r.git", "https://github.com/o/r/"].map(repo) == [o, o, o, o, o])
+    #expect(["git@github.com:o/r.git", "git@github.com:o/r", "ssh://git@github.com/o/r.git", "https://github.com/o/r.git", "https://github.com/o/r/", "https://x-access-token@github.com/o/r.git"].map(repo) == [o, o, o, o, o, o])
     #expect(repo("https://github.com/o/r.github") == GitHubRepository(owner: "o", name: "r.github"))
     #expect(repo("git@gitlab.com:o/r.git") == nil && repo("https://example.com/o/r") == nil)
     #expect(githubRepository(gitConfig: "[remote \"upstream\"]\n\turl = git@github.com:u/v\n") == nil)

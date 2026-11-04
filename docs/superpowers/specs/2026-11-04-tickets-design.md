@@ -39,21 +39,22 @@ Each row gets tickets from three places, in this order. A ticket found twice sho
    - GitHub PR URLs `https://github.com/<owner>/<repo>/pull/<n>`, with a subpath (`/files`) or a `/` at the end or
      none: the row adds `https://github.com/<owner>/<repo>/pull/<n>` to its PRs (once), so it shows the issues the PR
      links, not the PR;
-   - `owner/repo#<n>` (owner `[A-Za-z0-9-]{1,39}`, repo `[A-Za-z0-9._-]{1,100}`, no leading zero), with no name
+   - `owner/repo#<n>`, a guess (owner `[A-Za-z0-9-]{1,39}`, repo `[A-Za-z0-9._-]{1,100}`, no leading zero), with no name
      character (`[A-Za-z0-9_./-]`) before it and no letter, digit or `_` after it; a URL is read first, so the
      fragment of an issue URL is not read again;
    - `#<n>` right after close, closes, closed, fix, fixes, fixed, resolve, resolves, resolved, issue, ref or refs (any
      case, a word of its own, then spaces or a colon): an issue of the repository of the session folder's `origin`
      remote (the `url` of `[remote "origin"]` in `config` of the common git folder; `git@github.com:`,
-     `ssh://git@github.com/` or `https://github.com/` only). No repository: no ref. Such an issue shows "Loading…"
-     until GitHub answers, then nothing when GitHub does not find it (a PR number, say); "#12" alone, "color #fff"
-     and "step #2" give nothing;
+     `ssh://git@github.com/` or `https://github.com/`, with or without a user, only), a guess. No repository: no ref.
+     "#12" alone, "color #fff" and "step #2" give nothing. A guess can also name a PR, so it shows "Loading…" until
+     GitHub answers, then nothing when GitHub does not find the issue (a PR number, say), and nothing while `gh` is
+     missing or signed out (an issue URL keeps "Not found" and the `gh` note);
    - bare Linear identifiers (`BBQ-123`; not a version such as `ios-1.57` or `v2-1.0`, and no leading zero, so
      `BBQ-0123` gives nothing; `BBQ-123.` at the end of a sentence counts), sent to `issue(id)`: only an identifier whose prefix is a team key of the
      workspace is looked up or shown (each Linear request also asks for the team keys; until they come, only the team
      keys of cached tickets count), and
      only an identifier that Linear finds counts, so `UTF-8` or `GPT-4` gives nothing.
-   At most 20 candidates per prompt; a row takes its first 5 after the team filter and the repository of `#<n>`. Scheme
+   At most 20 candidates per prompt; a row takes its first 5 after the team filter and the repository of each guess. Scheme
    and host can be in any case.
    A match that ends at the 64 KB cut is dropped, as the cut can shorten it (`BBQ-12` from `BBQ-123`).
    URLs lose a trailing `.,;:!?)]>'"`, a query and a fragment; identifiers are upper case.
