@@ -60,6 +60,12 @@ final class HoverCard {
         panel.orderOut(nil)
     }
 
+    /// Drops the frames of marks whose row is gone.
+    func keepFrames(of rows: [SessionRow]) {
+        let ids = Set(rows.flatMap { ["ticket:" + $0.id, "pr:" + $0.id] })
+        frames = frames.filter { ids.contains($0.key) }
+    }
+
     /// The card's size changed (data came): it keeps its place under the mark.
     func resize(_ size: CGSize) {
         guard shown != nil, size.width > 0, size.height > 0 else { return }
@@ -147,7 +153,8 @@ private struct HoverCardView: View {
     }
 
     private func items(_ snapshot: SessionRow, _ kind: HoverCard.Kind) -> [Ticket] {
-        let row = PanelController.shared.row(snapshot.id) ?? snapshot
+        // From the groups as they are, with no new project sections.
+        let row = AppModel.shared.groups.all.first { $0.id == snapshot.id } ?? snapshot
         switch kind {
         case .tickets: return row.tickets
         case .pullRequests:

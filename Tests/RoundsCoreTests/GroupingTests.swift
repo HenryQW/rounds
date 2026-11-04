@@ -185,6 +185,25 @@ private func ticket(_ id: String, title: String? = nil) -> Ticket {
     #expect(group([p, c], query: "").quiet[0].children[0].tickets.map(\.identifier) == ["BBQ-1", "BBQ-2"])
 }
 
+/// A grandchild, which shows under the root too, drops the tickets of its own parent.
+@Test func grandchildDropsTicketsOfItsOwnParent() {
+    var p = row("p", .quiet, activity: 5), c = row("c", .quiet, activity: 4, parent: "p"), g = row("g", .quiet, activity: 3, parent: "c")
+    p.tickets = [ticket("BBQ-1")]
+    c.tickets = [ticket("BBQ-1"), ticket("BBQ-2")]
+    g.tickets = [ticket("BBQ-1"), ticket("BBQ-2"), ticket("BBQ-3")]
+    let children = group([p, c, g], query: "").quiet[0].children
+    #expect(children.map(\.id) == ["c", "g"] && children.map { $0.tickets.map(\.identifier) } == [["BBQ-2"], ["BBQ-3"]])
+}
+
+/// A search that matches only a child's ticket shows the parent with that child.
+@Test func searchFindsAChildByItsTicket() {
+    var c = row("c", .quiet, activity: 4, title: "Beta", parent: "p")
+    c.tickets = [ticket("BBQ-7")]
+    let rows = [row("p", .quiet, activity: 5, title: "Alpha"), c, row("d", .quiet, activity: 3, title: "Gamma", parent: "p")]
+    let top = group(rows, query: "bbq-7").quiet
+    #expect(top.map(\.id) == ["p"] && top.first?.children.map(\.id) == ["c"])
+}
+
 /// Search finds a row by the identifier or the title of its tickets.
 @Test func searchMatchesTickets() {
     var t = row("t", .quiet, activity: 5, title: "Alpha")

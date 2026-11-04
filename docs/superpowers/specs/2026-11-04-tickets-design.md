@@ -48,7 +48,7 @@ Each row gets tickets from three places, in this order. A ticket found twice sho
 Rules:
 - Only rows the window lists are looked up (older, done and hidden rows only while a search or the Aged filter shows
   them), so a launch with hundreds of old pi sessions sends no flood of requests.
-- A child row shows only tickets that its parent does not show.
+- A child row shows only tickets that its parent does not show (a grandchild, which shows under the root, compares with its own parent).
 - pi and herdr rows follow the folder's current branch, not the branch the session started on (known limit, as the
   folder has no record of it).
 

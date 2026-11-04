@@ -484,6 +484,7 @@ final class AppModel {
         // search shows them.
         var ids = Set(sessions.map(\.id))
         tickets.list(sessions + (includeOlder || !query.isEmpty ? groups.all.filter { ids.insert($0.id).inserted } : []))
+        HoverCard.shared.keepFrames(of: groups.all)
     }
 
     private static func loadLastCall() -> LastCallRule {

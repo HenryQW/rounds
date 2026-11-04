@@ -218,7 +218,9 @@ public func group(_ rows: [SessionRow], query: String, marks: SessionMarks = Ses
         r.children = shown.map { child in
             var c = child.titled(under: r)
             c.isSeen = trackSeen && marks.isSeen(c)
-            c.tickets.removeAll { t in r.tickets.contains { $0.url == t.url } }
+            // A grandchild is under the root too, but drops the tickets of its own parent.
+            let parent = child.parentId.flatMap { byId[$0] } ?? r
+            c.tickets.removeAll { t in parent.tickets.contains { $0.url == t.url } }
             c.isIsolated = URL(fileURLWithPath: c.cwd).standardizedFileURL.path != URL(fileURLWithPath: r.cwd).standardizedFileURL.path
             return c
         }
