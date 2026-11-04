@@ -25,7 +25,8 @@ final class TicketStore {
     /// The app's parsed pi sessions by path: a herdr agent's prompt refs come from its pi session.
     @ObservationIgnored var piSessions: [String: PiSession] = [:]
 
-    @ObservationIgnored private var cache = TicketCache()
+    /// Observed, so an open hover card shows a PR's data when it comes.
+    private var cache = TicketCache()
     /// nil until the Keychain is read; empty when there is no key.
     @ObservationIgnored private var key: String?
     @ObservationIgnored private var keyLoading = false

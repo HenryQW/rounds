@@ -50,6 +50,10 @@ _Avoid_: sandboxed, separate
 Work a session left running after its turn, such as a shell command or a sub-agent inside a Claude session.
 _Avoid_: job, child
 
+**Ticket**:
+A Linear issue or a GitHub issue linked to a session: by its branch, its pull requests or its first prompt. A row shows it in a grey mark under the time.
+_Avoid_: issue (alone), task, card
+
 **Project**:
 The repository a session belongs to; worktrees join their repository.
 _Avoid_: repo, workspace, folder

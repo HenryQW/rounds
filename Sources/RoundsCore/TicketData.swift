@@ -358,3 +358,57 @@ public func rowTickets(branch: String?, pullRequests: [URL], refs: [TicketRef], 
     }
     return tickets
 }
+
+// MARK: Mark and card
+
+extension Ticket {
+    /// The mark's symbol: the mark is grey, so the shape gives the state. Linear state types and GitHub issue states
+    /// share a name where they mean the same; an open GitHub issue, an unstarted Linear issue and no data are a circle.
+    public var symbol: String {
+        switch stateType {
+        case "backlog": "circle.dotted"
+        case "started": "circle.lefthalf.filled"
+        case "completed": "checkmark.circle"
+        case "canceled", "not_planned": "xmark.circle"
+        case "triage": "circle.dashed"
+        default: "circle"
+        }
+    }
+}
+
+/// One item of the hover card: "BBQ-123 · Linear", the title, "In Progress · Ada · updated 2 hr. ago", and notes
+/// that say why data is missing or old.
+public struct TicketCardText: Equatable, Sendable {
+    public var heading: String
+    public var title: String?
+    public var details: String?
+    public var notes: [String]
+
+    public init(heading: String, title: String?, details: String?, notes: [String]) {
+        (self.heading, self.title, self.details, self.notes) = (heading, title, details, notes)
+    }
+}
+
+/// The card text of a ticket or a pull request. `offline`: the service's last request failed. `unavailable`: why the
+/// service cannot answer ("gh not found"), said in place of "Loading…" for an item with no data.
+public func ticketCardText(_ t: Ticket, now: Date, offline: Bool, unavailable: String? = nil, locale: Locale = .current) -> TicketCardText {
+    let heading = switch t.service {
+    case .linear: t.identifier + " · Linear"
+    case .github: (t.repository ?? "") + t.identifier + " · GitHub"
+    case .pullRequest: t.identifier + " · GitHub"
+    }
+    let relative = RelativeDateTimeFormatter()
+    (relative.locale, relative.unitsStyle) = (locale, .short)
+    // A server clock a little ahead of this one never gives "in 0 sec.".
+    let updated = t.updatedAt.map { "updated " + relative.localizedString(for: min($0, now - 1), relativeTo: now) }
+    let details = [t.stateName, t.person, updated].compactMap { $0 }
+    var notes: [String] = switch t.problem {
+    case .noKey: ["Add a Linear API key in Settings to see the title"]
+    case .otherWorkspace: ["Not in your Linear workspace"]
+    case .notFound: ["Not found"]
+    case nil: t.title == nil ? [unavailable ?? "Loading…"] : []
+    }
+    if t.archived { notes.append("Archived") }
+    if offline { notes.append("Not updated: offline") }
+    return TicketCardText(heading: heading, title: t.title, details: details.isEmpty ? nil : details.joined(separator: " · "), notes: notes)
+}

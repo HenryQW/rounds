@@ -64,7 +64,8 @@ components:
   tile-selected: { fill: "{colors.tile-selected}", hairline: "{colors.tile-selected-hairline}" }
   source-toggle: { height: 28pt, rounded: "{rounded.capsule}", hairline: "{colors.hairline} 0.5pt", content: "source icon 20pt and count" }
   another-round-banner: { place: "the empty Last Call list (ContentUnavailableView)", icon: "🍹 at 40pt", title: "Another round? in {colors.rounds-blue}", buttons: "one per source that is on: 20pt source icon and name, 32pt high, {rounded.md}, {colors.rounds-blue-hairline}, grey hover fill" }
-  row: { insets: "8pt by 4pt", rounded: "{rounded.sm}", content: "status dot, source icon 18pt, title and subtitle, a glass (12 by 14pt) that fills when working, time and PR mark" }
+  row: { insets: "8pt by 4pt", rounded: "{rounded.sm}", content: "status dot, source icon 18pt, title and subtitle, a glass (12 by 14pt) that fills when working, time, and under it the ticket mark and the PR mark" }
+  hover-card: { width: 280pt, rounded: "{rounded.md}", fill: windowBackgroundColor, hairline: "{colors.hairline} 0.5pt", content: "up to 3 items: identifier and service, title (2 lines), state, person and update time; grey hover fill per item" }
   row-hover: { fill: "{colors.hover}" }
   row-selected: { fill: "{colors.selection}", text: white }
   status-capsule: { rounded: "{rounded.capsule}", hairline: "{colors.hairline} 0.5pt", content: "6pt state dot and words" }
@@ -78,13 +79,13 @@ Rounds is a background utility, so its design gets out of the way. It uses nativ
 
 ## Colors
 
-Colour is information. Orange means a session needs the user, blue means it runs, green means a result is ready (the pill turns green, still, while only unseen results wait: Ready, Finished, Stopped), red means a failure, grey means nothing to do. The Served tile is the one exception: its symbol is green, for drinks served. The PR mark takes GitHub's colours on its symbol only: green open, purple merged, grey closed (not red, which means a failure). Hover is a grey fill and selection is the system accent, and the two never look alike.
+Colour is information. Orange means a session needs the user, blue means it runs, green means a result is ready (the pill turns green, still, while only unseen results wait: Ready, Finished, Stopped), red means a failure, grey means nothing to do. The Served tile is the one exception: its symbol is green, for drinks served. The PR mark takes GitHub's colours on its symbol only: green open, purple merged, grey closed (not red, which means a failure). The ticket mark is grey: its shape gives the ticket's state (a circle, a half-filled circle, a check, a cross), as orange and blue already mean session states. Hover is a grey fill and selection is the system accent, and the two never look alike.
 
 Rounds blue (#0A6BDB) is the one brand colour: the app icon (a white glass two-thirds full, with an orange bubble), the running pill and the Another round? banner. White text on it keeps about 5:1; system blue gives about 4:1, which is too low. The author link uses henry.wang's Decisive Cobalt (#1D4ED8), or its Evidence Blue (#8FB3FF) in dark mode.
 
 ## Typography
 
-System fonts only (SF Pro, SF Mono). Counts and titles take a small negative tracking; section labels take +0.4 pt, as taxonomy rather than titles. Times and PR numbers are monospaced, so columns do not jump. Tile names are drinking puns (Last Call, On Tap, Served, Aged); their plain names (Your Turn, Running, Quiet, Older) are in the hints and VoiceOver. Copy follows ASD-STE100 Simplified Technical English, with no em or en dashes.
+System fonts only (SF Pro, SF Mono). Counts and titles take a small negative tracking; section labels take +0.4 pt, as taxonomy rather than titles. Times, PR numbers and ticket identifiers are monospaced, so columns do not jump. Tile names are drinking puns (Last Call, On Tap, Served, Aged); their plain names (Your Turn, Running, Quiet, Older) are in the hints and VoiceOver. Copy follows ASD-STE100 Simplified Technical English, with no em or en dashes.
 
 ## Layout
 

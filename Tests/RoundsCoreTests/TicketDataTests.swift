@@ -219,3 +219,29 @@ private func ticket(_ url: String, _ id: String, _ service: TicketService = .lin
     let r = try decodeGitHub(data, aliases: ["g0": blocked, "g1": ok])
     #expect(r[blocked] == nil && r[ok]?.first?.identifier == "#1")
 }
+
+@Test func cardTextGivesHeadingTitleAndDetails() {
+    let now = Date(timeIntervalSince1970: 1_793_786_400), en = Locale(identifier: "en_US")
+    let linear = Ticket(url: URL(string: "https://linear.app/acme/issue/BBQ-12")!, identifier: "BBQ-12", service: .linear, title: "Fix login",
+                        stateName: "In Progress", stateType: "started", person: "Ada", updatedAt: now - 7200)
+    #expect(ticketCardText(linear, now: now, offline: false, locale: en)
+        == TicketCardText(heading: "BBQ-12 · Linear", title: "Fix login", details: "In Progress · Ada · updated 2 hr. ago", notes: []))
+    var issue = Ticket(url: URL(string: "https://github.com/o/r/issues/5")!, identifier: "#5", service: .github, repository: "o/r",
+                       title: "Crash", stateName: "Closed", stateType: "completed", updatedAt: now - 60, archived: true)
+    #expect(ticketCardText(issue, now: now, offline: true, locale: en)
+        == TicketCardText(heading: "o/r#5 · GitHub", title: "Crash", details: "Closed · updated 1 min. ago", notes: ["Archived", "Not updated: offline"]))
+    issue.title = nil
+    issue.problem = .notFound
+    #expect(ticketCardText(issue, now: now, offline: false, unavailable: "gh not found", locale: en).notes == ["Not found", "Archived"])
+}
+
+@Test func cardTextSaysWhyAnItemHasNoData() {
+    let now = Date()
+    let pr = Ticket(url: URL(string: "https://github.com/o/r/pull/42")!, identifier: "#42", service: .pullRequest)
+    #expect(ticketCardText(pr, now: now, offline: false) == TicketCardText(heading: "#42 · GitHub", title: nil, details: nil, notes: ["Loading…"]))
+    #expect(ticketCardText(pr, now: now, offline: false, unavailable: "gh not signed in").notes == ["gh not signed in"])
+    var linear = Ticket(url: URL(string: "https://linear.app/x/issue/BBQ-1")!, identifier: "BBQ-1", service: .linear, problem: .noKey)
+    #expect(ticketCardText(linear, now: now, offline: false).notes == ["Add a Linear API key in Settings to see the title"])
+    linear.problem = .otherWorkspace
+    #expect(ticketCardText(linear, now: now, offline: false).notes == ["Not in your Linear workspace"])
+}

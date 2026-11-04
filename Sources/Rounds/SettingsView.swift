@@ -16,6 +16,8 @@ final class SettingsState {
     var page: SettingsPage? = .general
     /// The sidebar button under the pointer (Report a Bug or Check for Updates), which then shows the grey hover fill.
     var hoveredButton: String?
+    /// The Linear key as the user types it; cleared once saved (the key itself lives only in the Keychain).
+    var linearKey = ""
     @ObservationIgnored weak var window: NSWindow?
 }
 
@@ -74,7 +76,7 @@ struct SettingsView: View {
             case .general: page(.general) { general }
             case .pill: page(.pill) { pill }
             case .filters: page(.filters) { filters }
-            case .sources: page(.sources) { sources }
+            case .sources: page(.sources) { sources; tickets }
             case .keys: page(.keys) { keys }
             }
         }
@@ -364,6 +366,56 @@ struct SettingsView: View {
         } footer: {
             footer(model.hookError ?? model.codexError ?? model.codexHookError)
         }
+    }
+
+    /// Where the ticket marks get titles and states (spec 2.8): the Linear key, kept in the Keychain, and the gh sign-in.
+    private var tickets: some View {
+        let store = TicketStore.shared
+        return Section("Tickets") {
+            LabeledContent {
+                VStack(alignment: .trailing, spacing: 8) {
+                    HStack(spacing: 8) {
+                        SecureField("Linear API key", text: $state.linearKey, prompt: Text("Paste the key"))
+                            .labelsHidden()
+                            .onSubmit(saveLinearKey)
+                        Button("Save Key", action: saveLinearKey)
+                            .disabled(state.linearKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+                    if store.hasLinearKey {
+                        HStack(spacing: 8) {
+                            Button("Remove Key") { store.removeLinearKey() }
+                            switch store.linearStatus {
+                            case .connected(let workspace): statusPill("Connected: \(workspace)", .green)
+                            case .invalidKey: statusPill("Key not valid", .orange)
+                            case .offline: statusPill("Offline", .gray)
+                            // A saved key waits for its first answer.
+                            case .noKey: EmptyView()
+                            }
+                        }
+                    }
+                }
+                .controlSize(.small)
+            } label: {
+                described("Linear API key", "Shows the title and state of Linear issues. The key stays in your Keychain.")
+            }
+            .help("Make a personal API key in Linear: Settings, Account, Security and access. Rounds sends Linear only branch names, PR links and issue IDs.")
+            LabeledContent {
+                switch store.githubStatus {
+                case .signedIn(let user): statusPill("Signed in as \(user)", .green)
+                case .notFound: statusPill("gh not found", .gray)
+                case .notSignedIn: statusPill("gh not signed in", .orange)
+                case .offline: statusPill("Offline", .gray)
+                }
+            } label: {
+                described("GitHub", "Uses the gh command line tool and its sign-in.")
+            }
+            .help("Rounds runs gh from Homebrew or ~/.local/bin; sign in with gh auth login. It sends GitHub only repository names and PR and issue numbers.")
+        }
+    }
+
+    private func saveLinearKey() {
+        TicketStore.shared.setLinearKey(state.linearKey)
+        state.linearKey = ""
     }
 
     /// Keys of the session window (PanelController.handle and the row menu); keep in step with spec 5.2. Each key in

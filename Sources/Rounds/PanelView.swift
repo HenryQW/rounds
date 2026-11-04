@@ -260,6 +260,9 @@ struct PanelView: View {
         ForEach(row.pullRequests, id: \.url) { pr in
             Button(pr.openLabel) { NSWorkspace.shared.open(pr.url) }
         }
+        ForEach(row.tickets, id: \.url) { ticket in
+            Button(ticket.openLabel) { NSWorkspace.shared.open(ticket.url) }
+        }
         Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: row.cwd)]) }
         if let branch = row.branch {
             Button("Copy Branch Name") {
@@ -478,29 +481,38 @@ struct SessionRowView: View {
                 // A hook time can be a few ms ahead of this clock; never show "in 0 sec".
                 Text(min(row.status.since, .now.addingTimeInterval(-1)), format: .relative(presentation: .numeric, unitsStyle: .narrow))
                     .font(.caption2.monospaced()).foregroundStyle(.secondary)
-                if !row.pullRequests.isEmpty { PRMark(prs: row.pullRequests, hoverId: "pr:" + row.id, state: state) }
+                if !row.tickets.isEmpty || !row.pullRequests.isEmpty {
+                    HStack(spacing: 8) {
+                        if !row.tickets.isEmpty { TicketMark(row: row, state: state) }
+                        if !row.pullRequests.isEmpty { PRMark(row: row, state: state) }
+                    }
+                }
             }
+            // The marks are never cut: the title gives way first.
+            .fixedSize()
         }
         .padding(.vertical, 2)
     }
 }
 
-/// A row's pull requests, under its time (spec 5.2): the newest PR's symbol, coloured by its GitHub state (green open,
-/// purple merged, grey closed), and its number in grey. A click opens the PR; with more than one, a menu has one item per PR.
-private struct PRMark: View {
-    let prs: [PullRequestLink]
+/// A mark under a row's time (spec 5.2): a click opens its one link; with more, a menu has one item per link. It has
+/// the grey hover fill, and after 0.6 s on it the hover card (`HoverCard`) names each item.
+private struct RowMark<Content: View>: View {
+    let links: [(title: String, url: URL)]
     let hoverId: String
+    let row: SessionRow
+    let kind: HoverCard.Kind
     let state: PanelState
-    @Environment(\.backgroundProminence) private var prominence
+    @ViewBuilder let content: Content
 
     var body: some View {
         Group {
-            if prs.count == 1 {
-                Button { NSWorkspace.shared.open(prs[0].url) } label: { mark }
+            if links.count == 1 {
+                Button { NSWorkspace.shared.open(links[0].url) } label: { mark }
                     .buttonStyle(.plain)
             } else {
                 Menu {
-                    ForEach(prs, id: \.url) { pr in Button(pr.openLabel) { NSWorkspace.shared.open(pr.url) } }
+                    ForEach(Array(links.enumerated()), id: \.offset) { _, link in Button(link.title) { NSWorkspace.shared.open(link.url) } }
                 } label: { mark }
                 .menuStyle(.button)
                 .buttonStyle(.plain)
@@ -510,8 +522,56 @@ private struct PRMark: View {
         }
         .onHover { inside in
             if inside { state.hoveredControl = hoverId } else if state.hoveredControl == hoverId { state.hoveredControl = nil }
+            HoverCard.shared.hover(hoverId, row: row, kind: kind, inside: inside)
         }
-        .help(prs.map { "PR " + String($0.number) }.joined(separator: ", "))
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { HoverCard.shared.frames[hoverId] = $0 }
+        // A mark that leaves the list under the pointer gets no hover end.
+        .onDisappear { HoverCard.shared.hover(hoverId, row: row, kind: kind, inside: false) }
+    }
+
+    private var mark: some View {
+        HStack(spacing: 2) { content }
+            .font(.caption2.monospaced()).foregroundStyle(.secondary)
+            .background {
+                // Outside the layout, so the mark stays right-aligned under the time.
+                RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(state.hoveredControl == hoverId ? 0.1 : 0)).padding(-2)
+            }
+            .contentShape(.rect)
+    }
+}
+
+/// A row's tickets, under its time before the PR mark (spec 5.2): the first ticket's state symbol and its identifier,
+/// and how many more ("BBQ-123 +1"). All grey, as orange and blue mean session states; the shape gives the ticket's
+/// state. White on a selected row.
+private struct TicketMark: View {
+    let row: SessionRow
+    let state: PanelState
+    @Environment(\.backgroundProminence) private var prominence
+
+    var body: some View {
+        let tickets = row.tickets, first = tickets[0]
+        RowMark(links: tickets.map { ($0.openLabel, $0.url) }, hoverId: "ticket:" + row.id, row: row, kind: .tickets, state: state) {
+            Image(systemName: first.symbol).foregroundStyle(prominence == .increased ? .white : Color(nsColor: .secondaryLabelColor))
+            Text(tickets.count == 1 ? first.identifier : first.identifier + " +" + String(tickets.count - 1))
+        }
+        .accessibilityLabel(tickets.count == 1 ? "Ticket \(first.identifier)" : "\(tickets.count) tickets")
+    }
+}
+
+/// A row's pull requests, under its time (spec 5.2): the newest PR's symbol, coloured by its GitHub state (green open,
+/// purple merged, grey closed), and its number in grey.
+private struct PRMark: View {
+    let row: SessionRow
+    let state: PanelState
+    @Environment(\.backgroundProminence) private var prominence
+
+    private var prs: [PullRequestLink] { row.pullRequests }
+
+    var body: some View {
+        RowMark(links: prs.map { ($0.openLabel, $0.url) }, hoverId: "pr:" + row.id, row: row, kind: .pullRequests, state: state) {
+            symbol
+            Text(label)
+        }
         .accessibilityLabel(prs.count == 1 ? "Pull request" : "\(prs.count) pull requests")
     }
 
@@ -535,24 +595,16 @@ private struct PRMark: View {
         }
         return Image(systemName: name).foregroundStyle(prominence == .increased ? .white : color)
     }
-
-    private var mark: some View {
-        HStack(spacing: 2) {
-            symbol
-            Text(label)
-        }
-        .font(.caption2.monospaced()).foregroundStyle(.secondary)
-        .background {
-            // Outside the layout, so the mark stays right-aligned under the time.
-            RoundedRectangle(cornerRadius: 4).fill(Color.primary.opacity(state.hoveredControl == hoverId ? 0.1 : 0)).padding(-2)
-        }
-        .contentShape(.rect)
-    }
 }
 
 extension PullRequestLink {
     /// "Open PR 16338": the number as digits, with no grouping separator.
     var openLabel: String { "Open PR " + String(number) }
+}
+
+extension Ticket {
+    /// "Open BBQ-123", "Open #812".
+    var openLabel: String { "Open " + identifier }
 }
 
 extension SessionRow {

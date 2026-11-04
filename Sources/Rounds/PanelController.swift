@@ -87,6 +87,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func close() {
+        HoverCard.shared.close()
         if let panel { EdgeDrawer.shared.slideOut(panel) }
         state.shown = false
         model.query = ""
@@ -103,6 +104,7 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func windowWillClose(_ notification: Notification) {
+        HoverCard.shared.close()
         model.query = ""
         // The window is still visible here; the drawer pill shows once it is gone.
         Task { @MainActor in
