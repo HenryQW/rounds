@@ -383,7 +383,7 @@ struct SettingsView: View {
         default: ("Titles and states of issues.", false)
         }
         let github: (line: String, problem: Bool) = switch store.githubStatus {
-        case .signedIn(let user): ("Signed in as \(user) with gh.", false)
+        case .signedIn(let user): ("Your gh account is \(user).", false)
         case .notSignedIn: ("Run gh auth login in a shell.", true)
         case .notFound: ("Install it with brew install gh.", false)
         case .offline, nil: ("Uses the gh command line tool.", false)
@@ -470,12 +470,14 @@ struct SettingsView: View {
         }
     }
 
-    /// A state's dot (green set up, orange needs action, grey otherwise) and its word.
+    /// A state's dot (green set up, orange needs action, grey otherwise) and its word. The trailing room is the menus'
+    /// hover padding and indicator gap, so the word ends on the same edge as a menu's arrow.
     private func statusLabel(_ text: String, _ color: Color) -> some View {
         HStack(spacing: 6) {
             Circle().fill(color).frame(width: 7, height: 7)
             Text(text)
         }
+        .padding(.trailing, 10)
     }
 
     /// A state's dot and a borderless menu, with the word as its label, of what the row can do. The dot is outside the
