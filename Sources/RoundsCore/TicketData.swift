@@ -114,21 +114,20 @@ private struct LinearAttachments: Decodable {
     var nodes: [Node]
 }
 
+/// An error on one alias gives its lookups no result (not even "none"), so they can be asked again; "not found" is
+/// "none". Only an error that names no alias throws.
 public func decodeLinear(_ data: Data, aliases: [String: [Lookup]]) throws -> [Lookup: [Ticket]] {
     guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { throw TicketDataError.invalidResponse }
-    var missing = Set<String>()
+    var missing = Set<String>(), failed = Set<String>()
     for e in (root["errors"] as? [[String: Any]]) ?? [] {
         let message = e["message"] as? String ?? ""
-        if let alias = (e["path"] as? [Any])?.first as? String, aliases[alias] != nil, message.lowercased().contains("not found") {
-            missing.insert(alias)
-        } else {
-            throw TicketDataError.server(message)
-        }
+        guard let alias = (e["path"] as? [Any])?.first as? String, aliases[alias] != nil else { throw TicketDataError.server(message) }
+        if message.lowercased().contains("not found") { missing.insert(alias) } else { failed.insert(alias) }
     }
     guard let fields = root["data"] as? [String: Any],
           let urlKey = (fields["organization"] as? [String: Any])?["urlKey"] as? String else { throw TicketDataError.invalidResponse }
     var result: [Lookup: [Ticket]] = [:]
-    for (alias, lookups) in aliases {
+    for (alias, lookups) in aliases where !failed.contains(alias) {
         let value = fields[alias]
         let empty = missing.contains(alias) || value == nil || value is NSNull
         for lookup in lookups {
@@ -157,12 +156,29 @@ public func decodeLinear(_ data: Data, aliases: [String: [Lookup]]) throws -> [L
     return result
 }
 
+/// A Linear answer that stops requests: a key that is not valid (401, or HTTP 400 with an authentication error), or a
+/// rate limit (429, or the `RATELIMITED` code).
+public enum LinearFailure: Equatable, Sendable { case invalidKey, rateLimited }
+
+public func linearFailure(status: Int, body: Data) -> LinearFailure? {
+    let errors = ((try? JSONSerialization.jsonObject(with: body)) as? [String: Any])?["errors"] as? [[String: Any]] ?? []
+    let extensions = errors.compactMap { $0["extensions"] as? [String: Any] }
+    if status == 401 || extensions.contains(where: { $0["code"] as? String == "AUTHENTICATION_ERROR" || ($0["type"] as? String)?.lowercased() == "authentication error" }) {
+        return .invalidKey
+    }
+    if status == 429 || extensions.contains(where: { $0["code"] as? String == "RATELIMITED" }) { return .rateLimited }
+    return nil
+}
+
 private func problem(_ p: TicketProblem, _ workspace: String, _ id: String) -> Ticket {
     Ticket(url: URL(string: "https://linear.app/\(workspace)/issue/\(id)")!, identifier: id, service: .linear, problem: p)
 }
 
+/// Linear's issue URL without its title slug, as a prompt's Linear URL gives it, so the two compare equal.
 private func linearTicket(_ i: LinearIssue) throws -> Ticket {
-    Ticket(url: i.url, identifier: i.identifier, service: .linear, title: i.title, stateName: i.state.name, stateType: i.state.type,
+    let parts = i.url.pathComponents
+    let url = parts.count > 4 && parts[2] == "issue" ? URL(string: "https://linear.app/\(parts[1])/issue/\(parts[3])") ?? i.url : i.url
+    return Ticket(url: url, identifier: i.identifier, service: .linear, title: i.title, stateName: i.state.name, stateType: i.state.type,
            person: i.assignee?.name, updatedAt: try date(i.updatedAt), archived: i.archivedAt != nil)
 }
 
@@ -312,14 +328,18 @@ public struct TicketCache: Codable, Sendable {
 
 // MARK: Rows
 
-/// A row's tickets in spec order, one per URL: Linear for the branch and each PR, the issues each PR closes on GitHub
-/// (not the PR itself), then the prompt refs. `stored` gives a service's last result for a lookup, nil before the first.
+/// A row's tickets in spec order, one per issue (by URL, and Linear also by identifier): Linear for the branch and each
+/// PR, the issues each PR closes on GitHub (not the PR itself), then the prompt refs. `stored` gives a service's last result for a lookup, nil before the first.
 /// Until data comes, a Linear URL or GitHub ref shows its ID and link. Without a Linear key (`linearKey` false) no Linear
 /// data shows: a Linear URL says why, and a bare ID shows nothing, as only Linear can say it is real.
 public func rowTickets(branch: String?, pullRequests: [URL], refs: [TicketRef], linearKey: Bool,
                        stored: (Lookup, TicketService) -> [Ticket]?) -> [Ticket] {
     var tickets: [Ticket] = []
-    func add(_ more: [Ticket]) { for t in more where !tickets.contains(where: { $0.url == t.url }) { tickets.append(t) } }
+    // A Linear issue is the same issue whatever its URL says (workspace case, a slug).
+    func same(_ a: Ticket, _ b: Ticket) -> Bool {
+        a.url == b.url || a.service == .linear && b.service == .linear && a.identifier.caseInsensitiveCompare(b.identifier) == .orderedSame
+    }
+    func add(_ more: [Ticket]) { for t in more where !tickets.contains(where: { same($0, t) }) { tickets.append(t) } }
     if linearKey {
         if let branch { add(stored(.branch(branch), .linear) ?? []) }
         for url in pullRequests { add(stored(.pr(url), .linear) ?? []) }

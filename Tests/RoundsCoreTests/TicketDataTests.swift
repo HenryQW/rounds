@@ -61,8 +61,8 @@ private let branch = Lookup.branch("ada/bbq-12-fix-login")
     #expect(try decodeLinear(data, aliases: ["l0": [ref]])[ref]?.first?.problem == nil)
 }
 
-@Test func linearOtherErrorsThrow() {
-    let data = json(#"{"errors":[{"message":"Rate limited","path":["l0"]}],"data":null}"#)
+@Test func linearRequestErrorsThrow() {
+    let data = json(#"{"errors":[{"message":"Rate limited"}],"data":null}"#)
     #expect(throws: TicketDataError.server("Rate limited")) { try decodeLinear(data, aliases: ["l0": [branch]]) }
     #expect(throws: TicketDataError.invalidResponse) { try decodeLinear(json(#"{"data":{"l0":{"x":1},"organization":{"urlKey":"a"}}}"#), aliases: ["l0": [branch]]) }
 }
@@ -182,4 +182,33 @@ private func ticket(_ url: String, _ id: String, _ service: TicketService = .lin
     let bbq1 = ticket("https://linear.app/a/issue/BBQ-1", "BBQ-1")
     let r = rowTickets(branch: "b", pullRequests: [], refs: [.linearURL(workspace: "a", id: "BBQ-3"), .linearID("BBQ-1")], linearKey: false) { _, _ in [bbq1] }
     #expect(r.map(\.identifier) == ["BBQ-3"] && r[0].problem == .noKey)
+}
+
+@Test func linearAliasErrorLeavesOnlyThatAliasWithoutResult() throws {
+    let pr = Lookup.pr(URL(string: "https://github.com/o/r/pull/5")!)
+    let data = json(#"{"errors":[{"message":"Internal error","path":["l1"]}],"data":{"l0":\#(issueJSON),"l1":null,"organization":{"urlKey":"acme"}}}"#)
+    let r = try decodeLinear(data, aliases: ["l0": [branch], "l1": [pr]])
+    #expect(r[branch]?.first?.identifier == "BBQ-12" && r[pr] == nil)
+}
+
+@Test func linearTicketURLHasNoSlug() throws {
+    let data = json(#"{"data":{"l0":\#(issueJSON),"organization":{"urlKey":"acme"}}}"#)
+    #expect(try decodeLinear(data, aliases: ["l0": [branch]])[branch]?.first?.url.absoluteString == "https://linear.app/acme/issue/BBQ-12")
+}
+
+@Test func rowTicketsMatchLinearTicketsByIdentifier() {
+    let decoded = ticket("https://linear.app/acme/issue/BBQ-12/fix-login", "BBQ-12")
+    let r = rowTickets(branch: "b", pullRequests: [], refs: [.linearURL(workspace: "Acme", id: "BBQ-12")], linearKey: true) { lookup, _ in
+        lookup == .branch("b") ? [decoded] : nil
+    }
+    #expect(r == [decoded])
+}
+
+@Test func linearFailureFindsBadKeysAndRateLimits() {
+    #expect(linearFailure(status: 401, body: Data()) == .invalidKey)
+    #expect(linearFailure(status: 400, body: json(#"{"errors":[{"message":"x","extensions":{"code":"AUTHENTICATION_ERROR"}}]}"#)) == .invalidKey)
+    #expect(linearFailure(status: 400, body: json(#"{"errors":[{"message":"x","extensions":{"type":"authentication error"}}]}"#)) == .invalidKey)
+    #expect(linearFailure(status: 429, body: Data()) == .rateLimited)
+    #expect(linearFailure(status: 400, body: json(#"{"errors":[{"message":"x","extensions":{"code":"RATELIMITED"}}]}"#)) == .rateLimited)
+    #expect(linearFailure(status: 200, body: json(#"{"data":{"organization":{"urlKey":"a"}}}"#)) == nil)
 }

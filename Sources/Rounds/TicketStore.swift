@@ -39,6 +39,8 @@ final class TicketStore {
     @ObservationIgnored private var lastScan = Date.distantPast
     @ObservationIgnored private var scanning = false
     @ObservationIgnored private var linear = Channel()
+    /// Linear lookups whose alias had an error, until they may be asked again (10 minutes), so they block no others.
+    @ObservationIgnored private var linearRetry: [Lookup: Date] = [:]
     @ObservationIgnored private var github = Channel()
     @ObservationIgnored private var saving = false
     @ObservationIgnored private var changePending = false
@@ -82,7 +84,7 @@ final class TicketStore {
         // At first need, off the main thread, so a Keychain prompt never blocks launch.
         if key == nil && !keyLoading {
             keyLoading = true
-            ticketIO.async {
+            keychainIO.async {
                 let key = LinearKey.read() ?? ""
                 DispatchQueue.main.async { MainActor.assumeIsolated { if self.key == nil { self.use(key) } } }
             }
@@ -171,10 +173,13 @@ final class TicketStore {
             }
         }
         if let key, !key.isEmpty, linearStatus != .invalidKey, linear.ready(now) {
-            let batch = Array((due[.linear] ?? []).prefix(20))
+            let batch = Array((due[.linear] ?? []).filter { linearRetry[$0].map { now >= $0 } ?? true }.prefix(20))
             if !batch.isEmpty {
                 let (body, aliases) = linearRequest(batch)
-                if !aliases.isEmpty { sendLinear(body, aliases: aliases, batch: batch, key: key) }
+                // A lookup the request cannot ask about has no result.
+                let asked = Set(aliases.values.joined())
+                store([:], for: batch.filter { !asked.contains($0) }, .linear)
+                if !aliases.isEmpty { sendLinear(body, aliases: aliases, batch: batch.filter(asked.contains), key: key) }
             } else if case .connected = linearStatus {} else {
                 // Nothing due: a small request still shows Settings whether the key works.
                 sendLinear(Data(#"{"query":"{ organization { urlKey } }"}"#.utf8), aliases: [:], batch: [], key: key)
@@ -217,23 +222,25 @@ final class TicketStore {
             linearStatus = .offline
             return log.info("tickets: linear, \(size) lookups, network error")
         }
-        if status == 401 {
+        switch linearFailure(status: status, body: data) {
+        case .invalidKey:
             linearStatus = .invalidKey
             return log.info("tickets: linear, \(size) lookups, key not valid")
-        }
-        let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-        let limited = ((root?["errors"] as? [[String: Any]]) ?? []).contains { ($0["extensions"] as? [String: Any])?["code"] as? String == "RATELIMITED" }
-        if status == 429 || limited {
+        case .rateLimited:
             linear.wait(until: reset.flatMap(Double.init).map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date() + 60)
             return log.info("tickets: linear, \(size) lookups, rate limited")
+        case nil: break
         }
         do {
             let result = try decodeLinear(data, aliases: aliases)
             linear.succeeded()
+            let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             let urlKey = ((root?["data"] as? [String: Any])?["organization"] as? [String: Any])?["urlKey"] as? String
             linearStatus = .connected(urlKey ?? "")
-            log.info("tickets: linear, \(size) lookups, ok")
-            store(result, for: batch, .linear)
+            let failed = batch.filter { result[$0] == nil }
+            log.info("tickets: linear, \(size) lookups, ok, \(failed.count) failed")
+            for lookup in batch { linearRetry[lookup] = result[lookup] == nil ? Date() + 600 : nil }
+            store(result, for: batch.filter { result[$0] != nil }, .linear)
         } catch {
             linear.failed()
             linearStatus = .offline
@@ -262,7 +269,8 @@ final class TicketStore {
         } else {
             github.failed()
             githubStatus = signInProblem(out) ? .notSignedIn : .offline
-            log.info("tickets: github, \(size) lookups, failed (exit \(out?.status ?? -1))")
+            if out?.timedOut == true { log.info("tickets: github, timeout") }
+            else { log.info("tickets: github, \(size) lookups, failed (exit \(out?.status ?? -1))") }
         }
         fetch(listed, hover: false)
     }
@@ -272,6 +280,7 @@ final class TicketStore {
         guard let gh else { return githubStatus = .notFound }
         DispatchQueue.global(qos: .utility).async {
             let out = runCommand(gh, ["api", "user", "--jq", ".login"])
+            if out?.timedOut == true { log.info("tickets: github, timeout") }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     let login = out.flatMap { $0.status == 0 ? String(decoding: $0.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) : nil }
@@ -330,13 +339,13 @@ final class TicketStore {
     func setLinearKey(_ newKey: String) {
         let k = newKey.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !Demo.isOn, !k.isEmpty else { return }
-        ticketIO.async { LinearKey.save(k) }
+        keychainIO.async { LinearKey.save(k) }
         changeKey(k)
     }
 
     func removeLinearKey() {
         guard !Demo.isOn else { return }
-        ticketIO.async { LinearKey.delete() }
+        keychainIO.async { LinearKey.delete() }
         changeKey("")
     }
 
@@ -344,7 +353,7 @@ final class TicketStore {
     private func changeKey(_ k: String) {
         cache.removeAll(service: .linear)
         save()
-        (linear.failures, linear.retryAt) = (0, .distantPast)
+        (linear.failures, linear.retryAt, linearRetry) = (0, .distantPast, [:])
         use(k)
     }
 
@@ -386,10 +395,13 @@ private struct CommandOutput: Sendable {
     var status: Int32
     var stdout: Data
     var stderr: Data
+    var timedOut: Bool
 }
 
 /// File reads and writes of the store, in order, off the main thread.
 private let ticketIO = DispatchQueue(label: "com.henryqw.rounds.tickets")
+/// Keychain reads and writes, in order, apart from `ticketIO`, so a Keychain prompt stops no scan or save.
+private let keychainIO = DispatchQueue(label: "com.henryqw.rounds.keychain")
 private let ticketCacheURL = URL.applicationSupportDirectory.appending(path: "Rounds/tickets.json")
 
 /// The branches of each cwd's repository (the first folder up that has `.git`), and the refs of each prompt file's
@@ -423,14 +435,25 @@ private func writeCache(_ data: Data) {
           rename(temp.path, ticketCacheURL.path) == 0 else { return log.error("tickets: cache not saved") }
 }
 
-/// Exit status, stdout and stderr of a command; nil when it does not start.
+/// Exit status, stdout and stderr of a command; nil when it does not start. A command that runs for 30 s is stopped.
 private func runCommand(_ path: String, _ arguments: [String]) -> CommandOutput? {
     let process = Process(), out = Pipe(), err = Pipe()
     (process.executableURL, process.arguments, process.standardOutput, process.standardError) = (URL(fileURLWithPath: path), arguments, out, err)
     guard (try? process.run()) != nil else { return nil }
-    let stdout = out.fileHandleForReading.readDataToEndOfFile(), stderr = err.fileHandleForReading.readDataToEndOfFile()
+    let stop = DispatchWorkItem { if process.isRunning { process.terminate() } }
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 30, execute: stop)
+    // stderr on its own thread, so a full pipe cannot block the command.
+    let errDone = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var stderr = Data()
+    DispatchQueue.global(qos: .utility).async {
+        stderr = err.fileHandleForReading.readDataToEndOfFile()
+        errDone.signal()
+    }
+    let stdout = out.fileHandleForReading.readDataToEndOfFile()
+    errDone.wait()
     process.waitUntilExit()
-    return CommandOutput(status: process.terminationStatus, stdout: stdout, stderr: stderr)
+    stop.cancel()
+    return CommandOutput(status: process.terminationStatus, stdout: stdout, stderr: stderr, timedOut: process.terminationReason == .uncaughtSignal)
 }
 
 /// The Linear key in the login Keychain: service `com.henryqw.rounds.linear`, account `api-key`. Never in a file or a log.
