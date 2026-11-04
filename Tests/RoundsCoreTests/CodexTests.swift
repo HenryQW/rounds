@@ -168,7 +168,7 @@ private let helper = "/Applications/Rounds.app/Contents/Helpers/rounds-hook"
     }
     let lines = [
         #"{"type":"session_meta","payload":{}}"#,
-        message("user", ["# AGENTS.md instructions for /Users/test/app", "<environment_context>cwd</environment_context>"]),
+        message("user", ["# AGENTS.md instructions for /Users/test/app", "\n<environment_context>cwd</environment_context>"]),
         message("developer", ["be careful"]),
         message("user", ["fix BBQ-2"]),
         message("user", ["later"]),

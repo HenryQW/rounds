@@ -108,3 +108,12 @@ private func tail(_ lines: [String]) -> LastMessage { LastMessage.parse(Data((li
     #expect(firstUserPrompt(claudeTranscript: Data((user("fix BBQ-2") + "\n" + #"{"type":"user","mess"#).utf8)) == "fix BBQ-2")
     #expect(firstUserPrompt(claudeTranscript: Data((#"{"type":"user","mess"#).utf8)) == nil)
 }
+
+/// A sidechain (a sub-agent's prompt) is not the user's, and an injected block after leading whitespace is still one.
+@Test func firstUserPromptSkipsSidechainsAndIndentedWrappers() {
+    let sidechain = String(decoding: try! JSONSerialization.data(withJSONObject: [
+        "type": "user", "isSidechain": true, "message": ["role": "user", "content": "sub-agent task BBQ-9"],
+    ]), as: UTF8.self)
+    let lines = [sidechain, user("\n  <system-reminder>BBQ-8</system-reminder>"), user("fix BBQ-1")]
+    #expect(firstUserPrompt(claudeTranscript: Data(lines.joined(separator: "\n").utf8)) == "fix BBQ-1")
+}
