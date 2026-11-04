@@ -54,7 +54,7 @@ A hook is a command that Claude Code or Codex runs at each turn event. Rounds ne
 
 1. Right-click the pill and choose Settings, or press ⌘, in the session window.
 2. Open the Agents page.
-3. In the Claude Code row and the Codex row, click Install Hooks.
+3. Click Install… in the Claude Code row and in the Codex row.
 4. Check the entries in the preview, then confirm.
 
 Rounds keeps a backup of each file it changes. herdr needs no hooks. Rounds connects to it while it runs.
@@ -63,10 +63,10 @@ Rounds keeps a backup of each file it changes. herdr needs no hooks. Rounds conn
 
 pi has no hooks. Rounds gets the live state of pi sessions from a small pi extension.
 
-1. On the Agents page, in the pi row, click Install Extension.
+1. On the Agents page, click Install… in the pi row.
 2. Check the preview, then confirm. Rounds copies `rounds.ts` to `~/.pi/agent/extensions`.
 3. Restart the pi sessions that run. pi loads the extension when a session starts.
 
 ## After a rename or a move
 
-If the Claude Code or Codex row says "Needs repair", the hook command points to a path that is not valid now. Click Repair Hooks in that row.
+If the Claude Code or Codex row says "Needs repair", the hook command points to a path that is not valid now. Open the status menu of that row and choose Repair Hooks.

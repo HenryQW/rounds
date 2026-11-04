@@ -46,7 +46,7 @@ scripts/bundle.sh --install
 open /Applications/Rounds.app
 ```
 
-Then open Settings (right-click the pill) > Agents and turn on the switch of Claude Code, Codex and pi. Each install shows what it writes before it writes, and keeps a backup of the file it changes. An agent without its hooks or extension is off.
+Then open Settings (right-click the pill) > Agents and click Install… in the Claude Code, Codex and pi rows. Each install shows what it writes before it writes, and keeps a backup of the file it changes. An agent without its hooks or extension is off.
 
 ## Development
 
@@ -64,7 +64,7 @@ The version is in `VERSION`. The design is in [DESIGN.md](DESIGN.md), the words 
 
 ## Privacy
 
-Rounds reads local session files, the state its hooks and pi extension write, and herdr's local socket. It sends nothing to any server. **Report a Bug** in Settings opens a GitHub issue page with the versions filled in, and you choose whether to send it.
+Rounds reads local session files, the state its hooks and pi extension write, and herdr's local socket. It sends nothing to any server except the update check and the ticket lookups (Linear when you add an API key, GitHub when gh is signed in), which send only branch names, PR links and issue IDs. **Report a Bug** in Settings opens a GitHub issue page with the versions filled in, and you choose whether to send it.
 
 ## License
 

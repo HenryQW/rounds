@@ -68,8 +68,7 @@ components:
   hover-card: { width: 280pt, rounded: "{rounded.md}", fill: windowBackgroundColor, hairline: "{colors.hairline} 0.5pt", content: "up to 3 items: identifier and service, title (2 lines), state, person and update time; grey hover fill per item" }
   row-hover: { fill: "{colors.hover}" }
   row-selected: { fill: "{colors.selection}", text: white }
-  status-capsule: { rounded: "{rounded.capsule}", hairline: "{colors.hairline} 0.5pt", content: "6pt state dot and words on one line; a long text ends in …, with the full text in the hint" }
-  settings-integration-row: { logo-tile: "28pt, logo 18pt, corner 7pt, {colors.hairline} 0.5pt, no fill or shadow", content: "three lines 3pt apart: the name, the status capsule (natural width, one line), one callout line in secondary or a fix (an orange sentence and a link button)", end: "a slot as wide as a switch, centred: the row's native switch or nothing", width: "full, no label column (Agents and Tickets pages)" }
+  settings-integration-row: { logo-tile: "28pt, logo 18pt, corner 7pt, {colors.hairline} 0.5pt, no fill or shadow", content: "two lines 2pt apart: the name, one callout line in secondary (orange for what is wrong) that never wraps", end: "right-aligned, centred: a status menu (7pt state dot, then a borderless Menu labelled with the status word, default indicator, grey hover fill), a native button (Install…, Connect…), or the dot and word only", width: "full, no label column (Agents and Tickets pages)" }
   keycap: { padding: "6 by 2pt", min-width: 20pt, rounded: "{rounded.xs}", hairline: "{colors.hairline} 0.5pt" }
   settings-sidebar: { width: 230pt, head: "app icon 32pt, name, version", foot: "Report a Bug, author signature" }
 ---

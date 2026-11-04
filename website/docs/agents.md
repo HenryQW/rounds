@@ -32,4 +32,4 @@ Rounds shows each agent that runs in herdr (pi, Claude, droid and more), from yo
 
 Rounds works best with [Henry Pi Harness](https://pi.henry.wang). One script installs pi, herdr and the harness, so the pi agents show in Rounds with their states.
 
-To turn an agent Off, click Remove Hooks or Remove Extension in Settings, on the Agents page.
+To turn an agent Off, open its status menu in Settings, on the Agents page, and choose Remove Hooks or Remove Extension.
