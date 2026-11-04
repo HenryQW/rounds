@@ -41,7 +41,7 @@ Code: `Sources/RoundsCore` (models, parsers, classifier, hook settings; no UI), 
 
 ## UI rules (all windows, menus, hints and docs)
 
-- Names say what a setting does ("Close the window after", not "Slide back after"). Each setting row has a one-line explanation under its name in the secondary colour (`described` in SettingsView); footers are only for errors and one hint for the whole section. All setting labels on every tab share one maximum width (`labelColumn()`), so labels and controls read as two columns.
+- Names say what a setting does ("Close the window after", not "Slide back after"). Each setting row has a one-line explanation under its name in the secondary colour (`described` in SettingsView); footers are only for errors and one hint for the whole section. All setting labels on every tab share one maximum width (`labelColumn()`), so labels and controls read as two columns, except the Agents and Tickets pages, whose integration rows take the full width.
 - Capitals: Title Case for buttons, menu items, picker options, tab names and window titles ("Select All", "Install Hooks…", "Double-Click"); sentence case for setting names, toggle and checkbox labels, explanations, hints and status text ("Open at login", "Not installed").
 - Say each fact once. Do not repeat what a filter, a section or a colour already shows (no state word under a status filter; no "seen" word next to a ring dot).
 - Hierarchy reads left to right: a child starts under its parent's title; a parent shown only for context is grey, with no dot, and cannot be selected.

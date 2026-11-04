@@ -69,6 +69,7 @@ components:
   row-hover: { fill: "{colors.hover}" }
   row-selected: { fill: "{colors.selection}", text: white }
   status-capsule: { rounded: "{rounded.capsule}", hairline: "{colors.hairline} 0.5pt", content: "6pt state dot and words" }
+  settings-integration-row: { logo-tile: "28pt, logo 18pt, corner 7pt, {colors.hairline} 0.5pt, no fill or shadow", content: "name and status capsule on line 1, one callout line in secondary, at most one small button at the end", width: "full, no label column (Agents and Tickets pages)" }
   keycap: { padding: "6 by 2pt", min-width: 20pt, rounded: "{rounded.xs}", hairline: "{colors.hairline} 0.5pt" }
   settings-sidebar: { width: 230pt, head: "app icon 32pt, name, version", foot: "Report a Bug, author signature" }
 ---

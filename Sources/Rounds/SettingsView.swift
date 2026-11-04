@@ -42,7 +42,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .general: "gearshape"
         case .pill: "sidebar.right"
         case .filters: "line.3.horizontal.decrease.circle"
-        case .agents: "powerplug"
+        case .agents: "sparkles"
         case .tickets: "ticket"
         case .keys: "keyboard"
         }
@@ -351,25 +351,21 @@ struct SettingsView: View {
 
     private var sources: some View {
         Section {
-            LabeledContent { hookControls(.claude) } label: { source("claude", "Claude Code", "Sessions in the Code tab.") }
+            integrationRow("Claude Code", "Sessions in the Code tab.", logo: Badge.origin("claude", size: 18)) {
+                hookStatusLabel(model.hookStatus(.claude), .claude)
+            } button: { hookButton(.claude) }
                 .help("Sessions from the Claude desktop app's Code tab, with live state from async hooks in ~/.claude/settings.json. Remove Hooks turns this agent off. Return opens a session through a claude:// link; if Claude only comes to the front, turn on its entry points setting.")
-            LabeledContent {
-                if model.codexInstalled {
-                    hookControls(.codex)
-                } else {
-                    statusPill("Not found", .gray)
-                }
-            } label: { source("codex", "Codex", "Threads, state from hooks.") }
+            integrationRow("Codex", "Threads, state from hooks.", logo: Badge.origin("codex", size: 18)) {
+                if model.codexInstalled { hookStatusLabel(model.hookStatus(.codex), .codex) } else { statusPill("Not found", .gray) }
+            } button: { if model.codexInstalled { hookButton(.codex) } }
                 .help("Hooks in ~/.codex/hooks.json; Codex asks you to review new hooks. Remove Hooks turns this agent off; without hooks, Rounds reads the thread files, with no waiting state. Return opens the thread in the Codex app.")
-            LabeledContent {
-                if model.piInstalled {
-                    hookControls(.pi)
-                } else {
-                    statusPill("Not found", .gray)
-                }
-            } label: { source("pi", "pi", "Sessions, state from an extension.") }
+            integrationRow("pi", "Sessions, state from an extension.", logo: Badge.origin("pi", size: 18)) {
+                if model.piInstalled { hookStatusLabel(model.hookStatus(.pi), .pi) } else { statusPill("Not found", .gray) }
+            } button: { if model.piInstalled { hookButton(.pi) } }
                 .help("An extension in ~/.pi/agent/extensions/rounds.ts writes each session's state; pi loads it at its next start. Remove Extension turns this agent off. A session that also runs in herdr shows once, as the herdr agent. Return brings its terminal to the front, or resumes it in a new window.")
-            LabeledContent { statusPill(herdrStatus, herdrConnected ? .green : .gray) } label: { source("herdr", "herdr", "Agents from herdr's socket.") }
+            integrationRow("herdr", "Agents from herdr's socket.", logo: Badge.origin("herdr", size: 18)) {
+                statusPill(herdrStatus, herdrConnected ? .green : .gray)
+            }
                 .help("The agents herdr runs, from its socket. While herdr is not running, this agent is off. For pi states, run herdr integration install pi. Return focuses the agent in herdr.")
         } footer: {
             footer(model.hookError ?? model.codexError ?? model.codexHookError)
@@ -380,34 +376,33 @@ struct SettingsView: View {
     private var tickets: some View {
         let store = TicketStore.shared
         return Section {
-            LabeledContent {
-                VStack(alignment: .trailing, spacing: 8) {
+            integrationRow("Linear", "Titles and states of Linear issues.", logo: serviceLogo("linear")) {
+                if store.hasLinearKey {
+                    switch store.linearStatus {
+                    case .connected(let workspace): statusPill("Connected: \(workspace)", .green)
+                    case .invalidKey: statusPill("Key not valid", .orange)
+                    case .offline: statusPill("Offline", .gray)
+                    // A saved key waits for its first answer.
+                    case .noKey: EmptyView()
+                    }
+                }
+            } button: {
+                if store.hasLinearKey { Button("Remove Key") { store.removeLinearKey() } }
+            } below: {
+                if !store.hasLinearKey {
                     HStack(spacing: 8) {
-                        SecureField("Linear API key", text: $state.linearKey, prompt: Text("Paste the key"))
+                        SecureField("Linear API key", text: $state.linearKey, prompt: Text("Paste the API key"))
                             .labelsHidden()
                             .onSubmit(saveLinearKey)
                         Button("Save Key", action: saveLinearKey)
                             .disabled(state.linearKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
-                    if store.hasLinearKey {
-                        HStack(spacing: 8) {
-                            Button("Remove Key") { store.removeLinearKey() }
-                            switch store.linearStatus {
-                            case .connected(let workspace): statusPill("Connected: \(workspace)", .green)
-                            case .invalidKey: statusPill("Key not valid", .orange)
-                            case .offline: statusPill("Offline", .gray)
-                            // A saved key waits for its first answer.
-                            case .noKey: EmptyView()
-                            }
-                        }
-                    }
+                    .controlSize(.small)
+                    .padding(.top, 4)
                 }
-                .controlSize(.small)
-            } label: {
-                described("Linear API key", "Shows the title and state of Linear issues. The key stays in your Keychain.")
             }
-            .help("Make a personal API key in Linear: Settings, Account, Security and access. Read permission is enough. Rounds sends Linear only branch names, PR links and issue IDs.")
-            LabeledContent {
+            .help("Make a personal API key in Linear: Settings, Account, Security and access. Read permission is enough. Rounds sends Linear only branch names, PR links and issue IDs. The key stays in your Keychain.")
+            integrationRow("GitHub", "Uses the gh command line tool and its sign-in.", logo: serviceLogo("github")) {
                 switch store.githubStatus {
                 case .signedIn(let user): statusPill("Signed in as \(user)", .green)
                 case .notFound: statusPill("gh not found", .gray)
@@ -416,11 +411,40 @@ struct SettingsView: View {
                 // The launch check has not answered yet.
                 case nil: EmptyView()
                 }
-            } label: {
-                described("GitHub", "Uses the gh command line tool and its sign-in.")
             }
             .help("Rounds runs gh from Homebrew or ~/.local/bin; sign in with gh auth login. It sends GitHub only repository names and PR and issue numbers.")
         }
+    }
+
+    /// A row of the Agents and Tickets pages (spec 5.4): the logo in a hairline tile, the name with its status after
+    /// it, one line on what it does, and at most one small button. The row takes the full width, with no label column.
+    private func integrationRow(_ title: String, _ explanation: String, logo: some View,
+                                @ViewBuilder status: () -> some View,
+                                @ViewBuilder button: () -> some View = { EmptyView() },
+                                @ViewBuilder below: () -> some View = { EmptyView() }) -> some View {
+        HStack(spacing: 10) {
+            logo.frame(width: 18, height: 18)
+                .frame(width: 28, height: 28)
+                .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(.separator, lineWidth: 0.5))
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 8) {
+                    Text(title)
+                    status()
+                }
+                Text(explanation).font(.callout).foregroundStyle(.secondary)
+                below()
+            }
+            // The words take the room before the gap, so they stay on one line next to the button.
+            .layoutPriority(1)
+            Spacer(minLength: 8)
+            button().controlSize(.small)
+        }
+    }
+
+    /// A service's one-colour logo (simple-icons, CC0), drawn in the label colour.
+    private func serviceLogo(_ name: String) -> some View {
+        IconCache.image("\(name).svg") { Bundle.main.url(forResource: name, withExtension: "svg") }
+            .map { Image(nsImage: $0).renderingMode(.template).resizable().aspectRatio(contentMode: .fit) }
     }
 
     private func saveLinearKey() {
@@ -496,19 +520,11 @@ struct SettingsView: View {
     /// A setting's name and, under it in the secondary colour, what it does (spec 5.4). The same maximum width on
     /// every row keeps the labels one column and the controls another.
     private func described(_ title: String, _ explanation: String) -> some View {
-        nameAndExplanation(title, explanation).labelColumn()
-    }
-
-    private func nameAndExplanation(_ title: String, _ explanation: String) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title)
             Text(explanation).font(.callout).foregroundStyle(.secondary)
         }
-    }
-
-    /// A source row's label: its icon, its name and where its state comes from.
-    private func source(_ name: String, _ title: String, _ explanation: String) -> some View {
-        Label { nameAndExplanation(title, explanation) } icon: { Badge.origin(name, size: 16) }.labelColumn()
+        .labelColumn()
     }
 
     @ViewBuilder
@@ -520,20 +536,14 @@ struct SettingsView: View {
         }
     }
 
-    /// The hooks' status, and the one action it needs: Remove Hooks, Install Hooks… (the sheet previews the entries) or
-    /// Repair Hooks.
-    private func hookControls(_ target: HookTarget) -> some View {
-        let status = model.hookStatus(target)
-        // The status last, so every row's capsule ends on the same edge, with or without a button.
-        return HStack(spacing: 8) {
-            switch status {
-            case .installed: Button("Remove \(target.noun)") { run { try model.removeHooks(target) } }
-            case .missing: Button("Install \(target.noun)…") { state.installTarget = target }
-            case .wrongPath: Button(target == .pi ? "Update Extension" : "Repair Hooks") { run { try model.installHooks(target) } }
-            }
-            hookStatusLabel(status, target)
+    /// The one action the hooks need: Remove Hooks, Install Hooks… (the sheet previews the entries) or Repair Hooks.
+    @ViewBuilder
+    private func hookButton(_ target: HookTarget) -> some View {
+        switch model.hookStatus(target) {
+        case .installed: Button("Remove \(target.noun)") { run { try model.removeHooks(target) } }
+        case .missing: Button("Install \(target.noun)…") { state.installTarget = target }
+        case .wrongPath: Button(target == .pi ? "Update Extension" : "Repair Hooks") { run { try model.installHooks(target) } }
         }
-        .controlSize(.small)
     }
 
     @ViewBuilder

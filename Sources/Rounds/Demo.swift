@@ -42,7 +42,7 @@ enum Demo {
     }
 
     /// Called once the app has finished launching. Pill scenes need no window: the drawer shows the pill. `settings` opens
-    /// the Settings window.
+    /// the Settings window; `settings-<page>` opens it at that page (`settings-agents`, `settings-tickets`).
     @MainActor static func start() {
         guard isOn else { return }
         switch argument("--demo-appearance") {
@@ -53,7 +53,9 @@ enum Demo {
         // After the first layout pass, so the window opens at its fitted height.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             MainActor.assumeIsolated {
-                if scene == "settings" {
+                if let scene, scene.hasPrefix("settings") {
+                    // settings-agents opens the Agents page, and so on.
+                    SettingsState.shared.page = SettingsPage(rawValue: String(scene.dropFirst("settings-".count))) ?? .general
                     NSApp.activate(ignoringOtherApps: true)
                     // The app menu's Settings… item (⌘,), which SwiftUI's Settings scene adds.
                     if let menu = NSApp.mainMenu?.items.first?.submenu, let item = menu.items.firstIndex(where: { $0.keyEquivalent == "," }) {
