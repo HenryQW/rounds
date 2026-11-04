@@ -132,6 +132,8 @@ public struct GroupedSessions: Sendable, Equatable {
 
     /// Every session of the list groups, children too: the filter and pill counts.
     public var sessions: [SessionRow] { (starred + yourTurn + running + quiet).flatMap(\.withChildren) }
+    /// Every row of every group, children too: what the window can show.
+    public var all: [SessionRow] { (starred + yourTurn + running + quiet + older + hidden).flatMap(\.withChildren) }
     /// Last Call sessions: the pill and the Last Call tile show this one number (spec 5.7).
     public var lastCallCount: Int { sessions.count { $0.status.group == .yourTurn } }
     /// The waits among them (Needs input, Failed): the pill is orange while one waits, else green for the results.

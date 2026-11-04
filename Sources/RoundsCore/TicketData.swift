@@ -356,6 +356,11 @@ public struct TicketCache: Codable, Sendable {
         entries = entries.filter { $0.key.service != service }
     }
 
+    /// Drops the entries not fetched for 30 days (rows that are gone), so the file does not grow without end.
+    public mutating func removeOld(now: Date) {
+        entries = entries.filter { now.timeIntervalSince($0.value.fetched) < 30 * 86_400 }
+    }
+
     /// No entry: due. An empty result waits 1 day, else 10 minutes (1 minute on hover).
     public func due(_ lookup: Lookup, service: TicketService, now: Date, hover: Bool) -> Bool {
         guard let e = entries[Key(service: service, lookup: lookup)] else { return true }

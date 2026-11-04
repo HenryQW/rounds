@@ -335,3 +335,12 @@ private func ticket(_ url: String, _ id: String, _ service: TicketService = .lin
     #expect(linearFailure(status: 400, body: json(#"{"errors":[{"message":"x","extensions":{"code":"ratelimited"}}]}"#)) == .rateLimited)
     #expect(linearFailure(status: 400, body: json(#"{"errors":[{"message":"x","extensions":{"type":"Ratelimited"}}]}"#)) == .rateLimited)
 }
+
+@Test func removeOldDropsEntriesNotFetchedFor30Days() {
+    var cache = TicketCache()
+    let now = Date(timeIntervalSince1970: 10_000_000), pr = Lookup.pr(URL(string: "https://github.com/o/r/pull/5")!)
+    cache.store([], for: branch, service: .linear, at: now - 30 * 86_400)
+    cache.store([], for: pr, service: .github, at: now - 30 * 86_400 + 1)
+    cache.removeOld(now: now)
+    #expect(cache.tickets(for: branch, service: .linear) == nil && cache.tickets(for: pr, service: .github) == [])
+}

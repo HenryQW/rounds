@@ -32,6 +32,8 @@ final class TicketStore {
     @ObservationIgnored private var keyLoading = false
     /// The team keys of the key's workspace, from each Linear answer: a bare identifier with another prefix is no ticket.
     @ObservationIgnored private var teamKeys: Set<String> = []
+    /// The workspace of the last answer that named one: an answer with null data names none but proves the key works.
+    @ObservationIgnored private var workspace: String?
     @ObservationIgnored private var listed: [SessionRow] = []
     /// First-prompt refs of Claude and Codex rows, by row id; read once per session.
     @ObservationIgnored private var promptRefs: [String: [TicketRef]] = [:]
@@ -47,6 +49,7 @@ final class TicketStore {
     @ObservationIgnored private var github = Channel()
     /// Found again on each check of `gh`, so a `gh` installed after launch is used.
     @ObservationIgnored private var gh: String?
+    @ObservationIgnored private var checkingGitHub = false
     @ObservationIgnored private var saving = false
     @ObservationIgnored private var changePending = false
 
@@ -60,7 +63,10 @@ final class TicketStore {
             return
         }
         if let data = try? Data(contentsOf: ticketCacheURL) {
-            if let saved = try? JSONDecoder().decode(TicketCache.self, from: data) { cache = saved }
+            if let saved = try? JSONDecoder().decode(TicketCache.self, from: data) {
+                cache = saved
+                cache.removeOld(now: Date())
+            }
             else { try? FileManager.default.removeItem(at: ticketCacheURL) }
         }
         checkGitHub()
@@ -236,15 +242,16 @@ final class TicketStore {
         do {
             let result = try decodeLinear(data, aliases: aliases)
             linear.succeeded()
-            // Null data (every alias failed) has no workspace: the status stays.
             if let w = linearWorkspace(data) {
-                linearStatus = .connected(w.urlKey)
+                workspace = w.urlKey
                 // New team keys change which bare identifiers rows show and look up.
                 if w.teamKeys != teamKeys {
                     teamKeys = w.teamKeys
                     changed()
                 }
             }
+            // Null data (every alias failed) names no workspace: the last one stays.
+            if let workspace { linearStatus = .connected(workspace) }
             log.info("tickets: linear, \(size) lookups, ok, \(batch.count { result[$0] == nil }) failed")
             storeAnswer(result, for: batch, .linear)
         } catch {
@@ -282,17 +289,21 @@ final class TicketStore {
     }
 
     /// `gh api user` at launch, when Settings opens while not signed in, and after a good answer that came while signed
-    /// out: the login for Settings. A change to signed in makes the GitHub lookups due that waited for it.
+    /// out: the login for Settings. A change to signed in makes the GitHub lookups due that waited for it. One check
+    /// at a time.
     func checkGitHub() {
         // An app started from Finder has no shell PATH.
         gh = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", URL.homeDirectory.appending(path: ".local/bin/gh").path]
             .first { FileManager.default.isExecutableFile(atPath: $0) }
         guard let gh else { return githubStatus = .notFound }
+        guard !checkingGitHub else { return }
+        checkingGitHub = true
         DispatchQueue.global(qos: .utility).async {
             let out = runCommand(gh, ["api", "user", "--jq", ".login"])
             if out?.timedOut == true { log.info("tickets: github, timeout") }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
+                    self.checkingGitHub = false
                     let login = out.flatMap { $0.status == 0 ? String(decoding: $0.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) : nil }
                     let status: GitHubStatus = login.flatMap { $0.isEmpty ? nil : .signedIn($0) } ?? (self.signInProblem(out) ? .notSignedIn : .offline)
                     let was = self.githubStatus
@@ -312,9 +323,11 @@ final class TicketStore {
     }
 
     /// A lookup without a result had an error on its alias: not stored (a GitHub ref keeps its placeholder), and asked
-    /// again after 10 minutes.
+    /// again after 10 minutes. Waits that are over are dropped.
     private func storeAnswer(_ result: [Lookup: [Ticket]], for lookups: [Lookup], _ service: TicketService) {
-        for lookup in lookups { retry[service, default: [:]][lookup] = result[lookup] == nil ? Date() + 600 : nil }
+        let now = Date()
+        retry[service] = retry[service]?.filter { $0.value > now }
+        for lookup in lookups { retry[service, default: [:]][lookup] = result[lookup] == nil ? now + 600 : nil }
         store(result, for: lookups.filter { result[$0] != nil }, service)
     }
 
@@ -361,7 +374,8 @@ final class TicketStore {
 
     func setLinearKey(_ newKey: String) {
         let k = newKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !Demo.isOn, !k.isEmpty else { return }
+        // The same key again keeps the cache and the status.
+        guard !Demo.isOn, !k.isEmpty, k != key else { return }
         keychainIO.async { LinearKey.save(k) }
         changeKey(k)
     }
@@ -381,7 +395,7 @@ final class TicketStore {
     }
 
     private func use(_ k: String) {
-        (key, teamKeys) = (k, [])
+        (key, teamKeys, workspace) = (k, [], nil)
         hasLinearKey = !k.isEmpty
         linearStatus = .noKey
         changed()
@@ -458,25 +472,29 @@ private func writeCache(_ data: Data) {
           rename(temp.path, ticketCacheURL.path) == 0 else { return log.error("tickets: cache not saved") }
 }
 
-/// Exit status, stdout and stderr of a command; nil when it does not start. A command that runs for 30 s is stopped.
+/// Exit status, stdout and stderr of a command; nil when it does not start. A command that runs for 30 s is stopped
+/// (`timedOut`; a crash is not a timeout). A child of the command can keep a pipe open after the command ends, so the
+/// pipes get at most 2 s after the stop time; output not read by then is empty.
 private func runCommand(_ path: String, _ arguments: [String]) -> CommandOutput? {
     let process = Process(), out = Pipe(), err = Pipe()
     (process.executableURL, process.arguments, process.standardOutput, process.standardError) = (URL(fileURLWithPath: path), arguments, out, err)
     guard (try? process.run()) != nil else { return nil }
-    let stop = DispatchWorkItem { if process.isRunning { process.terminate() } }
-    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 30, execute: stop)
-    // stderr on its own thread, so a full pipe cannot block the command.
-    let errDone = DispatchSemaphore(value: 0)
-    nonisolated(unsafe) var stderr = Data()
-    DispatchQueue.global(qos: .utility).async {
-        stderr = err.fileHandleForReading.readDataToEndOfFile()
-        errDone.signal()
+    let deadline = DispatchTime.now() + 30
+    nonisolated(unsafe) var stopped = false, stdout = Data(), stderr = Data()
+    let stop = DispatchWorkItem {
+        guard process.isRunning else { return }
+        stopped = true
+        process.terminate()
     }
-    let stdout = out.fileHandleForReading.readDataToEndOfFile()
-    errDone.wait()
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: deadline, execute: stop)
+    // Each pipe on its own thread, so a full pipe cannot block the command.
+    let pipes = DispatchGroup()
+    DispatchQueue.global(qos: .utility).async(group: pipes) { stdout = out.fileHandleForReading.readDataToEndOfFile() }
+    DispatchQueue.global(qos: .utility).async(group: pipes) { stderr = err.fileHandleForReading.readDataToEndOfFile() }
     process.waitUntilExit()
     stop.cancel()
-    return CommandOutput(status: process.terminationStatus, stdout: stdout, stderr: stderr, timedOut: process.terminationReason == .uncaughtSignal)
+    let read = pipes.wait(timeout: deadline + 2) == .success
+    return CommandOutput(status: process.terminationStatus, stdout: read ? stdout : Data(), stderr: read ? stderr : Data(), timedOut: stopped)
 }
 
 /// The Linear key in the login Keychain: service `com.henryqw.rounds.linear`, account `api-key`. Never in a file or a log.

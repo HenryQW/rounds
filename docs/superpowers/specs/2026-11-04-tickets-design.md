@@ -46,8 +46,8 @@ Each row gets tickets from three places, in this order. A ticket found twice sho
    are not read: the repository is not certain.
 
 Rules:
-- Only rows the window lists are looked up (the Older group and hidden rows only when shown or hovered), so a launch
-  with hundreds of old pi sessions sends no flood of requests.
+- Only rows the window lists are looked up (older, done and hidden rows only while a search or the Aged filter shows
+  them), so a launch with hundreds of old pi sessions sends no flood of requests.
 - A child row shows only tickets that its parent does not show.
 - pi and herdr rows follow the folder's current branch, not the branch the session started on (known limit, as the
   folder has no record of it).
@@ -60,7 +60,8 @@ Rules:
   with each alias's error read on its own. At most one request in flight per service.
 - Cache: `~/Library/Application Support/Rounds/tickets.json` (0600): tickets by issue URL, and the lookups (branch, PR
   URL, identifier) that point to them or to "none". A ticket is fetched again after 10 minutes while its row is
-  listed, and on hover after 1 minute. A "none" is kept for 1 day. A cache that does not decode is deleted.
+  listed, and on hover after 1 minute. A "none" is kept for 1 day. A cache that does not decode is deleted; at launch,
+  entries not fetched for 30 days are dropped.
 - An issue moved to another team gets a new identifier; the row shows the identifier Linear sends now.
 
 ## Errors and limits
