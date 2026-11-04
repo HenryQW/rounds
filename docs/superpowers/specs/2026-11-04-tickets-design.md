@@ -15,7 +15,8 @@ a ticket each show the right ticket; nothing shows a guessed ticket; a click ope
 - Linear GraphQL (`https://api.linear.app/graphql`, live schema): `issueVcsBranchSearch(branchName)` returns the Issue
   that Linear links to a branch name; `attachmentsForURL(url)` returns attachments, each with its `issue`, so a PR URL
   gives the Linear issues linked to it; `issue(id)` takes an identifier; Issue has `identifier`, `title`, `url`,
-  `state { name type }`, `assignee`, `updatedAt`, `archivedAt`; `organization { urlKey }` names the workspace.
+  `state { name type }`, `assignee`, `updatedAt`, `archivedAt`; `organization { urlKey }` names the workspace, and
+  `teams(first: 250) { nodes { key } }` gives its team keys.
   Not checked yet (needs a key): whether a branch with no issue gives null or an error. Both mean "no issue".
 - GitHub GraphQL through `gh api graphql` (the user's `gh` login): `pullRequest.closingIssuesReferences` gives each
   closed issue's `number`, `title`, `state`, `stateReason`, `url` and repository, also in another repository. A missing
@@ -33,10 +34,14 @@ Each row gets tickets from three places, in this order. A ticket found twice sho
    `closingIssuesReferences`.
 3. The first user prompt, its first 64 KB only (Claude: the transcript's first user message; Codex: the first user
    message of the rollout file; pi: the session file's first prompt, which Rounds already reads). It finds:
-   - Linear issue URLs `https://linear.app/<workspace>/issue/<ID>[/slug]`;
-   - GitHub issue URLs `https://github.com/<owner>/<repo>/issues/<n>` (not `/pull/`, which is a PR);
-   - bare Linear identifiers (`BBQ-123`), sent to `issue(id)`: only an identifier that Linear finds counts, so
-     `UTF-8` or `GPT-4` gives nothing. At most 5 candidates per prompt.
+   - Linear issue URLs `https://linear.app/<workspace>/issue/<ID>[/slug]` (the workspace in lower case);
+   - GitHub issue URLs `https://github.com/<owner>/<repo>/issues/<n>`, with one `/` at the end or none (not `/pull/`,
+     which is a PR);
+   - bare Linear identifiers (`BBQ-123`), sent to `issue(id)`: only an identifier whose prefix is a team key of the
+     workspace is looked up or shown (each Linear request also asks for the team keys; until they come, none is), and
+     only an identifier that Linear finds counts, so `UTF-8` or `GPT-4` gives nothing.
+   At most 20 candidates per prompt; a row takes its first 5 after the team filter. Scheme and host can be in any case.
+   A match that ends at the 64 KB cut is dropped, as the cut can shorten it (`BBQ-12` from `BBQ-123`).
    URLs lose a trailing `.,;:!?)]>'"`, a query and a fragment; identifiers are upper case. Short GitHub refs (`#123`)
    are not read: the repository is not certain.
 
@@ -106,7 +111,8 @@ a rebuild; signed releases keep one identity.
 ## Tests (RoundsCore)
 
 Default and detached branches give no lookup; `.git` file worktrees resolve `HEAD`; prompt scanning (URL forms,
-trailing punctuation, query and fragment, `/pull/` ignored, 5-candidate cap, 64 KB cap); dedupe across the three
+trailing punctuation, query and fragment, `/pull/` ignored, 20-candidate cap, 64 KB cap, the team filter and the
+5-ref row cap); dedupe across the three
 places; child rows drop the parent's tickets; Linear and `gh` response decoding, including partial `NOT_FOUND` and
 another workspace; cache expiry and "none" lifetime. Then a live check: a Linear branch, a PR that closes a GitHub
 issue, a first prompt with a Linear URL and a bare identifier, no key, a bad key, and offline.

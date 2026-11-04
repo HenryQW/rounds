@@ -8,14 +8,16 @@ public enum TicketRef: Hashable, Codable, Sendable {
 }
 
 private let promptLimit = 65_536
-private let refLimit = 5
-// A URL up to the next space, or a bare Linear identifier that no letter, digit or hyphen touches.
-private let refPattern = try! NSRegularExpression(pattern: #"(https?://\S+)|(?<![A-Za-z0-9-])([A-Za-z][A-Za-z0-9]{0,9}-[0-9]{1,7})(?![A-Za-z0-9-])"#)
-private let linearPath = try! NSRegularExpression(pattern: #"^https://linear\.app/([^/]+)/issue/([A-Za-z][A-Za-z0-9]{0,9}-[0-9]{1,7})(/.*)?$"#)
-private let githubPath = try! NSRegularExpression(pattern: #"^https://github\.com/([^/]+)/([^/]+)/issues/([0-9]+)$"#)
+private let refLimit = 20
+private let rowRefLimit = 5
+// A URL up to the next space, or a bare Linear identifier that no letter, digit or hyphen touches. Scheme and host
+// ignore case.
+private let refPattern = try! NSRegularExpression(pattern: #"((?i:https?)://\S+)|(?<![A-Za-z0-9-])([A-Za-z][A-Za-z0-9]{0,9}-[0-9]{1,7})(?![A-Za-z0-9-])"#)
+private let linearPath = try! NSRegularExpression(pattern: #"^(?i:https://linear\.app)/([^/]+)/issue/([A-Za-z][A-Za-z0-9]{0,9}-[0-9]{1,7})(/.*)?$"#)
+private let githubPath = try! NSRegularExpression(pattern: #"^(?i:https://github\.com)/([^/]+)/([^/]+)/issues/([0-9]+)/?$"#)
 
-/// The ticket references in the first 64 KB of a prompt, in order of first appearance, without duplicates, at most 5.
-/// Bare identifiers are not checked here: only Linear can say whether one is real.
+/// The ticket references in the first 64 KB of a prompt, in order of first appearance, without duplicates, at most 20.
+/// Bare identifiers are not checked here (`rowRefs` does). A match that ends at the cut can be cut itself, so it is dropped.
 public func ticketRefs(inPrompt text: String) -> [TicketRef] {
     var head = text
     if text.utf8.count > promptLimit {
@@ -23,9 +25,9 @@ public func ticketRefs(inPrompt text: String) -> [TicketRef] {
         while String(text.utf8.prefix(n)) == nil { n -= 1 }
         head = String(text.utf8.prefix(n))!
     }
-    let ns = head as NSString
+    let ns = head as NSString, cut = head.utf8.count < text.utf8.count
     var refs: [TicketRef] = []
-    for m in refPattern.matches(in: head, range: NSRange(location: 0, length: ns.length)) {
+    for m in refPattern.matches(in: head, range: NSRange(location: 0, length: ns.length)) where !(cut && NSMaxRange(m.range) == ns.length) {
         let ref: TicketRef?
         if m.range(at: 1).location != NSNotFound {
             var url = ns.substring(with: m.range(at: 1))
@@ -44,9 +46,19 @@ public func ticketRefs(inPrompt text: String) -> [TicketRef] {
 private func urlRef(_ url: String) -> TicketRef? {
     let ns = url as NSString, all = NSRange(location: 0, length: ns.length)
     func group(_ m: NSTextCheckingResult, _ i: Int) -> String { ns.substring(with: m.range(at: i)) }
-    if let m = linearPath.firstMatch(in: url, range: all) { return .linearURL(workspace: group(m, 1), id: group(m, 2).uppercased()) }
+    // Linear workspace keys are lower case.
+    if let m = linearPath.firstMatch(in: url, range: all) { return .linearURL(workspace: group(m, 1).lowercased(), id: group(m, 2).uppercased()) }
     if let m = githubPath.firstMatch(in: url, range: all), let n = Int(group(m, 3)) { return .github(owner: group(m, 1), repo: group(m, 2), number: n) }
     return nil
+}
+
+/// The refs of a row, which it looks up and shows: a bare identifier only when its team key is one of the workspace's
+/// (`teamKeys`, upper case; empty until Linear names them), then the first 5.
+public func rowRefs(_ refs: [TicketRef], teamKeys: Set<String>) -> [TicketRef] {
+    Array(refs.filter { ref in
+        guard case .linearID(let id) = ref else { return true }
+        return teamKeys.contains(String(id.prefix { $0 != "-" }))
+    }.prefix(rowRefLimit))
 }
 
 /// The branch to look up, or nil when it says nothing about a ticket: none, or the default branch.

@@ -94,9 +94,21 @@ public func linearRequest(_ lookups: [Lookup]) -> (body: Data, aliases: [String:
         types.append("$\(alias): IssueFilter")
         aliases[alias] = idLookups
     }
-    let query = "query\(types.isEmpty ? "" : "(\(types.joined(separator: ", ")))") { \(fields.joined(separator: " ")) organization { urlKey } } \(linearFragment)"
+    let query = "query\(types.isEmpty ? "" : "(\(types.joined(separator: ", ")))") { \(fields.joined(separator: " ")) \(linearWorkspaceFields) } \(linearFragment)"
     let body = try! JSONSerialization.data(withJSONObject: ["query": query, "variables": variables], options: [.sortedKeys])
     return (body, aliases)
+}
+
+/// Each Linear request also asks for the workspace and its team keys (`linearWorkspace`).
+public let linearWorkspaceFields = "organization { urlKey } teams(first: 250) { nodes { key } }"
+
+/// The workspace (`organization.urlKey`) and its team keys (upper case) in a Linear answer; nil when it has none
+/// (null data).
+public func linearWorkspace(_ data: Data) -> (urlKey: String, teamKeys: Set<String>)? {
+    let fields = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["data"] as? [String: Any]
+    guard let urlKey = (fields?["organization"] as? [String: Any])?["urlKey"] as? String,
+          let teams = (fields?["teams"] as? [String: Any])?["nodes"] as? [[String: Any]] else { return nil }
+    return (urlKey, Set(teams.compactMap { ($0["key"] as? String)?.uppercased() }))
 }
 
 private struct LinearIssue: Decodable {

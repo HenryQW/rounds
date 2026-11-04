@@ -18,6 +18,7 @@ private let branch = Lookup.branch("ada/bbq-12-fix-login")
     #expect(!query.contains("ada/bbq") && !query.contains("github.com") && !query.contains("BBQ"))
     #expect(query.contains("l0: issueVcsBranchSearch(branchName: $l0)") && query.contains("l1: attachmentsForURL(url: $l1)"))
     #expect(query.contains("l2: issues(filter: $l2, first: 50, includeArchived: true)") && query.contains("$l2: IssueFilter") && query.contains("organization { urlKey }"))
+    #expect(query.contains("teams(first: 250) { nodes { key } }"))
     #expect(aliases == ["l0": [branch], "l1": [.pr(url)], "l2": [.ref(.linearID("BBQ-1")), .ref(.linearURL(workspace: "acme", id: "BBQ-2"))]])
 }
 
@@ -59,6 +60,12 @@ private let branch = Lookup.branch("ada/bbq-12-fix-login")
     let ref = Lookup.ref(.linearURL(workspace: "Acme", id: "BBQ-12"))
     let data = json(#"{"data":{"l0":{"nodes":[\#(issueJSON)]},"organization":{"urlKey":"acme"}}}"#)
     #expect(try decodeLinear(data, aliases: ["l0": [ref]])[ref]?.first?.problem == nil)
+}
+
+@Test func linearWorkspaceGivesTheURLKeyAndUpperCaseTeamKeys() {
+    let w = linearWorkspace(json(#"{"data":{"organization":{"urlKey":"acme"},"teams":{"nodes":[{"key":"BBQ"},{"key":"ops"}]}}}"#))
+    #expect(w?.urlKey == "acme" && w?.teamKeys == ["BBQ", "OPS"])
+    #expect(linearWorkspace(json(#"{"errors":[{"message":"x","path":["l0"]}],"data":null}"#)) == nil)
 }
 
 @Test func linearRequestErrorsThrow() {

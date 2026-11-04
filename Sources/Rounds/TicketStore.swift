@@ -30,6 +30,8 @@ final class TicketStore {
     /// nil until the Keychain is read; empty when there is no key.
     @ObservationIgnored private var key: String?
     @ObservationIgnored private var keyLoading = false
+    /// The team keys of the key's workspace, from each Linear answer: a bare identifier with another prefix is no ticket.
+    @ObservationIgnored private var teamKeys: Set<String> = []
     @ObservationIgnored private var listed: [SessionRow] = []
     /// First-prompt refs of Claude and Codex rows, by row id; read once per session.
     @ObservationIgnored private var promptRefs: [String: [TicketRef]] = [:]
@@ -108,7 +110,7 @@ final class TicketStore {
         case .pi(let s): (branch, refs) = (folder?.branch, s.ticketRefs)
         case .herdr(let a): (branch, refs) = (folder?.branch, a.sessionPath.flatMap { piSessions[$0] }?.ticketRefs ?? [])
         }
-        return (lookupBranch(branch, defaultBranch: folder?.defaultBranch), r.pullRequests.map(\.url), refs)
+        return (lookupBranch(branch, defaultBranch: folder?.defaultBranch), r.pullRequests.map(\.url), rowRefs(refs, teamKeys: teamKeys))
     }
 
     /// Linear gets the branch, the PRs and the Linear refs; GitHub gets the PRs and the GitHub refs.
@@ -182,7 +184,7 @@ final class TicketStore {
                 if !aliases.isEmpty { sendLinear(body, aliases: aliases, batch: batch.filter(asked.contains), key: key) }
             } else if case .connected = linearStatus {} else {
                 // Nothing due: a small request still shows Settings whether the key works.
-                sendLinear(Data(#"{"query":"{ organization { urlKey } }"}"#.utf8), aliases: [:], batch: [], key: key)
+                sendLinear(try! JSONSerialization.data(withJSONObject: ["query": "{ \(linearWorkspaceFields) }"]), aliases: [:], batch: [], key: key)
             }
         }
         if let gh, github.ready(now), let lookups = due[.github] {
@@ -234,10 +236,15 @@ final class TicketStore {
         do {
             let result = try decodeLinear(data, aliases: aliases)
             linear.succeeded()
-            let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-            let urlKey = ((root?["data"] as? [String: Any])?["organization"] as? [String: Any])?["urlKey"] as? String
             // Null data (every alias failed) has no workspace: the status stays.
-            if let urlKey { linearStatus = .connected(urlKey) }
+            if let w = linearWorkspace(data) {
+                linearStatus = .connected(w.urlKey)
+                // New team keys change which bare identifiers rows show and look up.
+                if w.teamKeys != teamKeys {
+                    teamKeys = w.teamKeys
+                    changed()
+                }
+            }
             log.info("tickets: linear, \(size) lookups, ok, \(batch.count { result[$0] == nil }) failed")
             storeAnswer(result, for: batch, .linear)
         } catch {
@@ -374,7 +381,7 @@ final class TicketStore {
     }
 
     private func use(_ k: String) {
-        key = k
+        (key, teamKeys) = (k, [])
         hasLinearKey = !k.isEmpty
         linearStatus = .noKey
         changed()
