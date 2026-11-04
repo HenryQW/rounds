@@ -73,10 +73,11 @@ Rules:
 | Issue or PR not found (a PR URL that is not a github.com PR too) | ID and link; the card says "Not found". |
 | GitHub organization blocks `gh` (SSO: `FORBIDDEN` or `saml_failure`) | ID and link; the card says "No access: authorize gh for this organization". |
 | Error or bad value on one alias (null `data` with alias errors too) | Only that lookup has no data; it is asked again after 10 minutes. |
+| Not found deeper than the alias's own field (a null item in a list) | The alias keeps the rest of its result. |
 | Archived issue | Shown with its state; the card adds "Archived". |
 | `gh` not installed or not signed in | GitHub tickets show the ID and link; Settings shows why, and checks `gh` again when it opens. |
 | Host other than github.com | Not read (out of scope). |
-| Rate limit (429, Linear `RATELIMITED`) | Wait until the reset time (Linear's `X-RateLimit-Requests-Reset`), else 60 s. |
+| Rate limit (429, Linear `RATELIMITED` as the code or the type, in any case, on any error) | Wait until the reset time (Linear's `X-RateLimit-Requests-Reset`), else 60 s. |
 | Offline | Keep cached data; try again after 30 s, doubling to 10 min. The card says "Updated 25 min ago". |
 | Demo run | Fixed demo tickets, no network, no Keychain. |
 
@@ -87,7 +88,8 @@ Logs: the service, the request size and the result; never the key, branch names 
 - Mark (row, under the time, next to the PR mark, same caption font): a grey state symbol and the identifier
   (`BBQ-123`, `#812` for GitHub). Linear state types: `backlog` `circle.dotted`, `unstarted` `circle`, `started`
   `circle.lefthalf.filled`, `completed` `checkmark.circle`, `canceled` `xmark.circle`, `triage` `circle.dashed`; no data
-  `circle`. GitHub: open `circle`, closed as completed `checkmark.circle`, closed as not planned `xmark.circle`. Grey,
+  `circle`. GitHub: open `circle`, closed as completed `checkmark.circle`, closed as not planned or as a duplicate
+  `xmark.circle`. Grey,
   because orange and blue mean Needs input and Working; white on a selected row. More than one: the first ticket and a
   count (`BBQ-123 +1`). The title gives way first when the row is narrow; the identifier is not cut.
 - Click: one ticket opens in the default browser; more than one, a menu with "Open BBQ-123" per ticket. The right-click

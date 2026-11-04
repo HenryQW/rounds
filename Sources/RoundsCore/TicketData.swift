@@ -127,14 +127,15 @@ private struct LinearAttachments: Decodable {
 }
 
 /// An error on one alias, or a value that does not decode, gives its lookups no result (not even "none"), so they can
-/// be asked again; "not found" is "none". Only an error that names no alias throws; null data with alias errors gives no result.
+/// be asked again; "not found" on the alias is "none", and one deeper (a null item) keeps the alias's result. Only an
+/// error that names no alias throws; null data with alias errors gives no result.
 public func decodeLinear(_ data: Data, aliases: [String: [Lookup]]) throws -> [Lookup: [Ticket]] {
     guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { throw TicketDataError.invalidResponse }
     var missing = Set<String>(), failed = Set<String>()
     for e in (root["errors"] as? [[String: Any]]) ?? [] {
-        let message = e["message"] as? String ?? ""
-        guard let alias = (e["path"] as? [Any])?.first as? String, aliases[alias] != nil else { throw TicketDataError.server(message) }
-        if message.lowercased().contains("not found") { missing.insert(alias) } else { failed.insert(alias) }
+        let message = e["message"] as? String ?? "", path = e["path"] as? [Any] ?? []
+        guard let alias = path.first as? String, aliases[alias] != nil else { throw TicketDataError.server(message) }
+        if !message.lowercased().contains("not found") { failed.insert(alias) } else if path.count <= 2 { missing.insert(alias) }
     }
     if root["data"] is NSNull && !(missing.isEmpty && failed.isEmpty) { return [:] }
     guard let fields = root["data"] as? [String: Any],
@@ -174,7 +175,7 @@ public func decodeLinear(_ data: Data, aliases: [String: [Lookup]]) throws -> [L
 }
 
 /// A Linear answer that stops requests: a key that is not valid (401, or HTTP 400 with an authentication error), or a
-/// rate limit (429, or the `RATELIMITED` code).
+/// rate limit (429, or `RATELIMITED` as the code or the type, in any case, on any error).
 public enum LinearFailure: Equatable, Sendable { case invalidKey, rateLimited }
 
 public func linearFailure(status: Int, body: Data) -> LinearFailure? {
@@ -183,7 +184,7 @@ public func linearFailure(status: Int, body: Data) -> LinearFailure? {
     if status == 401 || extensions.contains(where: { $0["code"] as? String == "AUTHENTICATION_ERROR" || ($0["type"] as? String)?.lowercased() == "authentication error" }) {
         return .invalidKey
     }
-    if status == 429 || extensions.contains(where: { $0["code"] as? String == "RATELIMITED" }) { return .rateLimited }
+    if status == 429 || extensions.contains(where: { [$0["code"], $0["type"]].contains { ($0 as? String)?.uppercased() == "RATELIMITED" } }) { return .rateLimited }
     return nil
 }
 
@@ -264,19 +265,21 @@ private struct GitHubIssue: Decodable {
 
 private struct GitHubPull: Decodable {
     struct Author: Decodable { var login: String }
-    struct Closing: Decodable { var nodes: [GitHubIssue] }
+    struct Closing: Decodable { var nodes: [GitHubIssue?] }
     var number: Int, title: String, state: String, url: URL, updatedAt: String
     var author: Author?, closingIssuesReferences: Closing
 }
 
-/// As `decodeLinear`: an error on one alias gives its lookup no result; `NOT_FOUND` is "none". `FORBIDDEN` (an
-/// organization's SSO, say) gives a placeholder that says so.
+/// As `decodeLinear`: an error on one alias gives its lookup no result; `NOT_FOUND` on the alias or its own field
+/// (`issue`, `pullRequest`) is "none", and one deeper keeps the result. `FORBIDDEN` (an organization's SSO, say) gives
+/// a placeholder that says so.
 public func decodeGitHub(_ data: Data, aliases: [String: Lookup]) throws -> [Lookup: [Ticket]] {
     guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { throw TicketDataError.invalidResponse }
     var missing = Set<String>(), forbidden = Set<String>(), failed = Set<String>()
     for e in (root["errors"] as? [[String: Any]]) ?? [] {
-        guard let alias = (e["path"] as? [Any])?.first as? String, aliases[alias] != nil else { throw TicketDataError.server(e["message"] as? String ?? "") }
-        if e["type"] as? String == "NOT_FOUND" { missing.insert(alias) }
+        let path = e["path"] as? [Any] ?? []
+        guard let alias = path.first as? String, aliases[alias] != nil else { throw TicketDataError.server(e["message"] as? String ?? "") }
+        if e["type"] as? String == "NOT_FOUND" { if path.count <= 2 { missing.insert(alias) } }
         else if e["type"] as? String == "FORBIDDEN" || (e["extensions"] as? [String: Any])?["saml_failure"] != nil { forbidden.insert(alias) }
         else { failed.insert(alias) }
     }
@@ -299,7 +302,7 @@ public func decodeGitHub(_ data: Data, aliases: [String: Lookup]) throws -> [Loo
                 let state = p.state.lowercased()
                 let pull = Ticket(url: p.url, identifier: "#\(p.number)", service: .pullRequest, repository: name, title: p.title,
                                   stateName: state.capitalized, stateType: state, person: p.author?.login, updatedAt: try date(p.updatedAt))
-                result[lookup] = [pull] + (try p.closingIssuesReferences.nodes.map(githubTicket))
+                result[lookup] = [pull] + (try p.closingIssuesReferences.nodes.compactMap { $0 }.map(githubTicket))
             case .ref(.github(let owner, let name, let number)):
                 guard !missing.contains(alias), !forbidden.contains(alias), let issue = repo?["issue"], !(issue is NSNull) else {
                     result[lookup] = [Ticket(url: URL(string: "https://github.com/\(owner)/\(name)/issues/\(number)")!, identifier: "#\(number)",
@@ -319,7 +322,7 @@ public func decodeGitHub(_ data: Data, aliases: [String: Lookup]) throws -> [Loo
 private func githubTicket(_ i: GitHubIssue) throws -> Ticket {
     let open = i.state == "OPEN"
     return Ticket(url: i.url, identifier: "#\(i.number)", service: .github, repository: i.repository.nameWithOwner, title: i.title,
-                  stateName: open ? "Open" : "Closed", stateType: open ? "open" : (i.stateReason == "NOT_PLANNED" ? "not_planned" : "completed"),
+                  stateName: open ? "Open" : "Closed", stateType: open ? "open" : (["NOT_PLANNED", "DUPLICATE"].contains(i.stateReason) ? "not_planned" : "completed"),
                   person: i.assignees.nodes.first?.login, updatedAt: try date(i.updatedAt))
 }
 

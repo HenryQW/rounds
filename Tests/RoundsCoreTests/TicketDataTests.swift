@@ -291,3 +291,47 @@ private func ticket(_ url: String, _ id: String, _ service: TicketService = .lin
     #expect(ticketCardText(Ticket(url: pr.url, identifier: "#42", service: .pullRequest, problem: .noAccess), now: now, offline: false).notes
         == ["No access: authorize gh for this organization"])
 }
+
+@Test func linearRequestDeclaresEachVariableAndTheFragment() {
+    let query = (try? JSONSerialization.jsonObject(with: linearRequest([branch, .pr(URL(string: "https://github.com/o/r/pull/5")!), .ref(.linearID("BBQ-1"))]).body)
+        as? [String: Any])?["query"] as? String ?? ""
+    #expect(query.hasPrefix("query($l0: String!, $l1: String!, $l2: IssueFilter) {"))
+    #expect(query.contains("$l0) { ...F }") && query.hasSuffix("fragment F on Issue { identifier title url state { name type } assignee { name } updatedAt archivedAt }"))
+    let (github, _) = githubQuery([.ref(.github(owner: "o", repo: "r", number: 9))])
+    #expect(github.contains("issue(number: 9) { ...I }") && github.contains("fragment I on Issue {"))
+}
+
+@Test func archivedLinearIssueAndGitHubDate() throws {
+    let archived = issueJSON.replacingOccurrences(of: #""archivedAt":null"#, with: #""archivedAt":"2026-11-01T00:00:00Z""#)
+    #expect(try decodeLinear(json(#"{"data":{"l0":\#(archived),"organization":{"urlKey":"acme"}}}"#), aliases: ["l0": [branch]])[branch]?.first?.archived == true)
+    let ref = Lookup.ref(.github(owner: "o", repo: "r", number: 1))
+    let t = try decodeGitHub(json(#"{"data":{"g0":{"issue":\#(ghIssue(1, "OPEN", "null"))}}}"#), aliases: ["g0": ref])[ref]
+    #expect(t?.first?.updatedAt == Date(timeIntervalSince1970: 1_793_786_400))
+}
+
+/// A PR URL with more path (a `/files` tab) is not a github.com PR to GitHub's query: it is not asked.
+@Test func githubQuerySkipsAPullRequestFilesURL() {
+    #expect(githubQuery([.pr(URL(string: "https://github.com/o/r/pull/5/files")!)]).aliases.isEmpty)
+}
+
+@Test func githubDuplicateIsNotPlanned() throws {
+    let ref = Lookup.ref(.github(owner: "o", repo: "r", number: 2))
+    let r = try decodeGitHub(json(#"{"data":{"g0":{"issue":\#(ghIssue(2, "CLOSED", "\"DUPLICATE\""))}}}"#), aliases: ["g0": ref])
+    #expect(r[ref]?.first?.stateType == "not_planned")
+}
+
+/// Only a not-found on the alias (or its own field) empties it; one deeper keeps the rest of its result.
+@Test func aNestedNotFoundKeepsTheAliasResult() throws {
+    let pr = Lookup.pr(URL(string: "https://github.com/o/r/pull/5")!)
+    let linear = json(#"{"errors":[{"message":"Entity not found","path":["l0","nodes",0,"issue"]}],"data":{"l0":{"nodes":[{"issue":null},{"issue":\#(issueJSON)}]},"organization":{"urlKey":"acme"}}}"#)
+    #expect(try decodeLinear(linear, aliases: ["l0": [pr]])[pr]?.map(\.identifier) == ["BBQ-12"])
+    #expect(try decodeLinear(json(#"{"errors":[{"message":"Entity not found","path":["l0"]}],"data":{"l0":null,"organization":{"urlKey":"acme"}}}"#), aliases: ["l0": [branch]])[branch] == [])
+    let github = json(#"{"data":{"g0":{"pullRequest":{"number":5,"title":"Fix","state":"OPEN","url":"https://github.com/o/r/pull/5","updatedAt":"2026-11-04T10:00:00Z","author":null,"closingIssuesReferences":{"nodes":[null,\#(ghIssue(8, "OPEN", "null"))]}}}},"errors":[{"type":"NOT_FOUND","path":["g0","pullRequest","closingIssuesReferences","nodes",0],"message":"x"}]}"#)
+    #expect(try decodeGitHub(github, aliases: ["g0": pr])[pr]?.map(\.identifier) == ["#5", "#8"])
+}
+
+@Test func linearRateLimitInAnyForm() {
+    #expect(linearFailure(status: 200, body: json(#"{"errors":[{"message":"x"},{"message":"y","extensions":{"code":"RATELIMITED"}}],"data":null}"#)) == .rateLimited)
+    #expect(linearFailure(status: 400, body: json(#"{"errors":[{"message":"x","extensions":{"code":"ratelimited"}}]}"#)) == .rateLimited)
+    #expect(linearFailure(status: 400, body: json(#"{"errors":[{"message":"x","extensions":{"type":"Ratelimited"}}]}"#)) == .rateLimited)
+}
