@@ -64,7 +64,6 @@ private let branch = Lookup.branch("ada/bbq-12-fix-login")
 @Test func linearRequestErrorsThrow() {
     let data = json(#"{"errors":[{"message":"Rate limited"}],"data":null}"#)
     #expect(throws: TicketDataError.server("Rate limited")) { try decodeLinear(data, aliases: ["l0": [branch]]) }
-    #expect(throws: TicketDataError.invalidResponse) { try decodeLinear(json(#"{"data":{"l0":{"x":1},"organization":{"urlKey":"a"}}}"#), aliases: ["l0": [branch]]) }
 }
 
 @Test func githubQueryInlinesOnlySafeValues() {
@@ -215,9 +214,46 @@ private func ticket(_ url: String, _ id: String, _ service: TicketService = .lin
 
 @Test func githubAliasErrorLeavesOnlyThatAliasWithoutResult() throws {
     let blocked = Lookup.ref(.github(owner: "sso", repo: "r", number: 3)), ok = Lookup.ref(.github(owner: "o", repo: "r", number: 1))
-    let data = json(#"{"data":{"g0":null,"g1":{"issue":\#(ghIssue(1, "OPEN", "null"))}},"errors":[{"type":"FORBIDDEN","path":["g0"],"message":"SSO"}]}"#)
+    let data = json(#"{"data":{"g0":null,"g1":{"issue":\#(ghIssue(1, "OPEN", "null"))}},"errors":[{"type":"SERVICE_UNAVAILABLE","path":["g0"],"message":"x"}]}"#)
     let r = try decodeGitHub(data, aliases: ["g0": blocked, "g1": ok])
     #expect(r[blocked] == nil && r[ok]?.first?.identifier == "#1")
+}
+
+@Test func githubForbiddenAliasSaysNoAccess() throws {
+    let issue = Lookup.ref(.github(owner: "sso", repo: "r", number: 3)), ok = Lookup.ref(.github(owner: "o", repo: "r", number: 1))
+    let pr = Lookup.pr(URL(string: "https://github.com/sso/r/pull/9")!)
+    let data = json(#"{"data":{"g0":null,"g1":{"issue":\#(ghIssue(1, "OPEN", "null"))},"g2":null},"errors":[{"type":"FORBIDDEN","path":["g0"],"message":"SSO"},{"type":"x","extensions":{"saml_failure":true},"path":["g2"],"message":"SAML"}]}"#)
+    let r = try decodeGitHub(data, aliases: ["g0": issue, "g1": ok, "g2": pr])
+    #expect(r[issue] == [Ticket(url: URL(string: "https://github.com/sso/r/issues/3")!, identifier: "#3", service: .github, repository: "sso/r", problem: .noAccess)])
+    #expect(r[pr] == [Ticket(url: URL(string: "https://github.com/sso/r/pull/9")!, identifier: "#9", service: .pullRequest, repository: "sso/r", problem: .noAccess)])
+    #expect(r[ok]?.first?.identifier == "#1")
+}
+
+@Test func aliasThatDoesNotDecodeFailsOnlyThatAlias() throws {
+    let pr = Lookup.pr(URL(string: "https://github.com/o/r/pull/5")!)
+    let linear = try decodeLinear(json(#"{"data":{"l0":{"x":1},"l1":{"nodes":[{"issue":\#(issueJSON)}]},"organization":{"urlKey":"a"}}}"#), aliases: ["l0": [branch], "l1": [pr]])
+    #expect(linear[branch] == nil && linear[pr]?.first?.identifier == "BBQ-12")
+    let ok = Lookup.ref(.github(owner: "o", repo: "r", number: 1))
+    let github = try decodeGitHub(json(#"{"data":{"g0":{"pullRequest":{"number":"x"}},"g1":{"issue":\#(ghIssue(1, "OPEN", "null"))}}}"#), aliases: ["g0": pr, "g1": ok])
+    #expect(github[pr] == nil && github[ok]?.first?.identifier == "#1")
+}
+
+@Test func nullDataWithAliasErrorsGivesNoResult() throws {
+    let pr = Lookup.pr(URL(string: "https://github.com/o/r/pull/5")!)
+    #expect(try decodeLinear(json(#"{"errors":[{"message":"x","path":["l0","nodes"]}],"data":null}"#), aliases: ["l0": [pr]]).isEmpty)
+    #expect(try decodeGitHub(json(#"{"errors":[{"type":"x","path":["g0"],"message":"x"}],"data":null}"#), aliases: ["g0": pr]).isEmpty)
+}
+
+@Test func pullRequestTicketSaysNotFoundOnlyAfterAResult() {
+    let url = URL(string: "https://github.com/o/r/pull/5/files")!
+    let loading = Ticket(url: url, identifier: "#5", service: .pullRequest)
+    #expect(pullRequestTicket(url, number: 5, stored: nil) == loading)
+    var notFound = loading
+    notFound.problem = .notFound
+    #expect(pullRequestTicket(url, number: 5, stored: []) == notFound)
+    let pull = ticket(url.absoluteString, "#5", .pullRequest), issue = ticket("https://github.com/o/r/issues/9", "#9", .github)
+    #expect(pullRequestTicket(url, number: 5, stored: [pull, issue]) == pull)
+    #expect(pullRequestTicket(url, number: 5, stored: [issue]) == notFound)
 }
 
 @Test func cardTextGivesHeadingTitleAndDetails() {
@@ -245,4 +281,6 @@ private func ticket(_ url: String, _ id: String, _ service: TicketService = .lin
     #expect(ticketCardText(linear, now: now, offline: false).notes == ["Add a Linear API key in Settings to see the title"])
     linear.problem = .otherWorkspace
     #expect(ticketCardText(linear, now: now, offline: false).notes == ["Not in your Linear workspace"])
+    #expect(ticketCardText(Ticket(url: pr.url, identifier: "#42", service: .pullRequest, problem: .noAccess), now: now, offline: false).notes
+        == ["No access: authorize gh for this organization"])
 }

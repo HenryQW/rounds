@@ -152,9 +152,7 @@ private struct HoverCardView: View {
         case .tickets: return row.tickets
         case .pullRequests:
             // The newest first, as the mark shows it.
-            return row.pullRequests.sorted { $0.number > $1.number }.map {
-                TicketStore.shared.pullRequest($0.url) ?? Ticket(url: $0.url, identifier: "#" + String($0.number), service: .pullRequest)
-            }
+            return row.pullRequests.sorted { $0.number > $1.number }.map { TicketStore.shared.pullRequest($0.url, number: $0.number) }
         }
     }
 
@@ -192,7 +190,7 @@ private struct HoverCardView: View {
         switch TicketStore.shared.githubStatus {
         case .notFound: return "gh not found"
         case .notSignedIn: return "gh not signed in"
-        // nil: the launch check has not answered, so the card says "Loading…".
+        // nil: the first check has not answered, so the card says "Loading…".
         case .signedIn, .offline, nil: return nil
         }
     }

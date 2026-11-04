@@ -65,9 +65,11 @@ Rules:
 | No Linear key | Branch, PR and bare-identifier lookups for Linear do not run. Linear URLs from the prompt show the ID and the link; the card says "Add a Linear API key in Settings to see the title". |
 | Key not valid (401) | Linear requests stop until the key changes. Settings shows "Key not valid". |
 | Linear URL of another workspace (`urlKey` differs) | ID and link; the card says "Not in your Linear workspace". |
-| Issue not found or no access | ID and link; the card says "Not found". |
+| Issue or PR not found (a PR URL that is not a github.com PR too) | ID and link; the card says "Not found". |
+| GitHub organization blocks `gh` (SSO: `FORBIDDEN` or `saml_failure`) | ID and link; the card says "No access: authorize gh for this organization". |
+| Error or bad value on one alias (null `data` with alias errors too) | Only that lookup has no data; it is asked again after 10 minutes. |
 | Archived issue | Shown with its state; the card adds "Archived". |
-| `gh` not installed, not signed in, or blocked by SSO | GitHub tickets show the ID and link; Settings shows why. |
+| `gh` not installed or not signed in | GitHub tickets show the ID and link; Settings shows why, and checks `gh` again when it opens. |
 | Host other than github.com | Not read (out of scope). |
 | Rate limit (429, Linear `RATELIMITED`) | Wait until the reset time (Linear's `X-RateLimit-Requests-Reset`), else 60 s. |
 | Offline | Keep cached data; try again after 30 s, doubling to 10 min. The card says "Updated 25 min ago". |

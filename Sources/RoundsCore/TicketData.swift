@@ -3,7 +3,7 @@ import Foundation
 public enum TicketService: String, Codable, Sendable { case linear, github, pullRequest }
 
 /// Why a ticket shows only its ID and link.
-public enum TicketProblem: String, Codable, Sendable { case noKey, otherWorkspace, notFound }
+public enum TicketProblem: String, Codable, Sendable { case noKey, otherWorkspace, notFound, noAccess }
 
 public struct Ticket: Codable, Equatable, Sendable {
     public var url: URL
@@ -114,8 +114,8 @@ private struct LinearAttachments: Decodable {
     var nodes: [Node]
 }
 
-/// An error on one alias gives its lookups no result (not even "none"), so they can be asked again; "not found" is
-/// "none". Only an error that names no alias throws.
+/// An error on one alias, or a value that does not decode, gives its lookups no result (not even "none"), so they can
+/// be asked again; "not found" is "none". Only an error that names no alias throws; null data with alias errors gives no result.
 public func decodeLinear(_ data: Data, aliases: [String: [Lookup]]) throws -> [Lookup: [Ticket]] {
     guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { throw TicketDataError.invalidResponse }
     var missing = Set<String>(), failed = Set<String>()
@@ -124,33 +124,38 @@ public func decodeLinear(_ data: Data, aliases: [String: [Lookup]]) throws -> [L
         guard let alias = (e["path"] as? [Any])?.first as? String, aliases[alias] != nil else { throw TicketDataError.server(message) }
         if message.lowercased().contains("not found") { missing.insert(alias) } else { failed.insert(alias) }
     }
+    if root["data"] is NSNull && !(missing.isEmpty && failed.isEmpty) { return [:] }
     guard let fields = root["data"] as? [String: Any],
           let urlKey = (fields["organization"] as? [String: Any])?["urlKey"] as? String else { throw TicketDataError.invalidResponse }
     var result: [Lookup: [Ticket]] = [:]
     for (alias, lookups) in aliases where !failed.contains(alias) {
         let value = fields[alias]
         let empty = missing.contains(alias) || value == nil || value is NSNull
-        for lookup in lookups {
-            switch lookup {
-            case .pr:
-                result[lookup] = empty ? [] : try decode(value!, LinearAttachments.self).nodes.compactMap { $0.issue }.map(linearTicket)
-            case .branch:
-                result[lookup] = empty ? [] : [try linearTicket(try decode(value!, LinearIssue.self))]
-            default:
-                let id = linearID(lookup)!
-                if case .ref(.linearURL(let ws, _)) = lookup, ws.lowercased() != urlKey.lowercased() {
-                    result[lookup] = [problem(.otherWorkspace, ws, id)]
-                    continue
-                }
-                let nodes = empty ? [] : try decode(value!, LinearIssues.self).nodes
-                if let node = nodes.first(where: { $0.identifier.lowercased() == id.lowercased() }) {
-                    result[lookup] = [try linearTicket(node)]
-                } else if case .ref(.linearURL) = lookup {
-                    result[lookup] = [problem(.notFound, urlKey, id)]
-                } else {
-                    result[lookup] = []
+        do {
+            for lookup in lookups {
+                switch lookup {
+                case .pr:
+                    result[lookup] = empty ? [] : try decode(value!, LinearAttachments.self).nodes.compactMap { $0.issue }.map(linearTicket)
+                case .branch:
+                    result[lookup] = empty ? [] : [try linearTicket(try decode(value!, LinearIssue.self))]
+                default:
+                    let id = linearID(lookup)!
+                    if case .ref(.linearURL(let ws, _)) = lookup, ws.lowercased() != urlKey.lowercased() {
+                        result[lookup] = [problem(.otherWorkspace, ws, id)]
+                        continue
+                    }
+                    let nodes = empty ? [] : try decode(value!, LinearIssues.self).nodes
+                    if let node = nodes.first(where: { $0.identifier.lowercased() == id.lowercased() }) {
+                        result[lookup] = [try linearTicket(node)]
+                    } else if case .ref(.linearURL) = lookup {
+                        result[lookup] = [problem(.notFound, urlKey, id)]
+                    } else {
+                        result[lookup] = []
+                    }
                 }
             }
+        } catch {
+            for lookup in lookups { result[lookup] = nil }
         }
     }
     return result
@@ -252,36 +257,48 @@ private struct GitHubPull: Decodable {
     var author: Author?, closingIssuesReferences: Closing
 }
 
-/// As `decodeLinear`: an error on one alias (SSO `FORBIDDEN`, say) gives its lookup no result; `NOT_FOUND` is "none".
-/// Only an error that names no alias throws.
+/// As `decodeLinear`: an error on one alias gives its lookup no result; `NOT_FOUND` is "none". `FORBIDDEN` (an
+/// organization's SSO, say) gives a placeholder that says so.
 public func decodeGitHub(_ data: Data, aliases: [String: Lookup]) throws -> [Lookup: [Ticket]] {
     guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { throw TicketDataError.invalidResponse }
-    var missing = Set<String>(), failed = Set<String>()
+    var missing = Set<String>(), forbidden = Set<String>(), failed = Set<String>()
     for e in (root["errors"] as? [[String: Any]]) ?? [] {
         guard let alias = (e["path"] as? [Any])?.first as? String, aliases[alias] != nil else { throw TicketDataError.server(e["message"] as? String ?? "") }
-        if e["type"] as? String == "NOT_FOUND" { missing.insert(alias) } else { failed.insert(alias) }
+        if e["type"] as? String == "NOT_FOUND" { missing.insert(alias) }
+        else if e["type"] as? String == "FORBIDDEN" || (e["extensions"] as? [String: Any])?["saml_failure"] != nil { forbidden.insert(alias) }
+        else { failed.insert(alias) }
     }
+    if root["data"] is NSNull && !(missing.isEmpty && forbidden.isEmpty && failed.isEmpty) { return [:] }
     guard let fields = root["data"] as? [String: Any] else { throw TicketDataError.invalidResponse }
     var result: [Lookup: [Ticket]] = [:]
     for (alias, lookup) in aliases where !failed.contains(alias) {
         let repo = fields[alias] as? [String: Any]
-        switch lookup {
-        case .pr:
-            guard !missing.contains(alias), let pr = repo?["pullRequest"], !(pr is NSNull) else { result[lookup] = []; continue }
-            let p = try decode(pr, GitHubPull.self)
-            let name = p.url.pathComponents.dropFirst().prefix(2).joined(separator: "/")
-            let state = p.state.lowercased()
-            let pull = Ticket(url: p.url, identifier: "#\(p.number)", service: .pullRequest, repository: name, title: p.title,
-                              stateName: state.capitalized, stateType: state, person: p.author?.login, updatedAt: try date(p.updatedAt))
-            result[lookup] = [pull] + (try p.closingIssuesReferences.nodes.map(githubTicket))
-        case .ref(.github(let owner, let name, let number)):
-            guard !missing.contains(alias), let issue = repo?["issue"], !(issue is NSNull) else {
-                result[lookup] = [Ticket(url: URL(string: "https://github.com/\(owner)/\(name)/issues/\(number)")!, identifier: "#\(number)",
-                                         service: .github, repository: "\(owner)/\(name)", problem: .notFound)]
-                continue
+        // A value that does not decode fails only its alias.
+        do {
+            switch lookup {
+            case .pr(let url):
+                if forbidden.contains(alias), let p = pullParts(url) {
+                    result[lookup] = [Ticket(url: url, identifier: "#\(p.number)", service: .pullRequest, repository: "\(p.owner)/\(p.repo)", problem: .noAccess)]
+                    continue
+                }
+                guard !missing.contains(alias), let pr = repo?["pullRequest"], !(pr is NSNull) else { result[lookup] = []; continue }
+                let p = try decode(pr, GitHubPull.self)
+                let name = p.url.pathComponents.dropFirst().prefix(2).joined(separator: "/")
+                let state = p.state.lowercased()
+                let pull = Ticket(url: p.url, identifier: "#\(p.number)", service: .pullRequest, repository: name, title: p.title,
+                                  stateName: state.capitalized, stateType: state, person: p.author?.login, updatedAt: try date(p.updatedAt))
+                result[lookup] = [pull] + (try p.closingIssuesReferences.nodes.map(githubTicket))
+            case .ref(.github(let owner, let name, let number)):
+                guard !missing.contains(alias), !forbidden.contains(alias), let issue = repo?["issue"], !(issue is NSNull) else {
+                    result[lookup] = [Ticket(url: URL(string: "https://github.com/\(owner)/\(name)/issues/\(number)")!, identifier: "#\(number)",
+                                             service: .github, repository: "\(owner)/\(name)", problem: forbidden.contains(alias) ? .noAccess : .notFound)]
+                    continue
+                }
+                result[lookup] = [try githubTicket(try decode(issue, GitHubIssue.self))]
+            default: break
             }
-            result[lookup] = [try githubTicket(try decode(issue, GitHubIssue.self))]
-        default: break
+        } catch {
+            result[lookup] = nil
         }
     }
     return result
@@ -292,6 +309,13 @@ private func githubTicket(_ i: GitHubIssue) throws -> Ticket {
     return Ticket(url: i.url, identifier: "#\(i.number)", service: .github, repository: i.repository.nameWithOwner, title: i.title,
                   stateName: open ? "Open" : "Closed", stateType: open ? "open" : (i.stateReason == "NOT_PLANNED" ? "not_planned" : "completed"),
                   person: i.assignees.nodes.first?.login, updatedAt: try date(i.updatedAt))
+}
+
+/// The PR of a PR card from GitHub's last result for its lookup (`stored`, nil before the first). A result without the
+/// PR (GitHub does not know it, or the URL is not a github.com PR) says "Not found"; no result yet says "Loading…".
+public func pullRequestTicket(_ url: URL, number: Int, stored: [Ticket]?) -> Ticket {
+    stored?.first { $0.service == .pullRequest }
+        ?? Ticket(url: url, identifier: "#\(number)", service: .pullRequest, problem: stored == nil ? nil : .notFound)
 }
 
 // MARK: Cache
@@ -406,6 +430,7 @@ public func ticketCardText(_ t: Ticket, now: Date, offline: Bool, unavailable: S
     case .noKey: ["Add a Linear API key in Settings to see the title"]
     case .otherWorkspace: ["Not in your Linear workspace"]
     case .notFound: ["Not found"]
+    case .noAccess: ["No access: authorize gh for this organization"]
     case nil: t.title == nil && !offline ? [unavailable ?? "Loading…"] : []
     }
     if t.archived { notes.append("Archived") }

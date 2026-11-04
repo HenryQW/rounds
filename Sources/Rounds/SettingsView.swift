@@ -90,6 +90,8 @@ struct SettingsView: View {
         .onAppear {
             NSApp.activate()
             model.refreshHookStatus()
+            // gh may be installed or signed in since the last check.
+            if case .signedIn = TicketStore.shared.githubStatus {} else { TicketStore.shared.checkGitHub() }
             state.isOpen = true
             // Each time it opens, at the centre of the screen; it keeps the size the user gave it.
             DispatchQueue.main.async { state.window?.center() }

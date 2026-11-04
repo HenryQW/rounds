@@ -480,8 +480,8 @@ final class AppModel {
         if failedCount != g.failedCount { failedCount = g.failedCount }
         if unseenWaitCount != g.unseenWaitCount { unseenWaitCount = g.unseenWaitCount }
         if runningCount != running { runningCount = running }
-        // Only the rows the window lists are looked up; the Older group only while the Aged filter shows it.
-        tickets.list(sessions + (includeOlder ? groups.older.flatMap(\.withChildren) : []))
+        // Only the rows the window lists are looked up; the Older group only while the Aged filter or a search shows it.
+        tickets.list(sessions + (includeOlder || !query.isEmpty ? groups.older.flatMap(\.withChildren) : []))
     }
 
     private static func loadLastCall() -> LastCallRule {

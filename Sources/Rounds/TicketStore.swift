@@ -16,7 +16,7 @@ final class TicketStore {
     /// `.noKey` also while a key waits for its first answer (`hasLinearKey` tells the two apart), so nothing says
     /// offline before a request failed.
     private(set) var linearStatus = LinearStatus.noKey
-    /// nil until the launch check of `gh` answers.
+    /// nil until the first check of `gh` answers.
     private(set) var githubStatus: GitHubStatus?
     private(set) var hasLinearKey = false
 
@@ -43,13 +43,12 @@ final class TicketStore {
     /// Lookups whose alias had an error, by service, until they may be asked again (10 minutes), so they block no others.
     @ObservationIgnored private var retry: [TicketService: [Lookup: Date]] = [:]
     @ObservationIgnored private var github = Channel()
+    /// Found again on each check of `gh`, so a `gh` installed after launch is used.
+    @ObservationIgnored private var gh: String?
     @ObservationIgnored private var saving = false
     @ObservationIgnored private var changePending = false
 
     private let projectsRoot = URL.homeDirectory.appending(path: ".claude/projects")
-    /// An app started from Finder has no shell PATH.
-    private let gh = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", URL.homeDirectory.appending(path: ".local/bin/gh").path]
-        .first { FileManager.default.isExecutableFile(atPath: $0) }
 
     private init() {
         // Demo mode: fixed tickets, and no network, Keychain or cache file.
@@ -74,8 +73,8 @@ final class TicketStore {
     }
 
     /// The PR itself, for the PR card.
-    func pullRequest(_ url: URL) -> Ticket? {
-        cache.tickets(for: .pr(url), service: .github)?.first { $0.service == .pullRequest }
+    func pullRequest(_ url: URL, number: Int) -> Ticket {
+        pullRequestTicket(url, number: number, stored: cache.tickets(for: .pr(url), service: .github))
     }
 
     /// The rows the window lists, after each regroup: only their lookups are fetched.
@@ -237,7 +236,8 @@ final class TicketStore {
             linear.succeeded()
             let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             let urlKey = ((root?["data"] as? [String: Any])?["organization"] as? [String: Any])?["urlKey"] as? String
-            linearStatus = .connected(urlKey ?? "")
+            // Null data (every alias failed) has no workspace: the status stays.
+            if let urlKey { linearStatus = .connected(urlKey) }
             log.info("tickets: linear, \(size) lookups, ok, \(batch.count { result[$0] == nil }) failed")
             storeAnswer(result, for: batch, .linear)
         } catch {
@@ -274,8 +274,12 @@ final class TicketStore {
         fetch(listed, hover: false)
     }
 
-    /// `gh api user` once at launch (and after a good answer that came while signed out): the login for Settings.
-    private func checkGitHub() {
+    /// `gh api user` at launch, when Settings opens while not signed in, and after a good answer that came while signed
+    /// out: the login for Settings. A change to signed in makes the GitHub lookups due that waited for it.
+    func checkGitHub() {
+        // An app started from Finder has no shell PATH.
+        gh = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", URL.homeDirectory.appending(path: ".local/bin/gh").path]
+            .first { FileManager.default.isExecutableFile(atPath: $0) }
         guard let gh else { return githubStatus = .notFound }
         DispatchQueue.global(qos: .utility).async {
             let out = runCommand(gh, ["api", "user", "--jq", ".login"])
@@ -283,7 +287,13 @@ final class TicketStore {
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     let login = out.flatMap { $0.status == 0 ? String(decoding: $0.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) : nil }
-                    self.githubStatus = login.flatMap { $0.isEmpty ? nil : .signedIn($0) } ?? (self.signInProblem(out) ? .notSignedIn : .offline)
+                    let status: GitHubStatus = login.flatMap { $0.isEmpty ? nil : .signedIn($0) } ?? (self.signInProblem(out) ? .notSignedIn : .offline)
+                    let was = self.githubStatus
+                    self.githubStatus = status
+                    if case .signedIn = status, status != was {
+                        self.github.succeeded()
+                        self.fetch(self.listed, hover: false)
+                    }
                 }
             }
         }
