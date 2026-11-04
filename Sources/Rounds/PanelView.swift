@@ -508,7 +508,10 @@ private struct RowMark<Content: View>: View {
     var body: some View {
         Group {
             if links.count == 1 {
-                Button { NSWorkspace.shared.open(links[0].url) } label: { mark }
+                Button {
+                    HoverCard.shared.close()
+                    NSWorkspace.shared.open(links[0].url)
+                } label: { mark }
                     .buttonStyle(.plain)
             } else {
                 Menu {
@@ -572,7 +575,7 @@ private struct PRMark: View {
             symbol
             Text(label)
         }
-        .accessibilityLabel(prs.count == 1 ? "Pull request" : "\(prs.count) pull requests")
+        .accessibilityLabel(prs.count == 1 ? "Pull request #\(newest.number)" : "\(prs.count) pull requests, newest #\(newest.number)")
     }
 
     /// The newest PR: the highest number.

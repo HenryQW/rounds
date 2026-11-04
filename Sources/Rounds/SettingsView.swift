@@ -97,6 +97,8 @@ struct SettingsView: View {
         .onDisappear {
             state.recorder.stop()
             state.isOpen = false
+            // A key typed but not saved does not stay in memory.
+            state.linearKey = ""
         }
     }
 
@@ -405,6 +407,8 @@ struct SettingsView: View {
                 case .notFound: statusPill("gh not found", .gray)
                 case .notSignedIn: statusPill("gh not signed in", .orange)
                 case .offline: statusPill("Offline", .gray)
+                // The launch check has not answered yet.
+                case nil: EmptyView()
                 }
             } label: {
                 described("GitHub", "Uses the gh command line tool and its sign-in.")

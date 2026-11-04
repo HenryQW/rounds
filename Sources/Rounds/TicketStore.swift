@@ -16,8 +16,8 @@ final class TicketStore {
     /// `.noKey` also while a key waits for its first answer (`hasLinearKey` tells the two apart), so nothing says
     /// offline before a request failed.
     private(set) var linearStatus = LinearStatus.noKey
-    /// `.notFound` until the launch check of `gh` answers.
-    private(set) var githubStatus = GitHubStatus.notFound
+    /// nil until the launch check of `gh` answers.
+    private(set) var githubStatus: GitHubStatus?
     private(set) var hasLinearKey = false
 
     /// Called once after new data or new lookups, so the app regroups (and sets each row's tickets again).

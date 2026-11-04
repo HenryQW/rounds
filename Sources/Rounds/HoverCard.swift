@@ -31,14 +31,14 @@ final class HoverCard {
     /// The pointer entered or left a mark.
     func hover(_ id: String, row: SessionRow, kind: Kind, inside: Bool) {
         if inside {
-            onMark = true
             // Back on the mark of the open card: it stays.
             if id == mark {
+                onMark = true
                 timer?.cancel()
                 return
             }
             close()
-            mark = id
+            (mark, onMark) = (id, true)
             later(0.6) { self.open(id, row: row, kind: kind) }
         } else if id == mark {
             onMark = false
@@ -55,7 +55,7 @@ final class HoverCard {
     func close() {
         timer?.cancel()
         (mark, onMark, onCard, shown, hoveredItem) = (nil, false, false, nil, nil)
-        guard let panel, panel.isVisible else { return }
+        guard let panel else { return }
         panel.parent?.removeChildWindow(panel)
         panel.orderOut(nil)
     }
@@ -109,6 +109,8 @@ final class HoverCard {
         panel.hasShadow = false
         // It shows and hides with the session window only (a panel hides when its app is not active by default).
         panel.hidesOnDeactivate = false
+        // As the session window: it shows on the active Space and over full-screen apps.
+        panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         let host = NSHostingView(rootView: HoverCardView(card: self))
         // The card sets its own frame (`place`); the window must not follow SwiftUI's sizes as well.
         host.sizingOptions = []
@@ -138,6 +140,8 @@ private struct HoverCardView: View {
             .background(Color(nsColor: .windowBackgroundColor), in: .rect(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator, lineWidth: 0.5))
             .onHover { card.hoverCard($0) }
+            // The row lost its last ticket (or PR) while the card was open: no empty card.
+            .onChange(of: items.isEmpty, initial: true) { _, empty in if empty { card.close() } }
             .onGeometryChange(for: CGSize.self) { $0.size } action: { card.resize($0) }
         }
     }
@@ -188,7 +192,8 @@ private struct HoverCardView: View {
         switch TicketStore.shared.githubStatus {
         case .notFound: return "gh not found"
         case .notSignedIn: return "gh not signed in"
-        case .signedIn, .offline: return nil
+        // nil: the launch check has not answered, so the card says "Loading…".
+        case .signedIn, .offline, nil: return nil
         }
     }
 }

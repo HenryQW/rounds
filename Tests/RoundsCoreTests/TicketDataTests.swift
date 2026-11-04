@@ -240,6 +240,7 @@ private func ticket(_ url: String, _ id: String, _ service: TicketService = .lin
     let pr = Ticket(url: URL(string: "https://github.com/o/r/pull/42")!, identifier: "#42", service: .pullRequest)
     #expect(ticketCardText(pr, now: now, offline: false) == TicketCardText(heading: "#42 · GitHub", title: nil, details: nil, notes: ["Loading…"]))
     #expect(ticketCardText(pr, now: now, offline: false, unavailable: "gh not signed in").notes == ["gh not signed in"])
+    #expect(ticketCardText(pr, now: now, offline: true).notes == ["Not updated: offline"])
     var linear = Ticket(url: URL(string: "https://linear.app/x/issue/BBQ-1")!, identifier: "BBQ-1", service: .linear, problem: .noKey)
     #expect(ticketCardText(linear, now: now, offline: false).notes == ["Add a Linear API key in Settings to see the title"])
     linear.problem = .otherWorkspace

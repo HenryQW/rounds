@@ -91,7 +91,8 @@ final class EdgeDrawer {
         let actions: [(Notification.Name, @MainActor @Sendable (EdgeDrawer) -> Void)] = [
             (NSApplication.didResignActiveNotification, { $0.closeLater() }),
             (NSApplication.didBecomeActiveNotification, { $0.pendingClose?.cancel() }),
-            (NSMenu.didBeginTrackingNotification, { $0.menuOpen = true }),
+            // A menu (a mark's menu, a row's right-click menu) also closes the hover card, or stops one that waits.
+            (NSMenu.didBeginTrackingNotification, { $0.menuOpen = true; HoverCard.shared.close() }),
             (NSMenu.didEndTrackingNotification, { $0.menuOpen = false }),
             (NSApplication.didChangeScreenParametersNotification, { $0.apply() }),
         ]

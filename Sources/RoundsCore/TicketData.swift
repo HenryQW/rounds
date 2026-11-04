@@ -389,8 +389,8 @@ public struct TicketCardText: Equatable, Sendable {
     }
 }
 
-/// The card text of a ticket or a pull request. `offline`: the service's last request failed. `unavailable`: why the
-/// service cannot answer ("gh not found"), said in place of "Loading…" for an item with no data.
+/// The card text of a ticket or a pull request. `offline`: the service's last request failed; an item with no data then
+/// says only that. `unavailable`: why the service cannot answer ("gh not found"), said in place of "Loading…".
 public func ticketCardText(_ t: Ticket, now: Date, offline: Bool, unavailable: String? = nil, locale: Locale = .current) -> TicketCardText {
     let heading = switch t.service {
     case .linear: t.identifier + " · Linear"
@@ -406,7 +406,7 @@ public func ticketCardText(_ t: Ticket, now: Date, offline: Bool, unavailable: S
     case .noKey: ["Add a Linear API key in Settings to see the title"]
     case .otherWorkspace: ["Not in your Linear workspace"]
     case .notFound: ["Not found"]
-    case nil: t.title == nil ? [unavailable ?? "Loading…"] : []
+    case nil: t.title == nil && !offline ? [unavailable ?? "Loading…"] : []
     }
     if t.archived { notes.append("Archived") }
     if offline { notes.append("Not updated: offline") }
