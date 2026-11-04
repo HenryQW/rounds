@@ -44,6 +44,21 @@ public enum LastMessage: Sendable, Equatable {
     }
 }
 
+/// The text of the first real user prompt in the head of a transcript (JSON lines; a cut last line is skipped): not
+/// meta, not a sidechain, not a tool result, and not a wrapper that starts with `<` (system reminder, command output).
+public func firstUserPrompt(claudeTranscript data: Data) -> String? {
+    for line in data.split(separator: UInt8(ascii: "\n")) {
+        guard let e = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any], e["type"] as? String == "user",
+              e["isMeta"] as? Bool != true, e["isSidechain"] as? Bool != true,
+              let content = (e["message"] as? [String: Any])?["content"] else { continue }
+        let texts = (content as? String).map { [$0] }
+            ?? (content as? [[String: Any]] ?? []).filter { $0["type"] as? String == "text" }.compactMap { $0["text"] as? String }
+        let text = texts.filter { !$0.hasPrefix("<") }.joined(separator: "\n")
+        if !text.isEmpty { return text }
+    }
+    return nil
+}
+
 /// `projectsRoot/<cwd with each non-alphanumeric char as "-">/<id>.jsonl`, else a scan of `projectsRoot/*/<id>.jsonl`.
 public func transcriptURL(cwd: String, cliSessionId: String, projectsRoot: URL) -> URL? {
     let fm = FileManager.default

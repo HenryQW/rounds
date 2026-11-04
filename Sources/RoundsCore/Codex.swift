@@ -85,6 +85,20 @@ public func parseCodexRollout(_ tail: Data) -> CodexTurn? {
     return nil
 }
 
+/// The text of the first user message in the head of a rollout file, without the context blocks Codex adds
+/// (`<environment_context>` and the `# AGENTS.md instructions` block).
+public func firstUserPrompt(codexRollout data: Data) -> String? {
+    for line in data.split(separator: UInt8(ascii: "\n")) {
+        guard let o = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any], o["type"] as? String == "response_item",
+              let p = o["payload"] as? [String: Any], p["type"] as? String == "message", p["role"] as? String == "user" else { continue }
+        let text = (p["content"] as? [[String: Any]] ?? []).filter { $0["type"] as? String == "input_text" }
+            .compactMap { $0["text"] as? String }.filter { !$0.hasPrefix("<") && !$0.hasPrefix("# AGENTS.md instructions") }
+            .joined(separator: "\n")
+        if !text.isEmpty { return text }
+    }
+    return nil
+}
+
 /// A Codex thread's state: the newer of the last hook event and the last rollout turn edge. Hooks carry the
 /// waiting state and tool names; the rollout covers threads that ran without hooks. `live`: a Codex process runs.
 public func classifyCodex(_ thread: CodexThread, hook: HookState?, turn: CodexTurn?, live: Bool) -> SessionStatus {

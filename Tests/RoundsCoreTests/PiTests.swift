@@ -135,3 +135,9 @@ func closedSessionLeavesTheList(raw: String) {
     #expect(PiState("1\tdone\t\t1\t\(typed)")?.sessionPath == onDisk.path)
     #expect(parsePiSession(file([], parent: #","parentSession":"\#(typed)""#), path: path, updatedAt: at(9))?.parentPath == onDisk.path)
 }
+
+@Test func piTicketRefsComeFromTheWholeFirstPrompt() throws {
+    let s = try #require(parsePiSession(file([entry("user", #","content":"Look at this\nhttps://github.com/o/r/issues/3""#, at: 1)]), path: path, updatedAt: at(9)))
+    #expect(s.title == "Look at this")
+    #expect(s.ticketRefs == [.github(owner: "o", repo: "r", number: 3)])
+}

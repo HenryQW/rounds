@@ -159,3 +159,20 @@ private let helper = "/Applications/Rounds.app/Contents/Helpers/rounds-hook"
     #expect(CodexConfig.enablingHooks("model = \"x\"\n") == "model = \"x\"\n\n[features]\nhooks = true\n")
     #expect(CodexConfig.enablingHooks("") == "[features]\nhooks = true\n")
 }
+
+@Test func firstUserPromptSkipsContextAndDeveloperMessages() {
+    func message(_ role: String, _ texts: [String]) -> String {
+        let blocks = texts.map { ["type": "input_text", "text": $0] }
+        let o: [String: Any] = ["type": "response_item", "payload": ["type": "message", "role": role, "content": blocks]]
+        return String(decoding: try! JSONSerialization.data(withJSONObject: o), as: UTF8.self)
+    }
+    let lines = [
+        #"{"type":"session_meta","payload":{}}"#,
+        message("user", ["# AGENTS.md instructions for /Users/test/app", "<environment_context>cwd</environment_context>"]),
+        message("developer", ["be careful"]),
+        message("user", ["fix BBQ-2"]),
+        message("user", ["later"]),
+    ]
+    #expect(firstUserPrompt(codexRollout: Data(lines.joined(separator: "\n").utf8)) == "fix BBQ-2")
+    #expect(firstUserPrompt(codexRollout: Data(lines[0...2].joined(separator: "\n").utf8)) == nil)
+}

@@ -13,9 +13,11 @@ public struct PiSession: Sendable, Equatable {
     public let updatedAt: Date
     /// The last turn edge in the file: the state when no extension reports one.
     public let turn: PiTurn?
+    /// The tickets the first prompt names.
+    public let ticketRefs: [TicketRef]
 
-    public init(id: String, path: String, cwd: String, parentPath: String?, title: String, updatedAt: Date, turn: PiTurn?) {
-        (self.id, self.path, self.cwd, self.parentPath, self.title, self.updatedAt, self.turn) = (id, path, cwd, parentPath, title, updatedAt, turn)
+    public init(id: String, path: String, cwd: String, parentPath: String?, title: String, updatedAt: Date, turn: PiTurn?, ticketRefs: [TicketRef] = []) {
+        (self.id, self.path, self.cwd, self.parentPath, self.title, self.updatedAt, self.turn, self.ticketRefs) = (id, path, cwd, parentPath, title, updatedAt, turn, ticketRefs)
     }
 }
 
@@ -54,8 +56,9 @@ public func parsePiSession(_ data: Data, path: String, updatedAt: Date) -> PiSes
     }
     guard let header = first.flatMap(json), header["type"] as? String == "session", let id = header["id"] as? String,
           let cwd = header["cwd"] as? String else { return nil }
-    let prompt = lines.lazy.filter { $0.mark == 0 }.compactMap { json($0.range)?["message"] as? [String: Any] }
-        .first { $0["role"] as? String == "user" }.flatMap { firstLine(piText($0["content"])) }
+    let promptText = lines.lazy.filter { $0.mark == 0 }.compactMap { json($0.range)?["message"] as? [String: Any] }
+        .first { $0["role"] as? String == "user" }.map { piText($0["content"]) }
+    let prompt = promptText.flatMap(firstLine)
     let name = lines.last { $0.mark == 3 }.flatMap { json($0.range)?["name"] as? String }.flatMap { $0.isEmpty ? nil : $0 }
     let turn = lines.last { $0.mark < 3 }.flatMap { line -> PiTurn? in
         guard let entry = json(line.range), let message = entry["message"] as? [String: Any],
@@ -69,7 +72,7 @@ public func parsePiSession(_ data: Data, path: String, updatedAt: Date) -> PiSes
     }
     let title = name ?? prompt ?? URL(fileURLWithPath: cwd).lastPathComponent
     return PiSession(id: id, path: path, cwd: cwd, parentPath: (header["parentSession"] as? String).map(sessionFilePath), title: title,
-                     updatedAt: updatedAt, turn: turn)
+                     updatedAt: updatedAt, turn: turn, ticketRefs: promptText.map { ticketRefs(inPrompt: $0) } ?? [])
 }
 
 /// A session file path as the folder listing spells it. pi names the session folder after the cwd as typed, so herdr,

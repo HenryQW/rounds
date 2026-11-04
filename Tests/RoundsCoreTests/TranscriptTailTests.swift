@@ -89,3 +89,22 @@ private func tail(_ lines: [String]) -> LastMessage { LastMessage.parse(Data((li
     #expect(tail([toolUse("q1", "AskUserQuestion", [:]), toolResult("q1")]) == .inProgress)
     #expect(tail([toolUse("s1", "mcp__ccd_session__start_session", ["initiation": "user_asked"])]) == .inProgress)
 }
+
+@Test func firstUserPromptSkipsMetaWrappersAndToolResults() {
+    func line(_ extra: [String: Any], _ content: Any) -> String {
+        let o: [String: Any] = ["type": "user", "message": ["role": "user", "content": content]].merging(extra) { $1 }
+        return String(decoding: try! JSONSerialization.data(withJSONObject: o), as: UTF8.self)
+    }
+    let text = "[x](https://linear.app/a/issue/BBQ-1)"
+    let lines = [
+        line(["isMeta": true], "meta text"),
+        line([:], "<command-name>/clear</command-name>"),
+        toolResult("t1"),
+        line([:], [["type": "text", "text": "<system-reminder>be brief</system-reminder>"], ["type": "text", "text": text]]),
+        user("later prompt"),
+    ]
+    #expect(firstUserPrompt(claudeTranscript: Data(lines.joined(separator: "\n").utf8)) == text)
+    #expect(firstUserPrompt(claudeTranscript: Data([lines[0], lines[1], lines[2], assistantText("hi")].joined(separator: "\n").utf8)) == nil)
+    #expect(firstUserPrompt(claudeTranscript: Data((user("fix BBQ-2") + "\n" + #"{"type":"user","mess"#).utf8)) == "fix BBQ-2")
+    #expect(firstUserPrompt(claudeTranscript: Data((#"{"type":"user","mess"#).utf8)) == nil)
+}
