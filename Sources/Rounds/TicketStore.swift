@@ -460,7 +460,7 @@ private struct CommandOutput: Sendable {
 /// File reads and writes of the store, in order, off the main thread.
 private let ticketIO = DispatchQueue(label: "com.henryqw.rounds.tickets")
 /// Keychain reads and writes, in order, apart from `ticketIO`, so a Keychain prompt stops no scan or save.
-private let keychainIO = DispatchQueue(label: "com.henryqw.rounds.keychain")
+let keychainIO = DispatchQueue(label: "com.henryqw.rounds.keychain")
 private let ticketCacheURL = URL.applicationSupportDirectory.appending(path: "Rounds/tickets.json")
 
 /// The branches of each cwd's repository (the first folder up that has `.git`), and the refs of each prompt file's

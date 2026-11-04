@@ -17,7 +17,7 @@ It works like a drawer: a small pill at a screen edge, and a session window that
 ### Scope
 
 - In scope: local Claude desktop Code-tab sessions on this Mac, the agents a local herdr server runs (pi and any agent herdr detects; section 2.5), local Codex threads (section 2.6), and local pi sessions in any terminal (section 2.7).
-- Out of scope (v1): terminal `claude` CLI sessions, cloud sessions, the desktop "unread" dot, own notifications, App Store.
+- Out of scope (v1): terminal `claude` CLI sessions, cloud sessions, the desktop "unread" dot, macOS notification banners, App Store.
 - Platform: macOS 27 or later, Apple silicon. Swift 6.4, SwiftUI. Not sandboxed. Ad-hoc signed, also a release (no Developer ID, not notarized: a downloaded copy needs its quarantine flag removed, or Open Anyway). Installed in `/Applications`, from the release disk image, the Homebrew tap (`henryqw/tap/rounds`) or a local build.
 
 ### Success criteria
@@ -158,6 +158,18 @@ A ticket is a Linear issue or a GitHub issue that a session works on. The full d
 - Privacy: only branch names, PR URLs, repository names and issue IDs leave the Mac. Never prompt text. Logs name the service, the request size and the result, never the key, a branch or a title.
 - `TicketStore` does the lookups, requests and cache; the row mark and the hover card are in 5.2, the Settings rows in 5.4. Demo mode shows fixed tickets, with no network, Keychain or cache file.
 
+### 2.9 Push notifications
+
+A push event is a session in Your Turn in one of the chosen states (Needs input, Failed and Ready by default), by its row id, state and the time the state began. Rounds sends each push event at most once, as one message through each channel that has values (Telegram, Bark).
+
+- When: at a check, an event goes out when it is still in the same state since the same time, the user has not seen it, and the Mac has had no key or pointer input for the away time (2 minutes by default; 0 sends at once). An event that leaves Your Turn, changes or is seen before that is not sent. So an event waits while the user works, and goes out when the user is away. The first check after launch, and after a change to the chosen states, only learns the current events and sends nothing.
+- Checks: on each regroup, so also every 30 s. The idle time is the time since the last input event of any type (`CGEventSource`, HID state).
+- Message: the title is the state and the session title ("Needs input: Fix login"); the body is the detail and the folder name ("Permission: Bash in atlas", or "In atlas" with no detail). Needs input and Failed are urgent: Bark sends them as time sensitive.
+- Telegram: `POST https://api.telegram.org/bot<token>/sendMessage` with the chat ID and the text, no parse mode and no link preview. Bark: `POST <server>/push` (`https://api.day.app` by default) with the device key, the title, the body and the group "Rounds". One request per channel per event, 15 s timeout, no retry. A failure shows the service's own message, or the HTTP status, until the next success.
+- Settings: `pushStates`, `pushAwayMinutes` and `pushChannels` (the channels that have values) in the app defaults. The values (token, chat ID, device key, server) are one Keychain item per channel (service `com.henryqw.rounds.push`, account the channel name, data the values as JSON). Rounds reads them once, at first need, off the main thread, and never while no channel has values.
+- Privacy: Rounds sends the state, the session title, the detail and the folder name to Telegram, or to the Bark server and from there to Apple. Never prompt text. The values stay in the Keychain. Logs name the channel and the result, never a value or the request URL (it holds the Telegram token).
+- `PushStore` does the checks, the Keychain and the requests; `PushQueue`, `PushMessage` and `PushChannel` (RoundsCore) decide what to send and make each request. A new channel is one more `PushChannel` case. Demo mode never sends and never reads the Keychain.
+
 ## 3. Classification
 
 `Classifier` is a pure function: `(DesktopSession, HookState?, LastMessage?, claudeRunning: Bool, now) -> Status` (`LastMessage`: what the transcript tail says). It copies the desktop sidebar order (`xS()` in the desktop main process). The first match wins.
@@ -243,6 +255,7 @@ One SwiftPM package (this Mac has Command Line Tools only, no Xcode). Targets: `
 | `AppModel` | Joins stores, runs the classifier on each change and every 30 s (for time windows), checks `NSWorkspace` for Claude desktop (`com.anthropic.claudefordesktop`). A change in the Claude, Codex or pi folder reads only that agent; a changed hook state file reads the agent of its session (both when the id is not known). Hook install status (`settings.json`, `hooks.json`, `config.toml`, the pi extension) is read at launch and when Settings opens or changes the hooks; the 30 s timer reads it again only when the modification date or size of one of these files changed. |
 | `HotkeyManager` | Carbon `RegisterEventHotKey`. Default ⌥⌘Space. |
 | `TicketStore` | Tickets of the listed rows (2.8): lookups, Linear and `gh` requests, the cache, the Linear key in the Keychain. |
+| `PushStore` | Push notifications (2.9): the check on each regroup, the channel values in the Keychain, the Telegram and Bark requests. |
 | UI | `EdgeDrawer` (pill and slide), `PanelController` (session window), `HoverCard` (the card of a ticket or PR mark), `SettingsView`. |
 
 ## 5. UI

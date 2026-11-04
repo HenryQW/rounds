@@ -51,6 +51,10 @@ _Avoid_: job, child
 A Linear issue or a GitHub issue linked to a session: by its branch, its pull requests or its first prompt. A row shows it in a grey mark under the time.
 _Avoid_: issue (alone), task, card
 
+**Channel**:
+A service that gets push messages from Rounds: Telegram or Bark. A channel sends only after the user gives its values (a token, a key).
+_Avoid_: provider, integration, sink
+
 **Project**:
 The repository a session belongs to; worktrees join their repository.
 _Avoid_: repo, workspace, folder
