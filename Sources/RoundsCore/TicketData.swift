@@ -406,6 +406,8 @@ public func rowTickets(branch: String?, pullRequests: [URL], refs: [TicketRef], 
         case .github(let owner, let repo, let number):
             add(stored(.ref(ref), .github)
                 ?? [Ticket(url: URL(string: "https://github.com/\(owner)/\(repo)/issues/\(number)")!, identifier: "#\(number)", service: .github, repository: "\(owner)/\(repo)")])
+        // The row's PRs and `.github` refs (`rowRefs`) stand for these.
+        case .githubPR, .githubNumber: break
         }
     }
     return tickets

@@ -30,21 +30,33 @@ Each row gets tickets from three places, in this order. A ticket found twice sho
    (`.git/HEAD`; in a worktree, `.git` is a file that names the git folder). No branch for a detached `HEAD`, or for
    `main`, `master`, `develop`, `trunk`, or the branch `refs/remotes/origin/HEAD` names. Linear: `issueVcsBranchSearch`.
    GitHub issues are not read from branch names: a leading number (`2024-cleanup`) is a guess.
-2. Pull requests (Claude rows, `prs`). Linear: `attachmentsForURL` with the PR URL. GitHub: the PR's
+2. Pull requests (Claude rows, `prs`, then the PR URLs of the first prompt). Linear: `attachmentsForURL` with the PR URL. GitHub: the PR's
    `closingIssuesReferences`.
 3. The first user prompt, its first 64 KB only (Claude: the transcript's first user message; Codex: the first user
    message of the rollout file; pi: the session file's first prompt, which Rounds already reads). It finds:
    - Linear issue URLs `https://linear.app/<workspace>/issue/<ID>[/slug]` (the workspace in lower case);
-   - GitHub issue URLs `https://github.com/<owner>/<repo>/issues/<n>`, with one `/` at the end or none (not `/pull/`,
-     which is a PR);
-   - bare Linear identifiers (`BBQ-123`), sent to `issue(id)`: only an identifier whose prefix is a team key of the
+   - GitHub issue URLs `https://github.com/<owner>/<repo>/issues/<n>`, with one `/` at the end or none;
+   - GitHub PR URLs `https://github.com/<owner>/<repo>/pull/<n>`, with a subpath (`/files`) or a `/` at the end or
+     none: the row adds `https://github.com/<owner>/<repo>/pull/<n>` to its PRs (once), so it shows the issues the PR
+     links, not the PR;
+   - `owner/repo#<n>` (owner `[A-Za-z0-9-]{1,39}`, repo `[A-Za-z0-9._-]{1,100}`, no leading zero), with no name
+     character (`[A-Za-z0-9_./-]`) before it and no letter, digit or `_` after it; a URL is read first, so the
+     fragment of an issue URL is not read again;
+   - `#<n>` right after close, closes, closed, fix, fixes, fixed, resolve, resolves, resolved, issue, ref or refs (any
+     case, a word of its own, then spaces or a colon): an issue of the repository of the session folder's `origin`
+     remote (the `url` of `[remote "origin"]` in `config` of the common git folder; `git@github.com:`,
+     `ssh://git@github.com/` or `https://github.com/` only). No repository: no ref. Such an issue shows "Loading…"
+     until GitHub answers, then nothing when GitHub does not find it (a PR number, say); "#12" alone, "color #fff"
+     and "step #2" give nothing;
+   - bare Linear identifiers (`BBQ-123`; not a version such as `ios-1.57` or `v2-1.0`, and no leading zero, so
+     `BBQ-0123` gives nothing; `BBQ-123.` at the end of a sentence counts), sent to `issue(id)`: only an identifier whose prefix is a team key of the
      workspace is looked up or shown (each Linear request also asks for the team keys; until they come, only the team
      keys of cached tickets count), and
      only an identifier that Linear finds counts, so `UTF-8` or `GPT-4` gives nothing.
-   At most 20 candidates per prompt; a row takes its first 5 after the team filter. Scheme and host can be in any case.
+   At most 20 candidates per prompt; a row takes its first 5 after the team filter and the repository of `#<n>`. Scheme
+   and host can be in any case.
    A match that ends at the 64 KB cut is dropped, as the cut can shorten it (`BBQ-12` from `BBQ-123`).
-   URLs lose a trailing `.,;:!?)]>'"`, a query and a fragment; identifiers are upper case. Short GitHub refs (`#123`)
-   are not read: the repository is not certain.
+   URLs lose a trailing `.,;:!?)]>'"`, a query and a fragment; identifiers are upper case.
 
 Rules:
 - Only rows the window lists are looked up (older, done and hidden rows only while a search or the Aged filter shows

@@ -76,10 +76,14 @@ final class TicketStore {
 
     // MARK: Rows
 
-    /// The tickets a row shows, from the cache; placeholders for refs without data.
+    /// The tickets a row shows, from the cache; placeholders for refs without data. A `#N` that GitHub does not know as
+    /// an issue (a PR, say) shows nothing once GitHub answers.
     func tickets(for row: SessionRow) -> [Ticket] {
         let p = parts(row)
-        return rowTickets(branch: p.branch, pullRequests: p.prs, refs: p.refs, linearKey: key != "") { cache.tickets(for: $0, service: $1) }
+        return rowTickets(branch: p.branch, pullRequests: p.prs, refs: p.refs, linearKey: key != "") { lookup, service in
+            let stored = cache.tickets(for: lookup, service: service)
+            return p.numbers.contains(lookup) ? stored?.filter { $0.problem != .notFound } : stored
+        }
     }
 
     /// The PR itself, for the PR card.
@@ -109,8 +113,9 @@ final class TicketStore {
         fetch([row], hover: true)
     }
 
-    /// The lookup branch, PR URLs and prompt refs of a row, from what is known now (no file reads).
-    private func parts(_ r: SessionRow) -> (branch: String?, prs: [URL], refs: [TicketRef]) {
+    /// The lookup branch, PR URLs (the row's, then the prompt's) and other prompt refs of a row, from what is known now
+    /// (no file reads), and the lookups of `#N` refs that no issue URL or `owner/repo#N` also names.
+    private func parts(_ r: SessionRow) -> (branch: String?, prs: [URL], refs: [TicketRef], numbers: Set<Lookup>) {
         let folder = folders[r.cwd]
         let branch: String?, refs: [TicketRef]
         switch r.source {
@@ -118,7 +123,18 @@ final class TicketStore {
         case .pi(let s): (branch, refs) = (folder?.branch, s.ticketRefs)
         case .herdr(let a): (branch, refs) = (folder?.branch, a.sessionPath.flatMap { piSessions[$0] }?.ticketRefs ?? [])
         }
-        return (lookupBranch(branch, defaultBranch: folder?.defaultBranch), r.pullRequests.map(\.url), rowRefs(refs, teamKeys: teamKeys))
+        let repository = folder?.repository
+        var prs = r.pullRequests.map(\.url), other: [TicketRef] = []
+        for ref in rowRefs(refs, teamKeys: teamKeys, repository: repository) {
+            guard case .githubPR(let owner, let repo, let number) = ref else { other.append(ref); continue }
+            let url = URL(string: "https://github.com/\(owner)/\(repo)/pull/\(number)")!
+            if !prs.contains(url) { prs.append(url) }
+        }
+        let numbers = refs.compactMap { ref -> TicketRef? in
+            guard case .githubNumber(let n) = ref, let repository else { return nil }
+            return .github(owner: repository.owner, repo: repository.name, number: n)
+        }
+        return (lookupBranch(branch, defaultBranch: folder?.defaultBranch), prs, other, Set(numbers.filter { !refs.contains($0) }.map(Lookup.ref)))
     }
 
     /// Linear gets the branch, the PRs and the Linear refs; GitHub gets the PRs and the GitHub refs.
@@ -424,6 +440,7 @@ private struct Channel {
 private struct GitFolder: Equatable, Sendable {
     var branch: String?
     var defaultBranch: String?
+    var repository: GitHubRepository?
 }
 
 private enum PromptFile: Sendable {
@@ -451,7 +468,7 @@ private func readLookups(cwds: [String], prompts: [(String, PromptFile)], projec
     for cwd in cwds {
         // An empty cwd (a herdr agent without one) would resolve against the app's own folder.
         let git = cwd.hasPrefix("/") ? gitFolder(above: cwd).map(gitBranch) : nil
-        folders[cwd] = GitFolder(branch: git?.branch, defaultBranch: git?.defaultBranch)
+        folders[cwd] = GitFolder(branch: git?.branch, defaultBranch: git?.defaultBranch, repository: git?.repository)
     }
     for (id, file) in prompts {
         let url: URL? = switch file {

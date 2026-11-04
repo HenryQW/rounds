@@ -11,9 +11,30 @@ import Testing
     #expect(refs == [.linearID("BBQ-7"), .github(owner: "o", repo: "r", number: 9)])
 }
 
-@Test func ignoresPullRequestsShortRefsAndOtherHosts() {
-    #expect(ticketRefs(inPrompt: "https://github.com/o/r/pull/5 and #123") == [])
+@Test func ignoresShortRefsAndOtherHosts() {
+    #expect(ticketRefs(inPrompt: "#123 and # 12, color #fff, step #2, prefix #3") == [])
     #expect(ticketRefs(inPrompt: "https://example.com/acme/issue/BBQ-1 and https://gitlab.com/o/r/issues/3") == [])
+}
+
+@Test func bareIDsAreNoVersionsAndHaveNoLeadingZero() {
+    #expect(ticketRefs(inPrompt: "ios-1.57 v2-1.0 BBQ-0123") == [])
+    #expect(ticketRefs(inPrompt: "Do BBQ-123.") == [.linearID("BBQ-123")])
+}
+
+@Test func findsGitHubPullRequestLinks() {
+    #expect(ticketRefs(inPrompt: "https://github.com/o/r/pull/5, HTTPS://GitHub.com/O/R/pull/6/files https://github.com/o/r/pull/7/")
+        == [.githubPR(owner: "o", repo: "r", number: 5), .githubPR(owner: "O", repo: "R", number: 6), .githubPR(owner: "o", repo: "r", number: 7)])
+}
+
+@Test func findsOwnerRepoNumberRefsAfterURLs() {
+    #expect(ticketRefs(inPrompt: "see my-org/r.js#12 and https://github.com/a/b/issues/1#x, a/b#1")
+        == [.github(owner: "my-org", repo: "r.js", number: 12), .github(owner: "a", repo: "b", number: 1)])
+    #expect(ticketRefs(inPrompt: "src/o/r#1 x.o/r#2 o/r#3a o/r#0 o_x/r#4") == [])
+}
+
+@Test func findsHashNumbersOnlyAfterAKeyword() {
+    #expect(ticketRefs(inPrompt: "fixes #12, Fixes: #13; issue #7 and CLOSES  #8") == [12, 13, 7, 8].map(TicketRef.githubNumber))
+    #expect(ticketRefs(inPrompt: "prefix #3 fixes #4x issue#5 fix #0") == [])
 }
 
 @Test func keepsAtMost20Refs() {
@@ -24,8 +45,28 @@ import Testing
 @Test func rowRefsKeepIdentifiersOfKnownTeamsThenTheFirstFive() {
     let refs: [TicketRef] = [.linearID("UTF-8"), .linearID("BBQ-1"), .github(owner: "o", repo: "r", number: 1), .linearURL(workspace: "a", id: "X-1"),
                              .linearID("BBQ-2"), .linearID("OPS-3"), .linearID("BBQ-4"), .linearID("BBQ-5")]
-    #expect(rowRefs(refs, teamKeys: ["BBQ", "OPS"]) == Array(refs[1...5]))
-    #expect(rowRefs(refs, teamKeys: []) == [.github(owner: "o", repo: "r", number: 1), .linearURL(workspace: "a", id: "X-1")])
+    #expect(rowRefs(refs, teamKeys: ["BBQ", "OPS"], repository: nil) == Array(refs[1...5]))
+    #expect(rowRefs(refs, teamKeys: [], repository: nil) == [.github(owner: "o", repo: "r", number: 1), .linearURL(workspace: "a", id: "X-1")])
+}
+
+@Test func rowRefsGiveHashNumbersTheOriginRepositoryThenTheFirstFive() {
+    let refs: [TicketRef] = [.githubNumber(1), .linearID("BBQ-1"), .githubNumber(2), .github(owner: "o", repo: "r", number: 1),
+                             .githubNumber(3), .githubNumber(4), .githubNumber(5)]
+    #expect(rowRefs(refs, teamKeys: ["BBQ"], repository: GitHubRepository(owner: "o", name: "r"))
+        == [.github(owner: "o", repo: "r", number: 1), .linearID("BBQ-1"), .github(owner: "o", repo: "r", number: 2),
+            .github(owner: "o", repo: "r", number: 3), .github(owner: "o", repo: "r", number: 4)])
+    #expect(rowRefs(refs, teamKeys: ["BBQ"], repository: nil) == [.linearID("BBQ-1"), .github(owner: "o", repo: "r", number: 1)])
+}
+
+@Test func githubRepositoryIsTheOriginURLOfAGitConfig() {
+    func repo(_ url: String) -> GitHubRepository? {
+        githubRepository(gitConfig: "[core]\n\turl = git@github.com:x/y\n[remote \"upstream\"]\n\turl = git@github.com:u/v\n[remote \"origin\"]\n\turl = \(url)\n\tfetch = +refs/heads/*\n")
+    }
+    let o = GitHubRepository(owner: "o", name: "r")
+    #expect(["git@github.com:o/r.git", "git@github.com:o/r", "ssh://git@github.com/o/r.git", "https://github.com/o/r.git", "https://github.com/o/r/"].map(repo) == [o, o, o, o, o])
+    #expect(repo("https://github.com/o/r.github") == GitHubRepository(owner: "o", name: "r.github"))
+    #expect(repo("git@gitlab.com:o/r.git") == nil && repo("https://example.com/o/r") == nil)
+    #expect(githubRepository(gitConfig: "[remote \"upstream\"]\n\turl = git@github.com:u/v\n") == nil)
 }
 
 @Test func schemeAndHostIgnoreCaseAndTheWorkspaceIsLowerCase() {
@@ -86,6 +127,17 @@ private func folder(_ files: [String: String]) throws -> URL {
     defer { try? FileManager.default.removeItem(at: dir) }
     let r = gitBranch(folder: dir.appendingPathComponent("wt"))
     #expect(r.branch == "feat" && r.defaultBranch == "trunk")
+}
+
+@Test func readsTheOriginRepositoryFromTheCommonGitFolder() throws {
+    let dir = try folder([
+        "wt/.git": "gitdir: ../main/.git/worktrees/wt\n",
+        "main/.git/worktrees/wt/HEAD": "ref: refs/heads/feat\n",
+        "main/.git/worktrees/wt/commondir": "../..\n",
+        "main/.git/config": "[remote \"origin\"]\n\turl = git@github.com:o/r.git\n",
+    ])
+    defer { try? FileManager.default.removeItem(at: dir) }
+    #expect(gitBranch(folder: dir.appendingPathComponent("wt")).repository == GitHubRepository(owner: "o", name: "r"))
 }
 
 @Test func readsAWorktreeThroughAnAbsoluteGitdir() throws {
