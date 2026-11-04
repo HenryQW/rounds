@@ -9,3 +9,6 @@
 /settings/ /how-it-works 301
 /privacy /how-it-works#privacy 301
 /privacy/ /how-it-works#privacy 301
+# Sources renamed to Agents on 2026-11-04.
+/sources /agents 301
+/sources/ /agents 301

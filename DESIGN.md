@@ -62,9 +62,9 @@ components:
   pill-failed: { fill: "{colors.failed}", ink: "{colors.failed-ink}", content: "a broken glass over the count", motion: "peek 12pt, red ring; the glass is whole, shakes and breaks every 2s" }
   tile: { height: 44pt, rounded: "{rounded.md}", fill: "{colors.tile-fill}", hairline: "{colors.hairline} 0.5pt", content: "state-coloured symbol, count, tile name" }
   tile-selected: { fill: "{colors.tile-selected}", hairline: "{colors.tile-selected-hairline}" }
-  source-toggle: { height: 28pt, rounded: "{rounded.capsule}", hairline: "{colors.hairline} 0.5pt", content: "source icon 20pt and count" }
-  another-round-banner: { place: "the empty Last Call list (ContentUnavailableView)", icon: "🍹 at 40pt", title: "Another round? in {colors.rounds-blue}", buttons: "one per source that is on: 20pt source icon and name, 32pt high, {rounded.md}, {colors.rounds-blue-hairline}, grey hover fill" }
-  row: { insets: "8pt by 4pt", rounded: "{rounded.sm}", content: "status dot, source icon 18pt, title and subtitle, a glass (12 by 14pt) that fills when working, time, and under it the ticket mark and the PR mark" }
+  agent-toggle: { height: 28pt, rounded: "{rounded.capsule}", hairline: "{colors.hairline} 0.5pt", content: "agent icon 20pt and count" }
+  another-round-banner: { place: "the empty Last Call list (ContentUnavailableView)", icon: "🍹 at 40pt", title: "Another round? in {colors.rounds-blue}", buttons: "one per agent that is on: 20pt agent icon and name, 32pt high, {rounded.md}, {colors.rounds-blue-hairline}, grey hover fill" }
+  row: { insets: "8pt by 4pt", rounded: "{rounded.sm}", content: "status dot, agent icon 18pt, title and subtitle, a glass (12 by 14pt) that fills when working, time, and under it the ticket mark and the PR mark" }
   hover-card: { width: 280pt, rounded: "{rounded.md}", fill: windowBackgroundColor, hairline: "{colors.hairline} 0.5pt", content: "up to 3 items: identifier and service, title (2 lines), state, person and update time; grey hover fill per item" }
   row-hover: { fill: "{colors.hover}" }
   row-selected: { fill: "{colors.selection}", text: white }

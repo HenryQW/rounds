@@ -23,7 +23,7 @@ final class SettingsState {
 
 /// The Settings pages in the sidebar (spec 5.4), each with a title and one line on what it is for.
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, pill, filters, sources, keys
+    case general, pill, filters, agents, tickets, keys
     var id: Self { self }
 
     var title: String {
@@ -31,7 +31,8 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .general: "General"
         case .pill: "Pill"
         case .filters: "Filters"
-        case .sources: "Sources"
+        case .agents: "Agents"
+        case .tickets: "Tickets"
         case .keys: "Keys"
         }
     }
@@ -41,7 +42,8 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .general: "gearshape"
         case .pill: "sidebar.right"
         case .filters: "line.3.horizontal.decrease.circle"
-        case .sources: "powerplug"
+        case .agents: "powerplug"
+        case .tickets: "ticket"
         case .keys: "keyboard"
         }
     }
@@ -51,7 +53,8 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .general: "How Rounds starts, opens sessions and opens its window."
         case .pill: "The pill at the screen edge and the window it opens."
         case .filters: "What Last Call counts, and when a session is Aged."
-        case .sources: "Where the live state of each session comes from."
+        case .agents: "Where the live state of each session comes from."
+        case .tickets: "Shows the Linear and GitHub issues of each session."
         case .keys: "Keyboard shortcuts in the session window."
         }
     }
@@ -63,7 +66,7 @@ struct SettingsView: View {
     @Bindable private var drawer = DrawerSettings.shared
     @Bindable private var updater = Updater.shared
 
-    /// Five pages in a sidebar (spec 5.4), each a short grouped form under its title.
+    /// Six pages in a sidebar (spec 5.4), each a short grouped form under its title.
     var body: some View {
         NavigationSplitView {
             List(SettingsPage.allCases, selection: $state.page) { Label($0.title, systemImage: $0.symbol) }
@@ -76,7 +79,8 @@ struct SettingsView: View {
             case .general: page(.general) { general }
             case .pill: page(.pill) { pill }
             case .filters: page(.filters) { filters }
-            case .sources: page(.sources) { sources; tickets }
+            case .agents: page(.agents) { sources }
+            case .tickets: page(.tickets) { tickets }
             case .keys: page(.keys) { keys }
             }
         }
@@ -348,7 +352,7 @@ struct SettingsView: View {
     private var sources: some View {
         Section {
             LabeledContent { hookControls(.claude) } label: { source("claude", "Claude Code", "Sessions in the Code tab.") }
-                .help("Sessions from the Claude desktop app's Code tab, with live state from async hooks in ~/.claude/settings.json. Remove Hooks turns this source off. Return opens a session through a claude:// link; if Claude only comes to the front, turn on its entry points setting.")
+                .help("Sessions from the Claude desktop app's Code tab, with live state from async hooks in ~/.claude/settings.json. Remove Hooks turns this agent off. Return opens a session through a claude:// link; if Claude only comes to the front, turn on its entry points setting.")
             LabeledContent {
                 if model.codexInstalled {
                     hookControls(.codex)
@@ -356,7 +360,7 @@ struct SettingsView: View {
                     statusPill("Not found", .gray)
                 }
             } label: { source("codex", "Codex", "Threads, state from hooks.") }
-                .help("Hooks in ~/.codex/hooks.json; Codex asks you to review new hooks. Remove Hooks turns this source off; without hooks, Rounds reads the thread files, with no waiting state. Return opens the thread in the Codex app.")
+                .help("Hooks in ~/.codex/hooks.json; Codex asks you to review new hooks. Remove Hooks turns this agent off; without hooks, Rounds reads the thread files, with no waiting state. Return opens the thread in the Codex app.")
             LabeledContent {
                 if model.piInstalled {
                     hookControls(.pi)
@@ -364,9 +368,9 @@ struct SettingsView: View {
                     statusPill("Not found", .gray)
                 }
             } label: { source("pi", "pi", "Sessions, state from an extension.") }
-                .help("An extension in ~/.pi/agent/extensions/rounds.ts writes each session's state; pi loads it at its next start. Remove Extension turns this source off. A session that also runs in herdr shows once, as the herdr agent. Return brings its terminal to the front, or resumes it in a new window.")
+                .help("An extension in ~/.pi/agent/extensions/rounds.ts writes each session's state; pi loads it at its next start. Remove Extension turns this agent off. A session that also runs in herdr shows once, as the herdr agent. Return brings its terminal to the front, or resumes it in a new window.")
             LabeledContent { statusPill(herdrStatus, herdrConnected ? .green : .gray) } label: { source("herdr", "herdr", "Agents from herdr's socket.") }
-                .help("The agents herdr runs, from its socket. While herdr is not running, this source is off. For pi states, run herdr integration install pi. Return focuses the agent in herdr.")
+                .help("The agents herdr runs, from its socket. While herdr is not running, this agent is off. For pi states, run herdr integration install pi. Return focuses the agent in herdr.")
         } footer: {
             footer(model.hookError ?? model.codexError ?? model.codexHookError)
         }
@@ -375,7 +379,7 @@ struct SettingsView: View {
     /// Where the ticket marks get titles and states (spec 2.8): the Linear key, kept in the Keychain, and the gh sign-in.
     private var tickets: some View {
         let store = TicketStore.shared
-        return Section("Tickets") {
+        return Section {
             LabeledContent {
                 VStack(alignment: .trailing, spacing: 8) {
                     HStack(spacing: 8) {

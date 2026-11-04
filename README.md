@@ -15,7 +15,7 @@ The name is a round of drinks, one for each session. When nothing needs you, Rou
 ## Features
 
 - **Pill at the screen edge:** blue with the running count while sessions run, green when an agent finished and its result waits for you, and orange or red when a session needs your input or failed (it peeks out until you look). Its count is always the Last Call count.
-- **One list for every source:** Claude Code, Codex, pi sessions on any model pi runs (Claude, GPT, Gemini, DeepSeek, Qwen, local models and more) in any terminal, and herdr agents; grouped by project. Child sessions show under their parent, as Direct (the same folder) or Isolated (a folder of their own).
+- **One list for every agent:** Claude Code, Codex, pi sessions on any model pi runs (Claude, GPT, Gemini, DeepSeek, Qwen, local models and more) in any terminal, and herdr agents; grouped by project. Child sessions show under their parent, as Direct (the same folder) or Isolated (a folder of their own).
 - **Tiles:** Last Call (Your Turn), On Tap (Running), Served (Quiet) and Aged (Older). Each tile filters the list.
 - **Live state from hooks:** Needs input, Failed, Working, Background, Ready, Finished, Stopped and Offline, with the tool or question as detail. Working rows show a small glass that fills and empties.
 - **Marks:** Star, Mark as Done and Hide, with Undo.
@@ -25,7 +25,7 @@ The name is a round of drinks, one for each session. When nothing needs you, Rou
 
 - macOS 27 or later.
 - To build from source: Xcode Command Line Tools (`xcode-select --install`). Xcode is not needed.
-- At least one source: Claude Code in the Claude desktop app (the Code tab), Codex, pi, or herdr. Rounds does not read Claude Code sessions started in a terminal, except inside herdr.
+- At least one agent: Claude Code in the Claude desktop app (the Code tab), Codex, pi, or herdr. Rounds does not read Claude Code sessions started in a terminal, except inside herdr.
 
 ## Install
 
@@ -46,7 +46,7 @@ scripts/bundle.sh --install
 open /Applications/Rounds.app
 ```
 
-Then open Settings (right-click the pill) > Sources and click **Install Hooks…** for Claude Code and Codex, and **Install Extension…** for pi. Each install shows what it writes before it writes, and keeps a backup of the file it changes. A source without its hooks or extension is off.
+Then open Settings (right-click the pill) > Agents and click **Install Hooks…** for Claude Code and Codex, and **Install Extension…** for pi. Each install shows what it writes before it writes, and keeps a backup of the file it changes. An agent without its hooks or extension is off.
 
 ## Development
 
@@ -68,4 +68,4 @@ Rounds reads local session files, the state its hooks and pi extension write, an
 
 ## License
 
-[MIT](LICENSE) © 2026 Henry Wang. The Claude, Codex, pi and herdr icons belong to their owners. Rounds shows them only to name each source.
+[MIT](LICENSE) © 2026 Henry Wang. The Claude, Codex, pi and herdr icons belong to their owners. Rounds shows them only to name each agent.

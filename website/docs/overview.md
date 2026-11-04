@@ -19,7 +19,7 @@ Rounds is a round of drinks: one for each session. The four filter tiles have ba
 
 ## Open source
 
-Rounds is free and open source under the [MIT license](https://github.com/HenryQW/rounds/blob/main/LICENSE). The source code is on [GitHub](https://github.com/HenryQW/rounds). The Claude, Codex, pi and herdr icons belong to their owners. Rounds shows them only to name each source.
+Rounds is free and open source under the [MIT license](https://github.com/HenryQW/rounds/blob/main/LICENSE). The source code is on [GitHub](https://github.com/HenryQW/rounds). The Claude, Codex, pi and herdr icons belong to their owners. Rounds shows them only to name each agent.
 
 ## Next
 

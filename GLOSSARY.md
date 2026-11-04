@@ -1,26 +1,23 @@
 # Rounds
 
-Live state of AI coding sessions on one Mac, from several sources, in one list behind a screen-edge pill. The name is a round of drinks; the four tile names carry the drinks pun.
+Live state of AI coding sessions on one Mac, from several agents, in one list behind a screen-edge pill. The name is a round of drinks; the four tile names carry the drinks pun.
 
-## Sessions and sources
+## Sessions and agents
 
 **Session**:
 One unit of agent work the user can open and continue: a Claude Code session, a Codex thread, a pi session or a herdr agent pane.
 _Avoid_: task, activity, conversation, convo, job
 
-**Source**:
-The tool that runs a session and reports its state: Claude Code, Codex, pi, or a herdr agent (pi in herdr too). A pi session that runs in herdr shows once, from herdr.
-_Avoid_: origin, provider, platform
+**Agent**:
+The tool that runs a session and reports its state: Claude Code, Codex, pi, or herdr (for the agents in its panes: pi, Claude, droid). A pi session that runs in herdr shows once, from herdr.
+_Avoid_: source, origin, provider, platform
 
 **On** / **Off**:
-Whether a source can report live state. Claude Code and Codex are on while their hooks are installed; pi while its extension is installed; herdr while it is running. The window shows only the sessions of sources that are on.
+Whether an agent can report live state. Claude Code and Codex are on while their hooks are installed; pi while its extension is installed; herdr while it is running. The window shows only the sessions of agents that are on.
 _Avoid_: enabled, connected, disabled
 
 **Thread**:
 Codex's word for a session; used only when the text is about Codex.
-
-**Agent**:
-herdr's word for the coding agent in one pane (pi, Claude, droid); used only when the text is about herdr.
 
 **Child session**:
 A session that another session (its parent) started: a fork, a side session or a sub-agent. It shows under its parent while the parent is listed, else on its own.
@@ -61,11 +58,11 @@ _Avoid_: repo, workspace, folder
 ## States
 
 **State**:
-What a session is doing now, as one of the standard states below; every source maps into them, whatever its own words.
+What a session is doing now, as one of the standard states below; every agent maps into them, whatever its own words.
 _Avoid_: status (alone), label
 
 **Detail**:
-The source's own words next to the state: a tool name, the permission asked for, "review", "Wakes in 5 min".
+The agent's own words next to the state: a tool name, the permission asked for, "review", "Wakes in 5 min".
 _Avoid_: sub-label, reason
 
 **Needs input**:
@@ -97,7 +94,7 @@ The user interrupted the last turn.
 _Avoid_: aborted, cancelled, interrupted
 
 **Offline**:
-The live state is unknown: the source app is not running, or the session runs on another machine.
+The live state is unknown: the agent app is not running, or the session runs on another machine.
 _Avoid_: stale, unknown
 
 **Seen**:
@@ -127,7 +124,7 @@ Sessions with no activity for the Aged time (1 day by default) that do not run o
 _Avoid_: archived, stale
 
 **Another Round?**:
-The empty Last Call list while no session is in Your Turn, with one button per source that is on; a click on a button starts a new session there.
+The empty Last Call list while no session is in Your Turn, with one button per agent that is on; a click on a button starts a new session there.
 _Avoid_: all clear, empty state
 
 ## The user's marks
@@ -170,14 +167,14 @@ The window that slides out from the pill's edge with the filter bar and the list
 _Avoid_: drawer, panel, popover
 
 **Filter bar**:
-The tiles and source toggles above the list.
+The tiles and agent toggles above the list.
 
 **Tile**:
 The filter for one group: a symbol, a count and the group's tile name.
 _Avoid_: status tile, segment, chip
 
-**Source toggle**:
-A filter that shows or hides all sessions of one source.
+**Agent toggle**:
+A filter that shows or hides all sessions of one agent.
 
 **Rounds blue**:
 The app's own colour: the icon, the running pill and the Another Round? banner.
