@@ -45,27 +45,56 @@ private let maxLookups = 20
 
 private let linearFragment = "fragment F on Issue { identifier title url state { name type } assignee { name } updatedAt archivedAt }"
 
-/// One aliased query for at most 20 lookups. Every user value is a variable. Github refs are skipped.
-public func linearRequest(_ lookups: [Lookup]) -> (body: Data, aliases: [String: Lookup]) {
-    precondition(lookups.count <= maxLookups)
-    var aliases: [String: Lookup] = [:]
-    var variables: [String: String] = [:]
-    var fields: [String] = []
-    for lookup in lookups {
-        let alias = "l\(aliases.count)"
-        let field: String, value: String
-        switch lookup {
-        case .branch(let b): field = "issueVcsBranchSearch(branchName: $\(alias)) { ...F }"; value = b
-        case .pr(let url): field = "attachmentsForURL(url: $\(alias)) { nodes { issue { ...F } } }"; value = url.absoluteString
-        case .ref(.linearID(let id)), .ref(.linearURL(_, let id)): field = "issue(id: $\(alias)) { ...F }"; value = id
-        case .ref(.github): continue
-        }
-        aliases[alias] = lookup
-        variables[alias] = value
-        fields.append("\(alias): \(field)")
+/// Team key and number of an identifier like `BBQ-12`; nil when the number does not parse.
+private func identifierParts(_ id: String) -> (key: String, number: Int)? {
+    guard let dash = id.lastIndex(of: "-"), let n = Int(id[id.index(after: dash)...]) else { return nil }
+    return (String(id[..<dash]), n)
+}
+
+private func linearID(_ lookup: Lookup) -> String? {
+    switch lookup {
+    case .ref(.linearID(let id)), .ref(.linearURL(_, let id)): return id
+    default: return nil
     }
-    let declared = (0..<aliases.count).map { "$l\($0): String!" }.joined(separator: ", ")
-    let query = "query\(declared.isEmpty ? "" : "(\(declared))") { \(fields.joined(separator: " ")) organization { urlKey } } \(linearFragment)"
+}
+
+/// One aliased query for at most 20 lookups. Every user value is a variable. Github refs are skipped.
+/// `issue(id:)` is non-null in Linear's schema, so one unknown ID would lose the whole response. All identifier
+/// lookups share one `issues` alias with a filter instead.
+public func linearRequest(_ lookups: [Lookup]) -> (body: Data, aliases: [String: [Lookup]]) {
+    precondition(lookups.count <= maxLookups)
+    var aliases: [String: [Lookup]] = [:]
+    var variables: [String: Any] = [:]
+    var types: [String] = []
+    var fields: [String] = []
+    var idLookups: [Lookup] = []
+    var filters: [[String: Any]] = []
+    for lookup in lookups {
+        if let id = linearID(lookup) {
+            guard let p = identifierParts(id) else { continue }
+            idLookups.append(lookup)
+            let f: [String: Any] = ["team": ["key": ["eq": p.key]], "number": ["eq": p.number]]
+            if !filters.contains(where: { NSDictionary(dictionary: $0).isEqual(f) }) { filters.append(f) }
+            continue
+        }
+        let alias = "l\(aliases.count)"
+        switch lookup {
+        case .branch(let b):
+            fields.append("\(alias): issueVcsBranchSearch(branchName: $\(alias)) { ...F }"); variables[alias] = b; types.append("$\(alias): String!")
+        case .pr(let url):
+            fields.append("\(alias): attachmentsForURL(url: $\(alias)) { nodes { issue { ...F } } }"); variables[alias] = url.absoluteString; types.append("$\(alias): String!")
+        default: continue
+        }
+        aliases[alias] = [lookup]
+    }
+    if !idLookups.isEmpty {
+        let alias = "l\(aliases.count)"
+        fields.append("\(alias): issues(filter: $\(alias), first: 50, includeArchived: true) { nodes { ...F } }")
+        variables[alias] = ["or": filters]
+        types.append("$\(alias): IssueFilter")
+        aliases[alias] = idLookups
+    }
+    let query = "query\(types.isEmpty ? "" : "(\(types.joined(separator: ", ")))") { \(fields.joined(separator: " ")) organization { urlKey } } \(linearFragment)"
     let body = try! JSONSerialization.data(withJSONObject: ["query": query, "variables": variables], options: [.sortedKeys])
     return (body, aliases)
 }
@@ -78,12 +107,14 @@ private struct LinearIssue: Decodable {
     var updatedAt: String, archivedAt: String?
 }
 
+private struct LinearIssues: Decodable { var nodes: [LinearIssue] }
+
 private struct LinearAttachments: Decodable {
     struct Node: Decodable { var issue: LinearIssue? }
     var nodes: [Node]
 }
 
-public func decodeLinear(_ data: Data, aliases: [String: Lookup]) throws -> [Lookup: [Ticket]] {
+public func decodeLinear(_ data: Data, aliases: [String: [Lookup]]) throws -> [Lookup: [Ticket]] {
     guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { throw TicketDataError.invalidResponse }
     var missing = Set<String>()
     for e in (root["errors"] as? [[String: Any]]) ?? [] {
@@ -96,24 +127,31 @@ public func decodeLinear(_ data: Data, aliases: [String: Lookup]) throws -> [Loo
     }
     guard let fields = root["data"] as? [String: Any],
           let urlKey = (fields["organization"] as? [String: Any])?["urlKey"] as? String else { throw TicketDataError.invalidResponse }
-    func issue(_ any: Any?) throws -> LinearIssue? {
-        guard let any, !(any is NSNull) else { return nil }
-        return try decode(any, LinearIssue.self)
-    }
     var result: [Lookup: [Ticket]] = [:]
-    for (alias, lookup) in aliases {
+    for (alias, lookups) in aliases {
         let value = fields[alias]
-        if case .ref(.linearURL(let ws, let id)) = lookup {
-            if ws != urlKey { result[lookup] = [problem(.otherWorkspace, ws, id)]; continue }
-            if missing.contains(alias) || value == nil || value is NSNull { result[lookup] = [problem(.notFound, urlKey, id)]; continue }
-        }
-        if missing.contains(alias) || value == nil || value is NSNull { result[lookup] = []; continue }
-        switch lookup {
-        case .pr:
-            let nodes = try decode(value!, LinearAttachments.self).nodes
-            result[lookup] = try nodes.compactMap { $0.issue }.map(linearTicket)
-        default:
-            result[lookup] = try issue(value).map { [try linearTicket($0)] } ?? []
+        let empty = missing.contains(alias) || value == nil || value is NSNull
+        for lookup in lookups {
+            switch lookup {
+            case .pr:
+                result[lookup] = empty ? [] : try decode(value!, LinearAttachments.self).nodes.compactMap { $0.issue }.map(linearTicket)
+            case .branch:
+                result[lookup] = empty ? [] : [try linearTicket(try decode(value!, LinearIssue.self))]
+            default:
+                let id = linearID(lookup)!
+                if case .ref(.linearURL(let ws, _)) = lookup, ws.lowercased() != urlKey.lowercased() {
+                    result[lookup] = [problem(.otherWorkspace, ws, id)]
+                    continue
+                }
+                let nodes = empty ? [] : try decode(value!, LinearIssues.self).nodes
+                if let node = nodes.first(where: { $0.identifier.lowercased() == id.lowercased() }) {
+                    result[lookup] = [try linearTicket(node)]
+                } else if case .ref(.linearURL) = lookup {
+                    result[lookup] = [problem(.notFound, urlKey, id)]
+                } else {
+                    result[lookup] = []
+                }
+            }
         }
     }
     return result
@@ -153,8 +191,8 @@ private let githubIssueFragment = "fragment I on Issue { number title state stat
 private func pullParts(_ url: URL) -> (owner: String, repo: String, number: Int)? {
     let s = url.absoluteString as NSString
     guard let m = githubPull.firstMatch(in: s as String, range: NSRange(location: 0, length: s.length)),
-          let n = Int(s.substring(with: m.range(at: 3))) else { return nil }
-    return (s.substring(with: m.range(at: 1)), s.substring(with: m.range(at: 2)), n)
+          let n = Int32(s.substring(with: m.range(at: 3))) else { return nil }
+    return (s.substring(with: m.range(at: 1)), s.substring(with: m.range(at: 2)), Int(n))
 }
 
 private func isName(_ s: String) -> Bool { githubName.firstMatch(in: s, range: NSRange(location: 0, length: (s as NSString).length)) != nil }
@@ -172,7 +210,7 @@ public func githubQuery(_ lookups: [Lookup]) -> (query: String, aliases: [String
             (owner, repo) = (p.owner, p.repo)
             inner = "pullRequest(number: \(p.number)) { number title state url updatedAt author { login } closingIssuesReferences(first: 10) { nodes { ...I } } }"
         case .ref(.github(let o, let r, let n)):
-            guard isName(o), isName(r) else { continue }
+            guard isName(o), isName(r), n <= Int(Int32.max) else { continue }
             (owner, repo) = (o, r)
             inner = "issue(number: \(n)) { ...I }"
         default: continue
@@ -208,7 +246,7 @@ public func decodeGitHub(_ data: Data, aliases: [String: Lookup]) throws -> [Loo
             throw TicketDataError.server(e["message"] as? String ?? "")
         }
     }
-    let fields = root["data"] as? [String: Any] ?? [:]
+    guard let fields = root["data"] as? [String: Any] else { throw TicketDataError.invalidResponse }
     var result: [Lookup: [Ticket]] = [:]
     for (alias, lookup) in aliases {
         let repo = fields[alias] as? [String: Any]

@@ -8,20 +8,22 @@ private let branch = Lookup.branch("ada/bbq-12-fix-login")
 
 @Test func linearRequestPutsValuesInVariablesNotTheQuery() throws {
     let url = URL(string: "https://github.com/o/r/pull/5")!
-    let (body, aliases) = linearRequest([branch, .pr(url), .ref(.linearID("BBQ-1")), .ref(.github(owner: "o", repo: "r", number: 1)), .ref(.linearURL(workspace: "acme", id: "BBQ-2"))])
+    let (body, aliases) = linearRequest([branch, .pr(url), .ref(.linearID("BBQ-1")), .ref(.github(owner: "o", repo: "r", number: 1)), .ref(.linearURL(workspace: "acme", id: "BBQ-2")), .ref(.linearID("NOPE"))])
     let obj = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
     let query = try #require(obj["query"] as? String)
-    let vars = try #require(obj["variables"] as? [String: String])
-    #expect(vars == ["l0": "ada/bbq-12-fix-login", "l1": url.absoluteString, "l2": "BBQ-1", "l3": "BBQ-2"])
-    #expect(!query.contains("ada/bbq") && !query.contains("github.com"))
+    let vars = try #require(obj["variables"] as? [String: Any])
+    #expect(vars["l0"] as? String == "ada/bbq-12-fix-login" && vars["l1"] as? String == url.absoluteString)
+    let or = try #require((vars["l2"] as? [String: Any])?["or"] as? [[String: Any]])
+    #expect(or.count == 2 && (or[0]["team"] as? [String: [String: String]])?["key"]?["eq"] == "BBQ" && (or[1]["number"] as? [String: Int])?["eq"] == 2)
+    #expect(!query.contains("ada/bbq") && !query.contains("github.com") && !query.contains("BBQ"))
     #expect(query.contains("l0: issueVcsBranchSearch(branchName: $l0)") && query.contains("l1: attachmentsForURL(url: $l1)"))
-    #expect(query.contains("l3: issue(id: $l3)") && query.contains("organization { urlKey }"))
-    #expect(aliases.count == 4 && aliases["l3"] == .ref(.linearURL(workspace: "acme", id: "BBQ-2")))
+    #expect(query.contains("l2: issues(filter: $l2, first: 50, includeArchived: true)") && query.contains("$l2: IssueFilter") && query.contains("organization { urlKey }"))
+    #expect(aliases == ["l0": [branch], "l1": [.pr(url)], "l2": [.ref(.linearID("BBQ-1")), .ref(.linearURL(workspace: "acme", id: "BBQ-2"))]])
 }
 
 @Test func decodesABranchHit() throws {
     let data = json(#"{"data":{"l0":\#(issueJSON),"organization":{"urlKey":"acme"}}}"#)
-    let t = try decodeLinear(data, aliases: ["l0": branch])[branch]
+    let t = try decodeLinear(data, aliases: ["l0": [branch]])[branch]
     #expect(t?.count == 1)
     #expect(t?[0].identifier == "BBQ-12" && t?[0].stateType == "started" && t?[0].person == "Ada" && t?[0].archived == false)
     #expect(t?[0].updatedAt == Date(timeIntervalSince1970: 1_793_786_400))
@@ -29,34 +31,40 @@ private let branch = Lookup.branch("ada/bbq-12-fix-login")
 
 @Test func decodesANullBranchAsNoTicket() throws {
     let data = json(#"{"data":{"l0":null,"organization":{"urlKey":"acme"}}}"#)
-    #expect(try decodeLinear(data, aliases: ["l0": branch]) == [branch: []])
+    #expect(try decodeLinear(data, aliases: ["l0": [branch]]) == [branch: []])
 }
 
 @Test func decodesPullRequestAttachments() throws {
     let pr = Lookup.pr(URL(string: "https://github.com/o/r/pull/5")!)
     let data = json(#"{"data":{"l0":{"nodes":[{"issue":\#(issueJSON)},{"issue":null}]},"organization":{"urlKey":"acme"}}}"#)
-    #expect(try decodeLinear(data, aliases: ["l0": pr])[pr]?.map(\.identifier) == ["BBQ-12"])
+    #expect(try decodeLinear(data, aliases: ["l0": [pr]])[pr]?.map(\.identifier) == ["BBQ-12"])
 }
 
-@Test func linearIDFoundAndNotFound() throws {
-    let ref = Lookup.ref(.linearID("BBQ-12")), gone = Lookup.ref(.linearID("BBQ-99"))
-    let data = json(#"{"errors":[{"message":"Entity not found: Issue","path":["l1"],"extensions":{"type":"invalid input"}}],"data":{"l0":\#(issueJSON),"l1":null,"organization":{"urlKey":"acme"}}}"#)
-    let r = try decodeLinear(data, aliases: ["l0": ref, "l1": gone])
-    #expect(r[ref]?.count == 1 && r[gone] == [])
+@Test func missingIdentifierDoesNotAffectFoundOnesOrABranch() throws {
+    let found = Lookup.ref(.linearID("bbq-12")), gone = Lookup.ref(.linearID("BBQ-99"))
+    let data = json(#"{"data":{"l0":\#(issueJSON),"l1":{"nodes":[\#(issueJSON)]},"organization":{"urlKey":"acme"}}}"#)
+    let r = try decodeLinear(data, aliases: ["l0": [branch], "l1": [found, gone]])
+    #expect(r[branch]?.count == 1 && r[found]?.first?.identifier == "BBQ-12" && r[gone] == [])
 }
 
 @Test func linearURLOtherWorkspaceAndNotFound() throws {
     let other = Lookup.ref(.linearURL(workspace: "zeta", id: "BBQ-12")), gone = Lookup.ref(.linearURL(workspace: "acme", id: "BBQ-99"))
-    let data = json(#"{"errors":[{"message":"Entity not found: Issue","path":["l1"]}],"data":{"l0":\#(issueJSON),"l1":null,"organization":{"urlKey":"acme"}}}"#)
-    let r = try decodeLinear(data, aliases: ["l0": other, "l1": gone])
+    let data = json(#"{"data":{"l0":{"nodes":[\#(issueJSON)]},"organization":{"urlKey":"acme"}}}"#)
+    let r = try decodeLinear(data, aliases: ["l0": [other, gone]])
     #expect(r[other] == [Ticket(url: URL(string: "https://linear.app/zeta/issue/BBQ-12")!, identifier: "BBQ-12", service: .linear, problem: .otherWorkspace)])
     #expect(r[gone] == [Ticket(url: URL(string: "https://linear.app/acme/issue/BBQ-99")!, identifier: "BBQ-99", service: .linear, problem: .notFound)])
 }
 
+@Test func linearWorkspaceCompareIgnoresCase() throws {
+    let ref = Lookup.ref(.linearURL(workspace: "Acme", id: "BBQ-12"))
+    let data = json(#"{"data":{"l0":{"nodes":[\#(issueJSON)]},"organization":{"urlKey":"acme"}}}"#)
+    #expect(try decodeLinear(data, aliases: ["l0": [ref]])[ref]?.first?.problem == nil)
+}
+
 @Test func linearOtherErrorsThrow() {
     let data = json(#"{"errors":[{"message":"Rate limited","path":["l0"]}],"data":null}"#)
-    #expect(throws: TicketDataError.server("Rate limited")) { try decodeLinear(data, aliases: ["l0": branch]) }
-    #expect(throws: TicketDataError.invalidResponse) { try decodeLinear(json(#"{"data":{"l0":{"x":1},"organization":{"urlKey":"a"}}}"#), aliases: ["l0": branch]) }
+    #expect(throws: TicketDataError.server("Rate limited")) { try decodeLinear(data, aliases: ["l0": [branch]]) }
+    #expect(throws: TicketDataError.invalidResponse) { try decodeLinear(json(#"{"data":{"l0":{"x":1},"organization":{"urlKey":"a"}}}"#), aliases: ["l0": [branch]]) }
 }
 
 @Test func githubQueryInlinesOnlySafeValues() {
@@ -122,4 +130,17 @@ private func ghIssue(_ n: Int, _ state: String, _ reason: String) -> String {
     cache.store([], for: branch, service: .github, at: Date(timeIntervalSince1970: 9))
     let back = try JSONDecoder().decode(TicketCache.self, from: JSONEncoder().encode(cache))
     #expect(back.tickets(for: ref, service: .linear) == [ticket] && back.tickets(for: branch, service: .github) == [])
+}
+
+@Test func githubBodyWithoutDataThrows() {
+    #expect(throws: TicketDataError.invalidResponse) {
+        try decodeGitHub(json(#"{"message":"Bad credentials"}"#), aliases: ["g0": .ref(.github(owner: "o", repo: "r", number: 1))])
+    }
+}
+
+@Test func githubQuerySkipsNumbersAboveInt32() {
+    let big = Lookup.ref(.github(owner: "o", repo: "r", number: Int(Int32.max) + 1))
+    let bigPR = Lookup.pr(URL(string: "https://github.com/o/r/pull/2147483648")!)
+    let ok = Lookup.ref(.github(owner: "o", repo: "r", number: Int(Int32.max)))
+    #expect(githubQuery([big, bigPR, ok]).aliases == ["g0": ok])
 }
