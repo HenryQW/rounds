@@ -80,3 +80,18 @@ public func gitBranch(folder: URL) -> (branch: String?, defaultBranch: String?) 
     return (name(gitDir.appendingPathComponent("HEAD"), "ref: refs/heads/"),
             name(common.appendingPathComponent("refs/remotes/origin/HEAD"), "ref: refs/remotes/origin/"))
 }
+
+/// The folder at or above `path` that has a `.git` folder or file, or nil when none has one.
+public func gitFolder(above path: String) -> URL? {
+    var folder = URL(fileURLWithPath: path).standardizedFileURL
+    while true {
+        if FileManager.default.fileExists(atPath: folder.appendingPathComponent(".git").path) { return folder }
+        guard folder.path != "/" else { return nil }
+        folder.deleteLastPathComponent()
+    }
+}
+
+/// The wait before the next request after `failures` failures in a row: 30 s, doubling to 10 minutes.
+public func retryDelay(failures: Int) -> TimeInterval {
+    min(30 * pow(2, Double(failures - 1)), 600)
+}

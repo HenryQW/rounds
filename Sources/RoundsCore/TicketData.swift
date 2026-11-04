@@ -297,10 +297,45 @@ public struct TicketCache: Codable, Sendable {
         entries[Key(service: service, lookup: lookup)] = Entry(tickets: tickets, fetched: date)
     }
 
+    /// Makes every lookup of a service due (a new Linear key can see another workspace).
+    public mutating func removeAll(service: TicketService) {
+        entries = entries.filter { $0.key.service != service }
+    }
+
     /// No entry: due. An empty result waits 1 day, else 10 minutes (1 minute on hover).
     public func due(_ lookup: Lookup, service: TicketService, now: Date, hover: Bool) -> Bool {
         guard let e = entries[Key(service: service, lookup: lookup)] else { return true }
         let age = now.timeIntervalSince(e.fetched)
         return age >= (e.tickets.isEmpty ? 86_400 : hover ? 60 : 600)
     }
+}
+
+// MARK: Rows
+
+/// A row's tickets in spec order, one per URL: Linear for the branch and each PR, the issues each PR closes on GitHub
+/// (not the PR itself), then the prompt refs. `stored` gives a service's last result for a lookup, nil before the first.
+/// Until data comes, a Linear URL or GitHub ref shows its ID and link. Without a Linear key (`linearKey` false) no Linear
+/// data shows: a Linear URL says why, and a bare ID shows nothing, as only Linear can say it is real.
+public func rowTickets(branch: String?, pullRequests: [URL], refs: [TicketRef], linearKey: Bool,
+                       stored: (Lookup, TicketService) -> [Ticket]?) -> [Ticket] {
+    var tickets: [Ticket] = []
+    func add(_ more: [Ticket]) { for t in more where !tickets.contains(where: { $0.url == t.url }) { tickets.append(t) } }
+    if linearKey {
+        if let branch { add(stored(.branch(branch), .linear) ?? []) }
+        for url in pullRequests { add(stored(.pr(url), .linear) ?? []) }
+    }
+    for url in pullRequests { add((stored(.pr(url), .github) ?? []).filter { $0.service != .pullRequest }) }
+    for ref in refs {
+        switch ref {
+        case .linearURL(let workspace, let id):
+            add((linearKey ? stored(.ref(ref), .linear) : nil)
+                ?? [Ticket(url: URL(string: "https://linear.app/\(workspace)/issue/\(id)")!, identifier: id, service: .linear, problem: linearKey ? nil : .noKey)])
+        case .linearID:
+            if linearKey { add(stored(.ref(ref), .linear) ?? []) }
+        case .github(let owner, let repo, let number):
+            add(stored(.ref(ref), .github)
+                ?? [Ticket(url: URL(string: "https://github.com/\(owner)/\(repo)/issues/\(number)")!, identifier: "#\(number)", service: .github, repository: "\(owner)/\(repo)")])
+        }
+    }
+    return tickets
 }

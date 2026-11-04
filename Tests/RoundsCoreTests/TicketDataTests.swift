@@ -144,3 +144,42 @@ private func ghIssue(_ n: Int, _ state: String, _ reason: String) -> String {
     let ok = Lookup.ref(.github(owner: "o", repo: "r", number: Int(Int32.max)))
     #expect(githubQuery([big, bigPR, ok]).aliases == ["g0": ok])
 }
+
+@Test func removeAllDropsOneServiceOnly() {
+    var cache = TicketCache()
+    let t0 = Date(timeIntervalSince1970: 9)
+    cache.store([], for: branch, service: .linear, at: t0)
+    cache.store([], for: branch, service: .github, at: t0)
+    cache.removeAll(service: .linear)
+    #expect(cache.tickets(for: branch, service: .linear) == nil && cache.tickets(for: branch, service: .github) == [])
+}
+
+private func ticket(_ url: String, _ id: String, _ service: TicketService = .linear) -> Ticket {
+    Ticket(url: URL(string: url)!, identifier: id, service: service, title: "T")
+}
+
+@Test func rowTicketsKeepSpecOrderOnePerURLAndDropThePullRequest() {
+    let pr = URL(string: "https://github.com/o/r/pull/5")!
+    let bbq1 = ticket("https://linear.app/a/issue/BBQ-1", "BBQ-1"), bbq2 = ticket("https://linear.app/a/issue/BBQ-2", "BBQ-2")
+    let issue = ticket("https://github.com/o/r/issues/9", "#9", .github)
+    let stored: [Lookup: [Ticket]] = [.branch("b"): [bbq1], .pr(pr): [bbq1, bbq2], .ref(.linearID("BBQ-2")): [bbq2]]
+    let github: [Lookup: [Ticket]] = [.pr(pr): [ticket(pr.absoluteString, "#5", .pullRequest), issue], .ref(.github(owner: "o", repo: "r", number: 9)): [issue]]
+    let r = rowTickets(branch: "b", pullRequests: [pr], refs: [.linearID("BBQ-2"), .github(owner: "o", repo: "r", number: 9)], linearKey: true) {
+        $1 == .linear ? stored[$0] : github[$0]
+    }
+    #expect(r.map(\.identifier) == ["BBQ-1", "BBQ-2", "#9"])
+}
+
+@Test func rowTicketsShowPlaceholdersUntilDataComes() {
+    let refs: [TicketRef] = [.linearURL(workspace: "a", id: "BBQ-3"), .linearID("BBQ-4"), .github(owner: "o", repo: "r", number: 7)]
+    let withKey = rowTickets(branch: nil, pullRequests: [], refs: refs, linearKey: true) { _, _ in nil }
+    #expect(withKey.map(\.url.absoluteString) == ["https://linear.app/a/issue/BBQ-3", "https://github.com/o/r/issues/7"])
+    #expect(withKey.map(\.identifier) == ["BBQ-3", "#7"] && withKey.allSatisfy { $0.problem == nil && $0.title == nil })
+    #expect(withKey[1].repository == "o/r" && withKey[1].service == .github)
+}
+
+@Test func rowTicketsWithoutALinearKeyShowOnlyLinearURLs() {
+    let bbq1 = ticket("https://linear.app/a/issue/BBQ-1", "BBQ-1")
+    let r = rowTickets(branch: "b", pullRequests: [], refs: [.linearURL(workspace: "a", id: "BBQ-3"), .linearID("BBQ-1")], linearKey: false) { _, _ in [bbq1] }
+    #expect(r.map(\.identifier) == ["BBQ-3"] && r[0].problem == .noKey)
+}

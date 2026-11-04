@@ -75,3 +75,14 @@ private func folder(_ files: [String: String]) throws -> URL {
     let r = gitBranch(folder: try folder([:]))
     #expect(r.branch == nil && r.defaultBranch == nil)
 }
+
+@Test func gitFolderWalksUpToTheFirstFolderWithGit() throws {
+    let dir = try folder([".git/HEAD": "ref: refs/heads/a\n", "a/b/file": "", "wt/.git": "gitdir: x\n", "wt/c/file": ""])
+    #expect(gitFolder(above: dir.appendingPathComponent("a/b").path)?.path == dir.path)
+    #expect(gitFolder(above: dir.appendingPathComponent("wt/c").path)?.path == dir.appendingPathComponent("wt").path)
+    #expect(gitFolder(above: FileManager.default.temporaryDirectory.path) == nil)
+}
+
+@Test func retryDelayDoublesFrom30SecondsTo10Minutes() {
+    #expect([1, 2, 3, 5, 6, 20].map(retryDelay(failures:)) == [30, 60, 120, 480, 600, 600])
+}

@@ -104,6 +104,7 @@ final class AppModel {
     @ObservationIgnored private var timer: Timer?
 
     private init() {
+        TicketStore.shared.onChange = { [weak self] in self?.regroup() }
         // Demo mode: fixed rows, every source on, and no watcher, timer or herdr connection.
         if Demo.isOn {
             (hookStatus, codexInstalled, codexHookStatus, herdrConnection) = (.installed, true, .installed, .connected(Demo.rows().herdr.count))
@@ -459,7 +460,13 @@ final class AppModel {
         // A pi session that runs in herdr shows once, as the herdr agent, which can focus its pane.
         let inHerdr = Set(herdrRows.compactMap { if case .herdr(let a) = $0.source { a.sessionPath } else { nil } })
         let pi = piOn ? piRows.filter { if case .pi(let s) = $0.source { !inHerdr.contains(s.path) } else { true } } : []
-        let rows = (claudeOn ? rows : []) + (codexOn ? codexRows : []) + pi + herdrRows
+        let tickets = TicketStore.shared
+        tickets.piSessions = piSessions
+        let rows = ((claudeOn ? rows : []) + (codexOn ? codexRows : []) + pi + herdrRows).map { r in
+            var r = r
+            r.tickets = tickets.tickets(for: r)
+            return r
+        }
         let now = Date()
         allGroups = group(rows, query: "", marks: marks, trackSeen: seenStopsAlert, rule: lastCall, now: now)
         // Without a search or the Older filter the window shows the same groups as the pill.
@@ -473,6 +480,8 @@ final class AppModel {
         if failedCount != g.failedCount { failedCount = g.failedCount }
         if unseenWaitCount != g.unseenWaitCount { unseenWaitCount = g.unseenWaitCount }
         if runningCount != running { runningCount = running }
+        // Only the rows the window lists are looked up; the Older group only while the Aged filter shows it.
+        tickets.list(sessions + (includeOlder ? groups.older.flatMap(\.withChildren) : []))
     }
 
     private static func loadLastCall() -> LastCallRule {

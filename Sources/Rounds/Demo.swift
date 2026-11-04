@@ -82,10 +82,10 @@ enum Demo {
         func ago(_ minutes: Double) -> Date { now.addingTimeInterval(-minutes * 60) }
         let root = "/Users/demo/Projects/"
         func claude(_ id: String, _ title: String, _ folder: String, _ status: SessionStatus, prs: [(Int, String)] = [],
-                    starred: Bool = false, parent: String? = nil, focused: Date? = nil) -> SessionRow {
+                    starred: Bool = false, parent: String? = nil, focused: Date? = nil, branch: String = "main") -> SessionRow {
             var json: [String: Any] = [
                 "sessionId": id, "cliSessionId": id, "cwd": root + folder, "title": title, "isArchived": false, "isStarred": starred,
-                "lastActivityAt": status.since.timeIntervalSince1970 * 1000, "branch": "main",
+                "lastActivityAt": status.since.timeIntervalSince1970 * 1000, "branch": branch,
                 "prs": prs.map { ["prNumber": $0.0, "state": $0.1, "url": "https://github.com/example/\(folder)/pull/\($0.0)"] },
             ]
             if let focused { json["lastFocusedAt"] = focused.timeIntervalSince1970 * 1000 }
@@ -95,7 +95,7 @@ enum Demo {
         let yourTurn = quiet || scene == "pill-ready" ? [] : [
             claude("demo-search", "Add search to the docs", "atlas", SessionStatus(.needsInput, "Permission: Bash", since: ago(3))),
         ] + (scene == "pill-attention" ? [] : [
-            claude("demo-login", "Fix login redirect", "harbor", SessionStatus(.failed, "error", since: ago(7))),
+            claude("demo-login", "Fix login redirect", "harbor", SessionStatus(.failed, "error", since: ago(7)), branch: loginBranch),
         ])
         let claudeRows = yourTurn + [
             claude("demo-parser", "Refactor the parser", "atlas", SessionStatus(.working, "Edit", since: ago(1)), prs: [(42, "OPEN")]),
@@ -129,5 +129,30 @@ enum Demo {
             SessionRow(agent: agent, status: herdrStatus(agent.agentStatus, since: ago(i == 0 ? 2 : 15)))
         }
         return (claudeRows, codexRows, herdrRows)
+    }
+
+    private static let loginBranch = "fix/bbq-123-login-redirect"
+
+    /// The tickets `TicketStore` shows in demo mode, by lookup: a Linear issue on the login row's branch, the GitHub
+    /// issue that PR #42 closes, and each demo PR.
+    static func tickets(now: Date = Date()) -> [(Lookup, TicketService, [Ticket])] {
+        func ago(_ minutes: Double) -> Date { now.addingTimeInterval(-minutes * 60) }
+        let login = Ticket(url: URL(string: "https://linear.app/example/issue/BBQ-123")!, identifier: "BBQ-123", service: .linear,
+                           title: "Fix the login redirect after an expired session", stateName: "In Progress", stateType: "started",
+                           person: "Demo User", updatedAt: ago(40))
+        let issue = Ticket(url: URL(string: "https://github.com/example/atlas/issues/812")!, identifier: "#812", service: .github,
+                           repository: "example/atlas", title: "The parser fails on nested lists", stateName: "Open", stateType: "open",
+                           person: "demo", updatedAt: ago(90))
+        let prs: [(String, Int, String, String)] = [
+            ("atlas", 42, "OPEN", "Refactor the parser"), ("harbor", 118, "MERGED", "Add dark mode to settings"),
+            ("harbor", 121, "OPEN", "Follow the system appearance"), ("harbor", 97, "CLOSED", "Remove old feature flags"),
+            ("notes", 110, "MERGED", "Plan the next release"),
+        ]
+        return [(.branch(loginBranch), .linear, [login])] + prs.map { folder, number, state, title in
+            let url = URL(string: "https://github.com/example/\(folder)/pull/\(number)")!
+            let pr = Ticket(url: url, identifier: "#\(number)", service: .pullRequest, repository: "example/\(folder)", title: title,
+                            stateName: state.capitalized, stateType: state.lowercased(), person: "demo", updatedAt: ago(30))
+            return (.pr(url), .github, [pr] + (number == 42 ? [issue] : []))
+        }
     }
 }
