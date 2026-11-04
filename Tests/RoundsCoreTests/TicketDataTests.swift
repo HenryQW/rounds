@@ -104,8 +104,8 @@ private func ghIssue(_ n: Int, _ state: String, _ reason: String) -> String {
     #expect(r[ok]?.first?.identifier == "#1" && r[pr] == [])
 }
 
-@Test func githubUnknownErrorThrows() {
-    let data = json(#"{"data":null,"errors":[{"type":"FORBIDDEN","path":["g0"],"message":"SSO"}]}"#)
+@Test func githubRequestErrorThrows() {
+    let data = json(#"{"data":null,"errors":[{"type":"FORBIDDEN","message":"SSO"}]}"#)
     #expect(throws: TicketDataError.server("SSO")) { try decodeGitHub(data, aliases: ["g0": .ref(.github(owner: "o", repo: "r", number: 1))]) }
 }
 
@@ -211,4 +211,11 @@ private func ticket(_ url: String, _ id: String, _ service: TicketService = .lin
     #expect(linearFailure(status: 429, body: Data()) == .rateLimited)
     #expect(linearFailure(status: 400, body: json(#"{"errors":[{"message":"x","extensions":{"code":"RATELIMITED"}}]}"#)) == .rateLimited)
     #expect(linearFailure(status: 200, body: json(#"{"data":{"organization":{"urlKey":"a"}}}"#)) == nil)
+}
+
+@Test func githubAliasErrorLeavesOnlyThatAliasWithoutResult() throws {
+    let blocked = Lookup.ref(.github(owner: "sso", repo: "r", number: 3)), ok = Lookup.ref(.github(owner: "o", repo: "r", number: 1))
+    let data = json(#"{"data":{"g0":null,"g1":{"issue":\#(ghIssue(1, "OPEN", "null"))}},"errors":[{"type":"FORBIDDEN","path":["g0"],"message":"SSO"}]}"#)
+    let r = try decodeGitHub(data, aliases: ["g0": blocked, "g1": ok])
+    #expect(r[blocked] == nil && r[ok]?.first?.identifier == "#1")
 }

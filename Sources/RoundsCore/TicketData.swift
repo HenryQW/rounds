@@ -252,19 +252,18 @@ private struct GitHubPull: Decodable {
     var author: Author?, closingIssuesReferences: Closing
 }
 
+/// As `decodeLinear`: an error on one alias (SSO `FORBIDDEN`, say) gives its lookup no result; `NOT_FOUND` is "none".
+/// Only an error that names no alias throws.
 public func decodeGitHub(_ data: Data, aliases: [String: Lookup]) throws -> [Lookup: [Ticket]] {
     guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { throw TicketDataError.invalidResponse }
-    var missing = Set<String>()
+    var missing = Set<String>(), failed = Set<String>()
     for e in (root["errors"] as? [[String: Any]]) ?? [] {
-        if e["type"] as? String == "NOT_FOUND", let alias = (e["path"] as? [Any])?.first as? String, aliases[alias] != nil {
-            missing.insert(alias)
-        } else {
-            throw TicketDataError.server(e["message"] as? String ?? "")
-        }
+        guard let alias = (e["path"] as? [Any])?.first as? String, aliases[alias] != nil else { throw TicketDataError.server(e["message"] as? String ?? "") }
+        if e["type"] as? String == "NOT_FOUND" { missing.insert(alias) } else { failed.insert(alias) }
     }
     guard let fields = root["data"] as? [String: Any] else { throw TicketDataError.invalidResponse }
     var result: [Lookup: [Ticket]] = [:]
-    for (alias, lookup) in aliases {
+    for (alias, lookup) in aliases where !failed.contains(alias) {
         let repo = fields[alias] as? [String: Any]
         switch lookup {
         case .pr:

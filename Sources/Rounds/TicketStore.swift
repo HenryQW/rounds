@@ -39,8 +39,8 @@ final class TicketStore {
     @ObservationIgnored private var lastScan = Date.distantPast
     @ObservationIgnored private var scanning = false
     @ObservationIgnored private var linear = Channel()
-    /// Linear lookups whose alias had an error, until they may be asked again (10 minutes), so they block no others.
-    @ObservationIgnored private var linearRetry: [Lookup: Date] = [:]
+    /// Lookups whose alias had an error, by service, until they may be asked again (10 minutes), so they block no others.
+    @ObservationIgnored private var retry: [TicketService: [Lookup: Date]] = [:]
     @ObservationIgnored private var github = Channel()
     @ObservationIgnored private var saving = false
     @ObservationIgnored private var changePending = false
@@ -168,12 +168,12 @@ final class TicketStore {
         var due: [TicketService: [Lookup]] = [:], seen: [TicketService: Set<Lookup>] = [:]
         for r in rows where folders[r.cwd] != nil {
             for (lookup, service) in lookups(r) where seen[service, default: []].insert(lookup).inserted
-                && cache.due(lookup, service: service, now: now, hover: hover) {
+                && cache.due(lookup, service: service, now: now, hover: hover) && retry[service]?[lookup].map({ now >= $0 }) ?? true {
                 due[service, default: []].append(lookup)
             }
         }
         if let key, !key.isEmpty, linearStatus != .invalidKey, linear.ready(now) {
-            let batch = Array((due[.linear] ?? []).filter { linearRetry[$0].map { now >= $0 } ?? true }.prefix(20))
+            let batch = Array((due[.linear] ?? []).prefix(20))
             if !batch.isEmpty {
                 let (body, aliases) = linearRequest(batch)
                 // A lookup the request cannot ask about has no result.
@@ -237,10 +237,8 @@ final class TicketStore {
             let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
             let urlKey = ((root?["data"] as? [String: Any])?["organization"] as? [String: Any])?["urlKey"] as? String
             linearStatus = .connected(urlKey ?? "")
-            let failed = batch.filter { result[$0] == nil }
-            log.info("tickets: linear, \(size) lookups, ok, \(failed.count) failed")
-            for lookup in batch { linearRetry[lookup] = result[lookup] == nil ? Date() + 600 : nil }
-            store(result, for: batch.filter { result[$0] != nil }, .linear)
+            log.info("tickets: linear, \(size) lookups, ok, \(batch.count { result[$0] == nil }) failed")
+            storeAnswer(result, for: batch, .linear)
         } catch {
             linear.failed()
             linearStatus = .offline
@@ -263,9 +261,9 @@ final class TicketStore {
         let size = aliases.count
         if let out, out.status == 0 || out.status == 1, let result = try? decodeGitHub(out.stdout, aliases: aliases) {
             github.succeeded()
-            log.info("tickets: github, \(size) lookups, ok")
+            log.info("tickets: github, \(size) lookups, ok, \(aliases.values.count { result[$0] == nil }) failed")
             if case .signedIn = githubStatus {} else { checkGitHub() }
-            store(result, for: Array(aliases.values), .github)
+            storeAnswer(result, for: Array(aliases.values), .github)
         } else {
             github.failed()
             githubStatus = signInProblem(out) ? .notSignedIn : .offline
@@ -293,6 +291,13 @@ final class TicketStore {
     private func signInProblem(_ out: CommandOutput?) -> Bool {
         let text = String(decoding: out?.stderr ?? Data(), as: UTF8.self)
         return text.contains("auth login") || text.contains("not logged")
+    }
+
+    /// A lookup without a result had an error on its alias: not stored (a GitHub ref keeps its placeholder), and asked
+    /// again after 10 minutes.
+    private func storeAnswer(_ result: [Lookup: [Ticket]], for lookups: [Lookup], _ service: TicketService) {
+        for lookup in lookups { retry[service, default: [:]][lookup] = result[lookup] == nil ? Date() + 600 : nil }
+        store(result, for: lookups.filter { result[$0] != nil }, service)
     }
 
     /// Stores a result for each lookup of a request (a lookup missing from the result has none), then saves.
@@ -353,7 +358,7 @@ final class TicketStore {
     private func changeKey(_ k: String) {
         cache.removeAll(service: .linear)
         save()
-        (linear.failures, linear.retryAt, linearRetry) = (0, .distantPast, [:])
+        (linear.failures, linear.retryAt, retry[.linear]) = (0, .distantPast, nil)
         use(k)
     }
 
