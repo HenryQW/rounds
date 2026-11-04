@@ -128,7 +128,8 @@ private struct LinearAttachments: Decodable {
 
 /// An error on one alias, or a value that does not decode, gives its lookups no result (not even "none"), so they can
 /// be asked again; "not found" on the alias is "none", and one deeper (a null item) keeps the alias's result. Only an
-/// error that names no alias throws; null data with alias errors gives no result.
+/// error that names no alias throws; null data with errors (each names an alias here) gives no result, also when a
+/// deeper "not found" nulled a non-null parent up to `data`.
 public func decodeLinear(_ data: Data, aliases: [String: [Lookup]]) throws -> [Lookup: [Ticket]] {
     guard let root = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { throw TicketDataError.invalidResponse }
     var missing = Set<String>(), failed = Set<String>()
@@ -137,7 +138,7 @@ public func decodeLinear(_ data: Data, aliases: [String: [Lookup]]) throws -> [L
         guard let alias = path.first as? String, aliases[alias] != nil else { throw TicketDataError.server(message) }
         if !message.lowercased().contains("not found") { failed.insert(alias) } else if path.count <= 2 { missing.insert(alias) }
     }
-    if root["data"] is NSNull && !(missing.isEmpty && failed.isEmpty) { return [:] }
+    if root["data"] is NSNull && !((root["errors"] as? [Any]) ?? []).isEmpty { return [:] }
     guard let fields = root["data"] as? [String: Any],
           let urlKey = (fields["organization"] as? [String: Any])?["urlKey"] as? String else { throw TicketDataError.invalidResponse }
     var result: [Lookup: [Ticket]] = [:]
@@ -354,6 +355,13 @@ public struct TicketCache: Codable, Sendable {
     /// Makes every lookup of a service due (a new Linear key can see another workspace).
     public mutating func removeAll(service: TicketService) {
         entries = entries.filter { $0.key.service != service }
+    }
+
+    /// The team keys (identifier prefixes) of the cached Linear tickets. They are keys of the current key's workspace,
+    /// as a new key clears the Linear entries; placeholders (a problem) are left out.
+    public var linearTeamKeys: Set<String> {
+        Set(entries.filter { $0.key.service == .linear }.flatMap(\.value.tickets).filter { $0.problem == nil }
+            .map { String($0.identifier.prefix { $0 != "-" }).uppercased() })
     }
 
     /// Drops the entries not fetched for 30 days (rows that are gone), so the file does not grow without end.

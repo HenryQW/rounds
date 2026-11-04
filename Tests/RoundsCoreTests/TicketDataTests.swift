@@ -344,3 +344,20 @@ private func ticket(_ url: String, _ id: String, _ service: TicketService = .lin
     cache.removeOld(now: now)
     #expect(cache.tickets(for: branch, service: .linear) == nil && cache.tickets(for: pr, service: .github) == [])
 }
+
+/// Cached Linear tickets name real team keys of the key's workspace; placeholders and other services do not.
+@Test func linearTeamKeysComeFromCachedLinearTickets() {
+    var cache = TicketCache()
+    let t0 = Date(timeIntervalSince1970: 9), pr = Lookup.pr(URL(string: "https://github.com/o/r/pull/5")!)
+    cache.store([ticket("https://linear.app/a/issue/BBQ-1", "BBQ-1"), ticket("https://linear.app/a/issue/OPS-2", "OPS-2")], for: branch, service: .linear, at: t0)
+    cache.store([Ticket(url: URL(string: "https://linear.app/z/issue/ZZ-1")!, identifier: "ZZ-1", service: .linear, problem: .otherWorkspace)],
+                for: .ref(.linearURL(workspace: "z", id: "ZZ-1")), service: .linear, at: t0)
+    cache.store([ticket("https://github.com/o/r/issues/9", "#9", .github)], for: pr, service: .github, at: t0)
+    #expect(cache.linearTeamKeys == ["BBQ", "OPS"])
+}
+
+/// A not-found deeper than the alias can still null the data (a non-null item): no result, so the lookup is asked again.
+@Test func nullDataWithANestedNotFoundGivesNoResult() throws {
+    let pr = Lookup.pr(URL(string: "https://github.com/o/r/pull/5")!)
+    #expect(try decodeLinear(json(#"{"errors":[{"message":"Entity not found","path":["l0","nodes",0,"issue"]}],"data":null}"#), aliases: ["l0": [pr]]).isEmpty)
+}

@@ -66,6 +66,8 @@ final class TicketStore {
             if let saved = try? JSONDecoder().decode(TicketCache.self, from: data) {
                 cache = saved
                 cache.removeOld(now: Date())
+                // Bare identifiers of cached teams show before Linear answers (offline, say).
+                teamKeys = cache.linearTeamKeys
             }
             else { try? FileManager.default.removeItem(at: ticketCacheURL) }
         }
@@ -391,11 +393,12 @@ final class TicketStore {
         cache.removeAll(service: .linear)
         save()
         (linear.failures, linear.retryAt, retry[.linear]) = (0, .distantPast, nil)
+        (teamKeys, workspace) = ([], nil)
         use(k)
     }
 
     private func use(_ k: String) {
-        (key, teamKeys, workspace) = (k, [], nil)
+        key = k
         hasLinearKey = !k.isEmpty
         linearStatus = .noKey
         changed()
@@ -474,26 +477,25 @@ private func writeCache(_ data: Data) {
 
 /// Exit status, stdout and stderr of a command; nil when it does not start. A command that runs for 30 s is stopped
 /// (`timedOut`; a crash is not a timeout). A child of the command can keep a pipe open after the command ends, so the
-/// pipes get at most 2 s after the stop time; output not read by then is empty.
+/// pipes get at most 2 s after the exit; output not read by then is empty.
 private func runCommand(_ path: String, _ arguments: [String]) -> CommandOutput? {
     let process = Process(), out = Pipe(), err = Pipe()
     (process.executableURL, process.arguments, process.standardOutput, process.standardError) = (URL(fileURLWithPath: path), arguments, out, err)
     guard (try? process.run()) != nil else { return nil }
-    let deadline = DispatchTime.now() + 30
     nonisolated(unsafe) var stopped = false, stdout = Data(), stderr = Data()
     let stop = DispatchWorkItem {
         guard process.isRunning else { return }
         stopped = true
         process.terminate()
     }
-    DispatchQueue.global(qos: .utility).asyncAfter(deadline: deadline, execute: stop)
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 30, execute: stop)
     // Each pipe on its own thread, so a full pipe cannot block the command.
     let pipes = DispatchGroup()
     DispatchQueue.global(qos: .utility).async(group: pipes) { stdout = out.fileHandleForReading.readDataToEndOfFile() }
     DispatchQueue.global(qos: .utility).async(group: pipes) { stderr = err.fileHandleForReading.readDataToEndOfFile() }
     process.waitUntilExit()
     stop.cancel()
-    let read = pipes.wait(timeout: deadline + 2) == .success
+    let read = pipes.wait(timeout: .now() + 2) == .success
     return CommandOutput(status: process.terminationStatus, stdout: read ? stdout : Data(), stderr: read ? stderr : Data(), timedOut: stopped)
 }
 

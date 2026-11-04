@@ -38,7 +38,8 @@ Each row gets tickets from three places, in this order. A ticket found twice sho
    - GitHub issue URLs `https://github.com/<owner>/<repo>/issues/<n>`, with one `/` at the end or none (not `/pull/`,
      which is a PR);
    - bare Linear identifiers (`BBQ-123`), sent to `issue(id)`: only an identifier whose prefix is a team key of the
-     workspace is looked up or shown (each Linear request also asks for the team keys; until they come, none is), and
+     workspace is looked up or shown (each Linear request also asks for the team keys; until they come, only the team
+     keys of cached tickets count), and
      only an identifier that Linear finds counts, so `UTF-8` or `GPT-4` gives nothing.
    At most 20 candidates per prompt; a row takes its first 5 after the team filter. Scheme and host can be in any case.
    A match that ends at the 64 KB cut is dropped, as the cut can shorten it (`BBQ-12` from `BBQ-123`).
@@ -48,7 +49,7 @@ Each row gets tickets from three places, in this order. A ticket found twice sho
 Rules:
 - Only rows the window lists are looked up (older, done and hidden rows only while a search or the Aged filter shows
   them), so a launch with hundreds of old pi sessions sends no flood of requests.
-- A child row shows only tickets that its parent does not show (a grandchild, which shows under the root, compares with its own parent).
+- A child row shows only tickets that its parent does not show (a grandchild, which shows under the root, compares with its own parent and the root).
 - pi and herdr rows follow the folder's current branch, not the branch the session started on (known limit, as the
   folder has no record of it).
 
@@ -74,7 +75,8 @@ Rules:
 | Issue or PR not found (a PR URL that is not a github.com PR too) | ID and link; the card says "Not found". |
 | GitHub organization blocks `gh` (SSO: `FORBIDDEN` or `saml_failure`) | ID and link; the card says "No access: authorize gh for this organization". |
 | Error or bad value on one alias (null `data` with alias errors too) | Only that lookup has no data; it is asked again after 10 minutes. |
-| Not found deeper than the alias's own field (a null item in a list) | The alias keeps the rest of its result. |
+| Not found deeper than the alias's own field (a null item in a list) | The alias keeps the rest of its result; if it makes `data` null, as any error with null `data`, the lookups have no data and are asked again after 10 minutes. |
+| More than 250 teams, or an archived team | Bare IDs of those teams do not show (`teams(first: 250)`, no paging). |
 | Archived issue | Shown with its state; the card adds "Archived". |
 | `gh` not installed or not signed in | GitHub tickets show the ID and link; Settings shows why, and checks `gh` again when it opens. |
 | Host other than github.com | Not read (out of scope). |

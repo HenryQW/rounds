@@ -185,7 +185,7 @@ private func ticket(_ id: String, title: String? = nil) -> Ticket {
     #expect(group([p, c], query: "").quiet[0].children[0].tickets.map(\.identifier) == ["BBQ-1", "BBQ-2"])
 }
 
-/// A grandchild, which shows under the root too, drops the tickets of its own parent.
+/// A grandchild, which shows under the root, drops the tickets of its own parent and of the root.
 @Test func grandchildDropsTicketsOfItsOwnParent() {
     var p = row("p", .quiet, activity: 5), c = row("c", .quiet, activity: 4, parent: "p"), g = row("g", .quiet, activity: 3, parent: "c")
     p.tickets = [ticket("BBQ-1")]
@@ -193,6 +193,9 @@ private func ticket(_ id: String, title: String? = nil) -> Ticket {
     g.tickets = [ticket("BBQ-1"), ticket("BBQ-2"), ticket("BBQ-3")]
     let children = group([p, c, g], query: "").quiet[0].children
     #expect(children.map(\.id) == ["c", "g"] && children.map { $0.tickets.map(\.identifier) } == [["BBQ-2"], ["BBQ-3"]])
+    // A parent without the root's ticket: the grandchild still drops the root's, as it shows under the root.
+    c.tickets = [ticket("BBQ-2")]
+    #expect(group([p, c, g], query: "").quiet[0].children.map { $0.tickets.map(\.identifier) } == [["BBQ-2"], ["BBQ-3"]])
 }
 
 /// A search that matches only a child's ticket shows the parent with that child.

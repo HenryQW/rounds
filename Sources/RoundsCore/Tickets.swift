@@ -25,9 +25,9 @@ public func ticketRefs(inPrompt text: String) -> [TicketRef] {
         while String(text.utf8.prefix(n)) == nil { n -= 1 }
         head = String(text.utf8.prefix(n))!
     }
-    let ns = head as NSString, cut = head.utf8.count < text.utf8.count
+    let ns = head as NSString, wasCut = head.utf8.count < text.utf8.count
     var refs: [TicketRef] = []
-    for m in refPattern.matches(in: head, range: NSRange(location: 0, length: ns.length)) where !(cut && NSMaxRange(m.range) == ns.length) {
+    for m in refPattern.matches(in: head, range: NSRange(location: 0, length: ns.length)) where !(wasCut && NSMaxRange(m.range) == ns.length) {
         let ref: TicketRef?
         if m.range(at: 1).location != NSNotFound {
             var url = ns.substring(with: m.range(at: 1))
