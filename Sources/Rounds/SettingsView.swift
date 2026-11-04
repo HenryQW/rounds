@@ -402,7 +402,7 @@ struct SettingsView: View {
             } label: {
                 described("Linear API key", "Shows the title and state of Linear issues. The key stays in your Keychain.")
             }
-            .help("Make a personal API key in Linear: Settings, Account, Security and access. Rounds sends Linear only branch names, PR links and issue IDs.")
+            .help("Make a personal API key in Linear: Settings, Account, Security and access. Read permission is enough. Rounds sends Linear only branch names, PR links and issue IDs.")
             LabeledContent {
                 switch store.githubStatus {
                 case .signedIn(let user): statusPill("Signed in as \(user)", .green)
