@@ -46,7 +46,7 @@ scripts/bundle.sh --install
 open /Applications/Rounds.app
 ```
 
-Then open Settings (right-click the pill) > Agents and click **Install Hooks…** for Claude Code and Codex, and **Install Extension…** for pi. Each install shows what it writes before it writes, and keeps a backup of the file it changes. An agent without its hooks or extension is off.
+Then open Settings (right-click the pill) > Agents and turn on the switch of Claude Code, Codex and pi. Each install shows what it writes before it writes, and keeps a backup of the file it changes. An agent without its hooks or extension is off.
 
 ## Development
 

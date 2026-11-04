@@ -20,9 +20,6 @@ public enum HookTarget: Sendable, Identifiable {
 
     public var id: Self { self }
 
-    /// What Settings installs: "Hooks" or "Extension".
-    public var noun: String { self == .pi ? "Extension" : "Hooks" }
-
     public var entries: [(event: String, matcher: String?)] {
         switch self {
         case .claude: [
