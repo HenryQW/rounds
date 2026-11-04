@@ -31,6 +31,8 @@ public struct SessionRow: Sendable, Equatable, Identifiable {
     public internal(set) var isContext = false
     /// A child that works in its own folder (a worktree), not in its parent's folder: isolated, else direct (`group`).
     public internal(set) var isIsolated = false
+    /// The tickets of the session; the app sets them before `group`, which drops from a child those its parent shows.
+    public var tickets: [Ticket] = []
 
     public init(session: DesktopSession, status: SessionStatus) {
         (source, self.status, id, title, cwd) = (.claude(session), status, session.id, session.title, session.cwd)
@@ -189,7 +191,7 @@ public func group(_ rows: [SessionRow], query: String, marks: SessionMarks = Ses
         guard !q.isEmpty else {
             return (includeOlder || r.status.group != .older || marks.isStarred(r)) && !marks.hidden.contains(r.id) && !marks.isDone(r)
         }
-        let fields = [r.title, URL(fileURLWithPath: r.cwd).lastPathComponent, r.branch ?? ""]
+        let fields = [r.title, URL(fileURLWithPath: r.cwd).lastPathComponent, r.branch ?? ""] + r.tickets.flatMap { [$0.identifier, $0.title ?? ""] }
         return fields.contains { $0.range(of: q, options: [.caseInsensitive, .diacriticInsensitive]) != nil }
     }
     // Listed: not archived, and without a search also not older, hidden or done.
@@ -214,6 +216,7 @@ public func group(_ rows: [SessionRow], query: String, marks: SessionMarks = Ses
         r.children = shown.map { child in
             var c = child.titled(under: r)
             c.isSeen = trackSeen && marks.isSeen(c)
+            c.tickets.removeAll { t in r.tickets.contains { $0.url == t.url } }
             c.isIsolated = URL(fileURLWithPath: c.cwd).standardizedFileURL.path != URL(fileURLWithPath: r.cwd).standardizedFileURL.path
             return c
         }

@@ -169,3 +169,28 @@ private func thread(_ id: String, _ state: SessionState, parent: String? = nil) 
                 row("i", .quiet, activity: 3, cwd: "/Users/test/.worktrees/green-harbor", parent: "p")]
     #expect(group(rows, query: "").quiet[0].children.map(\.isIsolated) == [false, true])
 }
+
+private func ticket(_ id: String, title: String? = nil) -> Ticket {
+    Ticket(url: URL(string: "https://linear.app/t/issue/\(id)")!, identifier: id, service: .linear, title: title)
+}
+
+/// A child shows only the tickets its parent does not already show; the parent keeps all of its own.
+@Test func childDropsTicketsOfItsParent() {
+    var p = row("p", .quiet, activity: 5), c = row("c", .quiet, activity: 4, parent: "p")
+    p.tickets = [ticket("BBQ-1")]
+    c.tickets = [ticket("BBQ-1"), ticket("BBQ-2")]
+    let top = group([p, c], query: "").quiet[0]
+    #expect(top.tickets.map(\.identifier) == ["BBQ-1"] && top.children[0].tickets.map(\.identifier) == ["BBQ-2"])
+    p.tickets = []
+    #expect(group([p, c], query: "").quiet[0].children[0].tickets.map(\.identifier) == ["BBQ-1", "BBQ-2"])
+}
+
+/// Search finds a row by the identifier or the title of its tickets.
+@Test func searchMatchesTickets() {
+    var t = row("t", .quiet, activity: 5, title: "Alpha")
+    t.tickets = [ticket("BBQ-12", title: "Fix the Café login")]
+    let rows = [t, row("o", .quiet, activity: 4, title: "Other")]
+    #expect(group(rows, query: "bbq-12").quiet.map(\.id) == ["t"])
+    #expect(group(rows, query: "cafe LOGIN").quiet.map(\.id) == ["t"])
+    #expect(group(rows, query: "zzz").quiet.isEmpty)
+}
