@@ -16,16 +16,17 @@ cask "rounds" do
 
   app "Rounds.app"
 
+  # Rounds has no Developer ID, so macOS calls a quarantined copy damaged.
+  postflight do
+    system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{appdir}/Rounds.app"]
+  end
+
   zap trash: [
     "~/Library/Application Support/Rounds",
     "~/Library/Preferences/com.henryqw.rounds.plist",
   ]
 
   caveats <<~EOS
-    Rounds has no Developer ID signature, so macOS blocks it at first. To open it, run:
-      xattr -dr com.apple.quarantine /Applications/Rounds.app
-    Run it again after each brew upgrade. Updates from Rounds itself need no step.
-
     Before you uninstall Rounds, click Remove Hooks in Settings > Sources, for Claude Code and Codex.
     The hooks run a helper inside Rounds.app.
   EOS

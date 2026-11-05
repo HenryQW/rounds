@@ -70,17 +70,17 @@ const desk = pool.map(([name, src]) => {
       </a>
       <a href="/overview">Read the docs</a>
     </div>
-    <article class="installer" aria-label="Install with Homebrew">
+    <article class="installer" aria-label="Install with one line in Terminal">
       <div class="command-row">
-        <code class="command"><span class="prompt" aria-hidden="true">$ </span>brew trust --tap henryqw/tap &amp;&amp; brew install --cask henryqw/tap/rounds</code>
-        <button class="copy" type="button" data-copy="brew trust --tap henryqw/tap &amp;&amp; brew install --cask henryqw/tap/rounds" aria-label="Copy the install command" aria-describedby="copy-status">
+        <code class="command"><span class="prompt" aria-hidden="true">$ </span>curl -fsSL https://rounds.henry.wang/install.sh | sh</code>
+        <button class="copy" type="button" data-copy="curl -fsSL https://rounds.henry.wang/install.sh | sh" aria-label="Copy the install command" aria-describedby="copy-status">
           <svg aria-hidden="true" width="14" height="14" viewBox="0 0 14 14" fill="none">
             <path d="M4.5 4.5H10.5C11.05 4.5 11.5 4.95 11.5 5.5V11.5C11.5 12.05 11.05 12.5 10.5 12.5H4.5C3.95 12.5 3.5 12.05 3.5 11.5V5.5C3.5 4.95 3.95 4.5 4.5 4.5Z" stroke="currentColor" stroke-width="1.25" />
             <path d="M2.5 9.5H2C1.45 9.5 1 9.05 1 8.5V2C1 1.45 1.45 1 2 1H8.5C9.05 1 9.5 1.45 9.5 2V2.5" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" />
           </svg>
         </button>
       </div>
-      <p class="copy-status" id="copy-status" aria-live="polite">Trusts the tap, then start your Rounds…</p>
+      <p class="copy-status" id="copy-status" aria-live="polite">Paste in Terminal: it installs and opens Rounds…</p>
     </article>
     <p class="needs">
       <span>macOS 27 · Free, <a href="https://github.com/HenryQW/rounds">open source</a>, <a href="https://github.com/HenryQW/rounds/blob/main/LICENSE">MIT license</a></span>
@@ -191,7 +191,7 @@ const desk = pool.map(([name, src]) => {
     color: var(--ui-background);
   }
 
-  /* The Homebrew command as a terminal card, as on pi.henry.wang: a prompt, the command, a copy button, a status line. */
+  /* The install command as a terminal card, as on pi.henry.wang: a prompt, the command, a copy button, a status line. */
   .installer {
     background: #09090b;
     border: 1px solid rgb(255 255 255 / 0.1);

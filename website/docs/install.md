@@ -1,6 +1,6 @@
 ---
 title: Install
-description: Download Rounds or install it with Homebrew on macOS 27, open it the first time, and connect Claude Code, Codex and pi with hooks.
+description: Install Rounds with one line in Terminal, with Homebrew or from the disk image on macOS 27, open it the first time, and connect Claude Code, Codex and pi with hooks.
 ---
 
 ## Requirements
@@ -8,9 +8,19 @@ description: Download Rounds or install it with Homebrew on macOS 27, open it th
 - macOS 27 on a Mac with Apple silicon.
 - At least one agent: Claude Code in the Claude desktop app (the Code tab), Codex, pi, or herdr. Rounds does not read Claude Code sessions started in a terminal, except inside herdr.
 
+## Install with one line
+
+Open Terminal (press ⌘ Space, type Terminal, press Return), paste this line and press Return:
+
+```sh
+curl -fsSL https://rounds.henry.wang/install.sh | sh
+```
+
+The script downloads the latest release, checks that the release certificate signed it, copies Rounds to `/Applications` and opens it. macOS does not block a copy that `curl` downloads, so you need no other step. Read the script first at [install.sh](/install.sh) if you like.
+
 ## Download
 
-Download [Rounds.dmg](https://github.com/HenryQW/rounds/releases/latest/download/Rounds.dmg), the latest release. Open it and drag Rounds to Applications. Each release, with its notes, is on the [releases page](https://github.com/HenryQW/rounds/releases).
+Download [Rounds.dmg](https://github.com/HenryQW/rounds/releases/latest/download/Rounds.dmg), the latest release. Open it and drag Rounds to Applications, then do the step in [Open Rounds the first time](#open-rounds-the-first-time). Each release, with its notes, is on the [releases page](https://github.com/HenryQW/rounds/releases).
 
 ## Homebrew
 
@@ -18,7 +28,7 @@ Download [Rounds.dmg](https://github.com/HenryQW/rounds/releases/latest/download
 brew trust --tap henryqw/tap && brew install --cask henryqw/tap/rounds
 ```
 
-Homebrew loads a cask from a tap that is not official only after you trust the tap. The first part of the command does that.
+Homebrew loads a cask from a tap that is not official only after you trust the tap. The first part of the command does that. The cask removes the quarantine flag, so Rounds opens at once.
 
 ## Updates
 
@@ -32,17 +42,15 @@ See [Build from source](/build).
 
 ## Open Rounds the first time
 
-Rounds has no Developer ID signature and Apple does not notarize it. So macOS blocks a downloaded copy at the first launch, with a message that it cannot check the app. Do one of these after you download Rounds or install it with Homebrew (an update from Rounds itself needs neither):
+This step is only for a copy from the disk image. Rounds has no Developer ID signature and Apple does not notarize it. So macOS says "Rounds is damaged and can't be opened" at the first launch. Rounds is not damaged: the browser added a quarantine flag, and macOS does not trust the Rounds certificate. Click Cancel, not Move to Trash.
 
-- In Terminal, remove the quarantine flag that the download added:
+In Terminal, remove the quarantine flag and open Rounds:
 
 ```sh
-xattr -dr com.apple.quarantine /Applications/Rounds.app
+xattr -dr com.apple.quarantine /Applications/Rounds.app && open /Applications/Rounds.app
 ```
 
-- Or open Rounds one time, then go to System Settings > Privacy & Security, and click Open Anyway next to the message about Rounds.
-
-A build from source has no quarantine flag, so it opens at once.
+The disk image has the same steps in "Read me if Rounds is damaged.txt". The one-line install, Homebrew, a build from source and an update from Rounds itself need no step.
 
 ## First launch
 

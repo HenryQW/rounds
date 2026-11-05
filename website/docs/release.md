@@ -33,7 +33,7 @@ The workflow stops if the tag is not `v` followed by the version in `VERSION`.
 
 ## Signing
 
-A release is signed with the self-signed certificate "Rounds Self-Signed". Every release then has the same identity, so macOS keeps the permissions you gave Rounds (such as Automation) after an update, and Sparkle can also check the code signature. macOS does not trust the certificate, and Rounds has no Developer ID, so Apple does not notarize it. macOS blocks the downloaded app at the first launch, and users remove the quarantine flag or click Open Anyway (see [Install](/install#open-rounds-the-first-time)). The cask shows the same command after each install.
+A release is signed with the self-signed certificate "Rounds Self-Signed". Every release then has the same identity, so macOS keeps the permissions you gave Rounds (such as Automation) after an update, and Sparkle can also check the code signature. macOS does not trust the certificate, and Rounds has no Developer ID, so Apple does not notarize it. macOS says that a copy downloaded with a browser is damaged, and users remove the quarantine flag (see [Install](/install#open-rounds-the-first-time); the disk image has a note with the steps). The install script (`website/public/install.sh`) downloads with `curl`, which adds no quarantine flag, and accepts only an app signed with this certificate (it compares the certificate's SHA-256). The cask removes the flag in its `postflight`. If you change the certificate, change the SHA-256 in the script in the same commit.
 
 ## The secrets
 

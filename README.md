@@ -29,13 +29,19 @@ The name is a round of drinks, one for each session. When nothing needs you, Rou
 
 ## Install
 
-Download [Rounds.dmg](https://github.com/HenryQW/rounds/releases/latest/download/Rounds.dmg), or install it with Homebrew:
+Paste this line in Terminal. It downloads Rounds, checks its signature, installs it in `/Applications` and opens it:
+
+```sh
+curl -fsSL https://rounds.henry.wang/install.sh | sh
+```
+
+Or install it with Homebrew:
 
 ```sh
 brew trust --tap henryqw/tap && brew install --cask henryqw/tap/rounds
 ```
 
-Rounds has no Developer ID signature, so macOS blocks a downloaded copy at first. Run `xattr -dr com.apple.quarantine /Applications/Rounds.app`, or click Open Anyway in System Settings > Privacy & Security.
+Or download [Rounds.dmg](https://github.com/HenryQW/rounds/releases/latest/download/Rounds.dmg). Rounds has no Developer ID signature, so macOS says that a downloaded copy is damaged. Drag Rounds to Applications, then run `xattr -dr com.apple.quarantine /Applications/Rounds.app && open /Applications/Rounds.app` in Terminal. The disk image has a note with these steps.
 
 To build from source:
 

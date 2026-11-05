@@ -1,0 +1,22 @@
+macOS says "Rounds is damaged and can't be opened"?
+
+Rounds is not damaged. Rounds has no Apple Developer ID, so macOS blocks a
+downloaded copy the first time you open it. Do these steps one time:
+
+1. Drag Rounds to the Applications folder in this window.
+
+2. Open Terminal: press Command and Space, type Terminal, then press Return.
+
+3. Copy this line, paste it into Terminal, then press Return:
+
+   xattr -dr com.apple.quarantine /Applications/Rounds.app && open /Applications/Rounds.app
+
+Rounds opens, and its pill shows at the right edge of your screen.
+Updates from Rounds itself need no step.
+
+Next time, you can install Rounds with one line in Terminal. macOS does not
+block a copy that this line downloads:
+
+   curl -fsSL https://rounds.henry.wang/install.sh | sh
+
+Help: https://rounds.henry.wang/install
