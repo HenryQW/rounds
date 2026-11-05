@@ -20,12 +20,16 @@ final class SettingsState {
     var linearKey = ""
     /// The sheet that asks for the Linear key shows.
     var linearSheet = false
+    /// The channel the push sheet sets up; nil when the sheet is closed.
+    var pushSheet: PushChannel?
+    /// The push values as the user types them; cleared at any close (the values live only in the Keychain).
+    var pushValues: [String: String] = [:]
     @ObservationIgnored weak var window: NSWindow?
 }
 
 /// The Settings pages in the sidebar (spec 5.4), each with a title and one line on what it is for.
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, pill, filters, agents, tickets, keys
+    case general, pill, filters, agents, tickets, notifications, keys
     var id: Self { self }
 
     var title: String {
@@ -35,6 +39,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .filters: "Filters"
         case .agents: "Agents"
         case .tickets: "Tickets"
+        case .notifications: "Notifications"
         case .keys: "Keys"
         }
     }
@@ -46,6 +51,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .filters: "line.3.horizontal.decrease.circle"
         case .agents: "sparkles"
         case .tickets: "ticket"
+        case .notifications: "bell"
         case .keys: "keyboard"
         }
     }
@@ -57,6 +63,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .filters: "What Last Call counts, and when a session is Aged."
         case .agents: "Where the live state of each session comes from."
         case .tickets: "Shows the Linear and GitHub issues of each session."
+        case .notifications: "Banners on this Mac, and remote messages when you are away."
         case .keys: "Keyboard shortcuts in the session window."
         }
     }
@@ -67,8 +74,9 @@ struct SettingsView: View {
     @Bindable var state: SettingsState
     @Bindable private var drawer = DrawerSettings.shared
     @Bindable private var updater = Updater.shared
+    @Bindable private var push = PushStore.shared
 
-    /// Six pages in a sidebar (spec 5.4), each a short grouped form under its title.
+    /// Seven pages in a sidebar (spec 5.4), each a short grouped form under its title.
     var body: some View {
         NavigationSplitView {
             List(SettingsPage.allCases, selection: $state.page) { Label($0.title, systemImage: $0.symbol) }
@@ -83,6 +91,7 @@ struct SettingsView: View {
             case .filters: page(.filters) { filters }
             case .agents: page(.agents) { sources }
             case .tickets: page(.tickets) { tickets }
+            case .notifications: page(.notifications) { notifications }
             case .keys: page(.keys) { keys }
             }
         }
@@ -95,6 +104,7 @@ struct SettingsView: View {
         .sheet(item: $state.installTarget) { installSheet($0) }
         // Cancel or any other close clears a key typed but not saved.
         .sheet(isPresented: $state.linearSheet, onDismiss: { state.linearKey = "" }) { linearSheet }
+        .sheet(item: $state.pushSheet, onDismiss: { state.pushValues = [:] }) { pushSheet($0) }
         .onAppear {
             NSApp.activate()
             model.refreshHookStatus()
@@ -109,6 +119,7 @@ struct SettingsView: View {
             state.isOpen = false
             // A key typed but not saved does not stay in memory.
             state.linearKey = ""
+            state.pushValues = [:]
         }
     }
 
@@ -426,6 +437,61 @@ struct SettingsView: View {
         }
     }
 
+    /// Banners on this Mac and the remote channels (spec 2.9), then what sends and when.
+    @ViewBuilder private var notifications: some View {
+        Section {
+            Toggle(isOn: $push.banners) { described("Show banners", "At once; a click opens the session.") }
+            Toggle(isOn: $push.bannerSound) { described("Play a sound", "For Needs input and Failed.") }
+                .disabled(!push.banners)
+        } header: {
+            Text("This Mac")
+        } footer: {
+            footer(push.bannerError)
+        }
+        Section {
+            ForEach(PushChannel.allCases) { channel in
+                let status = push.status(of: channel)
+                let failure: String? = if case .failed(let text) = status { text } else { nil }
+                integrationRow(channel.title, failure ?? channel.line, problem: failure != nil, logo: serviceLogo(channel.rawValue, Self.color(channel.color))) {
+                    if status == .notSet {
+                        Button("Connect…") { state.pushSheet = channel }
+                    } else {
+                        statusMenu(channel.title, failure == nil ? "Connected" : "Send failed", failure == nil ? .green : .orange) {
+                            Button("Send Test") { push.sendTest(channel) }
+                            Button("Change…") { state.pushSheet = channel }
+                            Button("Remove") { push.remove(channel) }
+                        }
+                    }
+                }
+                .help("Rounds sends the state, the session title, the detail and the folder name to Telegram, or to the Bark server and from there to Apple. Never prompt text. The values stay in your Keychain.")
+            }
+        } header: {
+            Text("Remote")
+        }
+        Section {
+            described("Send for", "The states that send a banner or a message.")
+            ForEach([(SessionState.needsInput, Color.orange), (.failed, .red), (.ready, .green)], id: \.0) { s, color in
+                Toggle(isOn: Binding(get: { push.states.contains(s) }, set: { if $0 { push.states.insert(s) } else { push.states.remove(s) } })) {
+                    HStack(spacing: 6) {
+                        Circle().fill(color).frame(width: 7, height: 7)
+                        Text(s.title)
+                    }
+                }
+                .toggleStyle(.checkbox)
+            }
+            LabeledContent {
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    TextField("", value: Binding(get: { push.awayMinutes }, set: { push.awayMinutes = min(max($0, 0), 60) }), format: .number)
+                        .multilineTextAlignment(.trailing).monospacedDigit().frame(width: 40)
+                    Text("min")
+                    Stepper("", value: $push.awayMinutes, in: 0...60).labelsHidden()
+                }
+            } label: {
+                described("Send remote messages after", "Time with no key or pointer input.")
+            }
+        }
+    }
+
     /// An agent row with hooks or an extension: Install… opens the preview sheet; the status menu repairs or removes
     /// them. An agent not on the Mac shows "Not found".
     private func hookRow(_ target: HookTarget, _ title: String, _ explanation: String, found: Bool) -> some View {
@@ -522,13 +588,52 @@ struct SettingsView: View {
         .frame(width: 460)
     }
 
+    /// Asks for the values of a channel (spec 5.4), from its fields; Return saves. Fields start empty.
+    private func pushSheet(_ channel: PushChannel) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                logoTile(serviceLogo(channel.rawValue, Self.color(channel.color)))
+                Text("Connect \(channel.title)").font(.headline)
+            }
+            Text(channel.hint).font(.callout).foregroundStyle(.secondary)
+            Form {
+                ForEach(channel.fields, id: \.key) { field in
+                    let value = Binding(get: { state.pushValues[field.key, default: ""] }, set: { state.pushValues[field.key] = $0 })
+                    if field.isSecret {
+                        SecureField(field.label, text: value, prompt: Text(field.placeholder))
+                    } else {
+                        TextField(field.label, text: value, prompt: Text(field.placeholder))
+                    }
+                }
+            }
+            .formStyle(.columns)
+            HStack {
+                Spacer()
+                Button("Cancel") { state.pushSheet = nil }
+                Button("Save") {
+                    push.save(channel, values: state.pushValues)
+                    state.pushSheet = nil
+                }
+                .keyboardShortcut(.defaultAction)
+                // A field with a default value may stay empty.
+                .disabled(channel.fields.contains { $0.defaultValue == nil && (state.pushValues[$0.key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+            }
+        }
+        .padding(20)
+        .frame(width: 460)
+    }
+
     /// A service's one-colour logo (simple-icons, CC0), drawn in its brand colour.
     private func serviceLogo(_ name: String, _ color: Color) -> some View {
         IconCache.image("\(name).svg") { Bundle.main.url(forResource: name, withExtension: "svg") }
             .map { Image(nsImage: $0).renderingMode(.template).resizable().aspectRatio(contentMode: .fit).foregroundStyle(color) }
     }
 
-    private static let linearColor = Color(red: 0x5E / 255, green: 0x6A / 255, blue: 0xD2 / 255)
+    private static let linearColor = color(0x5E6AD2)
+
+    private static func color(_ rgb: Int) -> Color {
+        Color(red: Double(rgb >> 16 & 0xFF) / 255, green: Double(rgb >> 8 & 0xFF) / 255, blue: Double(rgb & 0xFF) / 255)
+    }
     /// GitHub's black (#181717); white in dark mode, where the black does not show on the tile.
     private static let githubColor = Color(nsColor: NSColor(name: nil) { appearance in
         appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .white : NSColor(srgbRed: 0x18 / 255, green: 0x17 / 255, blue: 0x17 / 255, alpha: 1)

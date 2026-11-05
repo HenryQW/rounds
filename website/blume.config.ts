@@ -43,6 +43,7 @@ export default defineConfig({
       "/glossary",
       "/agents",
       "/tickets",
+      "/notifications",
       "/install",
       "/keys",
       "/build",

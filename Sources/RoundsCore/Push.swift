@@ -33,9 +33,43 @@ public struct PushField: Equatable, Sendable {
 public enum PushError: Error, Equatable { case missing(String), invalid(String) }
 
 /// A service that gets push messages (GLOSSARY "Channel"). This enum is the only place a channel is defined: to add
-/// one, add a case with its fields, its request and its failure parts.
-public enum PushChannel: String, CaseIterable, Codable, Sendable {
+/// one, add a case with its words, its logo (`Resources/<rawValue>.svg`) and colour, its fields, its request and its
+/// failure parts.
+public enum PushChannel: String, CaseIterable, Codable, Sendable, Identifiable {
     case telegram, bark
+
+    public var id: Self { self }
+
+    public var title: String {
+        switch self {
+        case .telegram: "Telegram"
+        case .bark: "Bark"
+        }
+    }
+
+    /// The Settings row's line on what the channel does.
+    public var line: String {
+        switch self {
+        case .telegram: "Messages from your Telegram bot."
+        case .bark: "Push messages to your iPhone."
+        }
+    }
+
+    /// The Connect sheet's line on where the values come from.
+    public var hint: String {
+        switch self {
+        case .telegram: "Make a bot with @BotFather and send it a message. Your chat ID is your user ID, from @userinfobot."
+        case .bark: "Copy the device key from the Bark app. Change the server only if you run your own."
+        }
+    }
+
+    /// The logo's brand colour, 0xRRGGBB.
+    public var color: Int {
+        switch self {
+        case .telegram: 0x26A5E4
+        case .bark: 0xFF543D
+        }
+    }
 
     public var fields: [PushField] {
         switch self {
@@ -97,6 +131,8 @@ public struct PushQueue: Sendable {
         let id: String
         let state: SessionState
         let since: Date
+
+        init(_ row: SessionRow) { (id, state, since) = (row.id, row.status.state, row.status.since) }
     }
 
     /// Every event checked so far, for the app's life; nil before the first check, which only learns.
@@ -107,7 +143,7 @@ public struct PushQueue: Sendable {
 
     public mutating func check(_ rows: [SessionRow], states: Set<SessionState>, idle: TimeInterval, awayMinutes: Int) -> [SessionRow] {
         let events = rows.filter { $0.status.group == .yourTurn && states.contains($0.status.state) }
-            .map { (row: $0, event: Event(id: $0.id, state: $0.status.state, since: $0.status.since)) }
+            .map { (row: $0, event: Event($0)) }
         let current = Set(events.map(\.event))
         defer { known = (known ?? []).union(current) }
         guard let known else { return [] }
@@ -116,5 +152,11 @@ public struct PushQueue: Sendable {
         let due = events.filter { waiting.contains($0.event) }
         waiting.subtract(due.map(\.event))
         return due.map(\.row)
+    }
+
+    /// The `sent` rows whose event is no longer current: it left Your Turn, changed or was seen.
+    public static func stale(_ sent: [SessionRow], in rows: [SessionRow]) -> [SessionRow] {
+        let current = Set(rows.filter { $0.status.group == .yourTurn && !$0.isSeen }.map(Event.init))
+        return sent.filter { !current.contains(Event($0)) }
     }
 }

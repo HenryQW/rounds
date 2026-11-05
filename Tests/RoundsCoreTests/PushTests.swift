@@ -105,3 +105,10 @@ private let all: Set<SessionState> = [.needsInput, .failed, .ready]
     _ = q.check([], states: [.needsInput], idle: 0, awayMinutes: 0)
     #expect(q.check([row(.ready)], states: [.needsInput], idle: 999, awayMinutes: 0).isEmpty)
 }
+
+@Test func staleBannersAreSeenChangedOrGone() {
+    let sent = [row(id: "a"), row(id: "b"), row(id: "c"), row(id: "d"), row(id: "e")]
+    // "a" is still current; "b" is seen; "c" waits again with a new since; "d" works; "e" is gone.
+    let now = [row(id: "a"), row(id: "b", seen: true), row(id: "c", since: 5), row(.working, id: "d")]
+    #expect(PushQueue.stale(sent, in: now).map(\.id) == ["b", "c", "d", "e"])
+}
