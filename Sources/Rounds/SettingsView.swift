@@ -389,7 +389,7 @@ struct SettingsView: View {
         case .offline, nil: ("Uses the gh command line tool.", false)
         }
         return Section {
-            integrationRow("Linear", linear.line, problem: linear.problem, logo: serviceLogo("linear")) {
+            integrationRow("Linear", linear.line, problem: linear.problem, logo: serviceLogo("linear", Self.linearColor)) {
                 if store.hasLinearKey {
                     let (word, color): (String, Color) = switch store.linearStatus {
                     case .connected: ("Connected", .green)
@@ -407,7 +407,7 @@ struct SettingsView: View {
                 }
             }
             .help("Make a personal API key in Linear: Settings, Account, Security and access. Read permission is enough. Rounds sends Linear only branch names, PR links and issue IDs. The key stays in your Keychain.")
-            integrationRow("GitHub", github.line, problem: github.problem, logo: serviceLogo("github")) {
+            integrationRow("GitHub", github.line, problem: github.problem, logo: serviceLogo("github", Self.githubColor)) {
                 let status: (word: String, color: Color)? = switch store.githubStatus {
                 case .signedIn: ("Signed in", .green)
                 case .notSignedIn: ("Not signed in", .orange)
@@ -504,7 +504,7 @@ struct SettingsView: View {
     private var linearSheet: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                logoTile(serviceLogo("linear"))
+                logoTile(serviceLogo("linear", Self.linearColor))
                 Text("Connect Linear").font(.headline)
             }
             Text("Make a personal API key in Linear: Settings, Account, Security and access. Read permission is enough. The key stays in your Keychain.")
@@ -522,11 +522,17 @@ struct SettingsView: View {
         .frame(width: 460)
     }
 
-    /// A service's one-colour logo (simple-icons, CC0), drawn in the label colour.
-    private func serviceLogo(_ name: String) -> some View {
+    /// A service's one-colour logo (simple-icons, CC0), drawn in its brand colour.
+    private func serviceLogo(_ name: String, _ color: Color) -> some View {
         IconCache.image("\(name).svg") { Bundle.main.url(forResource: name, withExtension: "svg") }
-            .map { Image(nsImage: $0).renderingMode(.template).resizable().aspectRatio(contentMode: .fit) }
+            .map { Image(nsImage: $0).renderingMode(.template).resizable().aspectRatio(contentMode: .fit).foregroundStyle(color) }
     }
+
+    private static let linearColor = Color(red: 0x5E / 255, green: 0x6A / 255, blue: 0xD2 / 255)
+    /// GitHub's black (#181717); white in dark mode, where the black does not show on the tile.
+    private static let githubColor = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .white : NSColor(srgbRed: 0x18 / 255, green: 0x17 / 255, blue: 0x17 / 255, alpha: 1)
+    })
 
     private func saveLinearKey() {
         TicketStore.shared.setLinearKey(state.linearKey)
