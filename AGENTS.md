@@ -9,6 +9,7 @@ Rounds: a native macOS 27 background app that shows the live state of AI coding 
 | What to build and why | `docs/spec.md` (§2 data sources, §3 classification, §5 UI) |
 | Look: colours, type, spacing, components | `DESIGN.md` |
 | Words and their meaning (the standard states) | `GLOSSARY.md` |
+| Release notes, one section per version (website/docs/release.md) | `CHANGELOG.md` |
 | Resumable state (git-ignored) | `.context/progress.md` |
 
 Code: `Sources/RoundsCore` (models, parsers, classifier, hook settings; no UI), `Sources/Rounds` (app), `Sources/rounds-hook` (hook helper that Claude Code and Codex run). Tests: `Tests/RoundsCoreTests`.

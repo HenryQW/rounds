@@ -7,7 +7,7 @@ A tag starts a release. The GitHub Actions workflow `.github/workflows/release.y
 
 ## Make a release
 
-1. Write the new version in `VERSION`, for example `0.2.0`, and commit it.
+1. Write the new version in `VERSION`, for example `0.2.0`, and its section in `CHANGELOG.md` (`## 0.2.0`), and commit them. The section is the release notes: one short line for each change a user can see, in words a user knows, under Breaking changes, Features and Fixes. Put all commits of one feature on one line, and leave out commits that undo each other, fixes to work that was not released, and changes only to code, tests, docs or the build. Start from `scripts/release-notes.sh v<previous> HEAD HenryQW/rounds`, which lists the commits by type.
 2. Tag the commit with the same version, then push the tag:
 
 ```sh
@@ -15,7 +15,7 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-The workflow stops if the tag is not `v` followed by the version in `VERSION`.
+The workflow stops if the tag is not `v` followed by the version in `VERSION`, or if `CHANGELOG.md` has no section for it (`scripts/changelog.sh`).
 
 ## What the workflow does
 
@@ -23,16 +23,16 @@ The workflow stops if the tag is not `v` followed by the version in `VERSION`.
 2. It runs the tests.
 3. It imports the signing certificate into a keychain for the run (`scripts/import-identity.sh`), builds `Rounds.app` with `scripts/bundle.sh`, stops if the app is not signed with "Rounds Self-Signed", and makes `Rounds.dmg` with `scripts/dmg.sh`.
 4. It signs `Rounds.dmg` with the Sparkle key and writes `appcast.xml` (`scripts/appcast.sh`), the feed that installed copies of Rounds read for updates. The feed holds the release notes (step 5) as Markdown, so the update window shows them as text. It stops if the key is not set. Then `scripts/verify-update.swift` checks the update as each installed copy will: the signature against `SUPublicEDKey` in the new app, the DMG's length, and the version. It stops on a mismatch.
-5. It publishes a GitHub release with two files: `Rounds.dmg`, which is the download, the Homebrew cask's file and the Sparkle update, and `appcast.xml`. The download link on the home page always points to the `Rounds.dmg` of the latest release. The release notes (`scripts/release-notes.sh`) list the commits since the previous tag under Breaking changes, Features, Fixes, Performance, Documentation and Other, by their Conventional Commits type, with the scope in bold and a link to all changes. The first release says "First release."
+5. It publishes a GitHub release with two files: `Rounds.dmg`, which is the download, the Homebrew cask's file and the Sparkle update, and `appcast.xml`. The download link on the home page always points to the `Rounds.dmg` of the latest release. The release notes are the version's section of `CHANGELOG.md` (step 1).
 6. If `TAP_TOKEN` is set, it writes the new version and checksum into `Casks/rounds.rb` in `HenryQW/homebrew-tap`.
 
 ## Beta builds
 
-`.github/workflows/beta.yml` builds each push to `main`, and each release tag, the same way: tests, the same certificate and Sparkle key, `scripts/verify-update.swift`. It replaces the files of the GitHub prerelease `beta`, and moves the tag `beta` to the build. Users who choose the Beta update channel get it. Its version is the last tag and the number of commits since it (`0.1.3.8`), so it is above that release and below the next one; on a tagged commit it is the release version. The notes list the commits since the last release. A prerelease is never the latest release, so the download link, the Stable channel and the cask do not change. `scripts/import-identity.sh` and `scripts/appcast.sh` are shared by both workflows.
+`.github/workflows/beta.yml` builds each push to `main`, and each release tag, the same way: tests, the same certificate and Sparkle key, `scripts/verify-update.swift`. It replaces the files of the GitHub prerelease `beta`, and moves the tag `beta` to the build. Users who choose the Beta update channel get it. Its version is the last tag and the number of commits since it (`0.1.3.8`), so it is above that release and below the next one; on a tagged commit it is the release version. Its notes list the commits since the last release (`scripts/release-notes.sh`), by their Conventional Commits type, for testers. A prerelease is never the latest release, so the download link, the Stable channel and the cask do not change. `scripts/import-identity.sh` and `scripts/appcast.sh` are shared by both workflows.
 
 ## Checks
 
-- **Commits** (`.github/workflows/commits.yml`): each commit pushed to `main`, or in a pull request, must have a Conventional Commits subject (`scripts/check-commits.sh`), so the release notes can group it.
+- **Commits** (`.github/workflows/commits.yml`): each commit pushed to `main`, or in a pull request, must have a Conventional Commits subject (`scripts/check-commits.sh`), so the beta notes can group it.
 - **Tap token** (`.github/workflows/tap-token.yml`): each Monday, it fails when `TAP_TOKEN` does not work or expires within 30 days. GitHub emails the owner about a failed scheduled run. Run it by hand from the Actions tab after you set a new token.
 
 ## Signing
