@@ -3,11 +3,7 @@
 // a click slides out a copy of the session window, whose tiles filter the list. Sizes, colours and timings follow
 // the app (DESIGN.md, spec 5.2 and 5.7); the tile, bar and search icons are drawn here, as SF Symbols are only for
 // apps on Apple platforms. With Reduce Motion nothing moves.
-import appleLogo from "../node_modules/@lobehub/icons-static-svg/icons/apple.svg?raw";
 import BarFloor from "./BarFloor.astro";
-
-// The Apple logo for Download for Mac, without its <title>, which would show as a tooltip.
-const apple = appleLogo.replace(/<title>[^<]*<\/title>/, "");
 
 // The desk: a mess of icons for the sources Rounds reads and the models that pi can run. Rounds reads the sources
 // directly; the models only show through pi. A seeded shuffle gives each build the same mess.
@@ -63,13 +59,6 @@ const desk = pool.map(([name, src]) => {
   <div class="intro">
     <h1>Your agents work in parallel. You need to stay sober.</h1>
     <p class="lede">All your AI sessions in one list at the edge of your screen. The pill tells you when one needs you.</p>
-    <div class="links">
-      <a class="primary" href="https://github.com/HenryQW/rounds/releases/latest/download/Rounds.dmg">
-        <span class="apple" aria-hidden="true" set:html={apple} />
-        Download for Mac
-      </a>
-      <a href="/overview">Read the docs</a>
-    </div>
     <article class="installer" aria-label="Install with one line in Terminal">
       <div class="command-row">
         <code class="command"><span class="prompt" aria-hidden="true">$ </span>curl -fsSL https://rounds.henry.wang/install.sh | sh</code>
@@ -82,6 +71,10 @@ const desk = pool.map(([name, src]) => {
       </div>
       <p class="copy-status" id="copy-status" aria-live="polite">Paste in Terminal: it installs and opens Rounds…</p>
     </article>
+    <div class="links">
+      <a href="/overview">Read the docs</a>
+      <a href="/install#other-ways-to-install">Other ways to install</a>
+    </div>
     <p class="needs">
       <span>macOS 27 · Free, <a href="https://github.com/HenryQW/rounds">open source</a>, <a href="https://github.com/HenryQW/rounds/blob/main/LICENSE">MIT license</a></span>
       <span>Works best with <a href="https://pi.henry.wang">Henry Pi Harness</a></span>
@@ -174,21 +167,7 @@ const desk = pool.map(([name, src]) => {
   .links {
     display: flex;
     gap: 10px;
-  }
-
-  /* The Apple logo from @lobehub/icons-static-svg, inline, so it takes the button's text colour. */
-  .apple {
-    display: flex;
-    font-size: 16px;
-  }
-
-  .links a.primary {
-    align-items: center;
-    display: inline-flex;
-    gap: 6px;
-    background: var(--ui-accent);
-    border-color: var(--ui-accent);
-    color: var(--ui-background);
+    margin-top: 16px;
   }
 
   /* The install command as a terminal card, as on pi.henry.wang: a prompt, the command, a copy button, a status line. */

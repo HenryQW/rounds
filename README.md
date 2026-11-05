@@ -35,13 +35,7 @@ Paste this line in Terminal. It downloads Rounds, checks its signature, installs
 curl -fsSL https://rounds.henry.wang/install.sh | sh
 ```
 
-Or install it with Homebrew:
-
-```sh
-brew trust --tap henryqw/tap && brew install --cask henryqw/tap/rounds
-```
-
-Or download [Rounds.dmg](https://github.com/HenryQW/rounds/releases/latest/download/Rounds.dmg). Rounds has no Developer ID signature, so macOS says that a downloaded copy is damaged. Drag Rounds to Applications, then run `xattr -dr com.apple.quarantine /Applications/Rounds.app && open /Applications/Rounds.app` in Terminal. The disk image has a note with these steps.
+Homebrew and the disk image are for special cases: see [Other ways to install](https://rounds.henry.wang/install#other-ways-to-install).
 
 To build from source:
 

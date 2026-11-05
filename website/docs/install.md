@@ -1,6 +1,6 @@
 ---
 title: Install
-description: Install Rounds with one line in Terminal, with Homebrew or from the disk image on macOS 27, open it the first time, and connect Claude Code, Codex and pi with hooks.
+description: Install Rounds on macOS 27 with one line in Terminal, keep it up to date, and connect Claude Code, Codex and pi with hooks.
 ---
 
 ## Requirements
@@ -18,18 +18,6 @@ curl -fsSL https://rounds.henry.wang/install.sh | sh
 
 The script downloads the latest release, checks that the release certificate signed it, copies Rounds to `/Applications` and opens it. macOS does not block a copy that `curl` downloads, so you need no other step. Read the script first at [install.sh](/install.sh) if you like.
 
-## Download
-
-Download [Rounds.dmg](https://github.com/HenryQW/rounds/releases/latest/download/Rounds.dmg), the latest release. Open it and drag Rounds to Applications, then do the step in [Open Rounds the first time](#open-rounds-the-first-time). Each release, with its notes, is on the [releases page](https://github.com/HenryQW/rounds/releases).
-
-## Homebrew
-
-```sh
-brew trust --tap henryqw/tap && brew install --cask henryqw/tap/rounds
-```
-
-Homebrew loads a cask from a tap that is not official only after you trust the tap. The first part of the command does that. The cask removes the quarantine flag, so Rounds opens at once.
-
 ## Updates
 
 Rounds looks for a new version once a day and asks before it installs one. To look now, right-click the pill and choose Check for Updates…. The settings are in Settings > General > Updates:
@@ -38,23 +26,7 @@ Rounds looks for a new version once a day and asks before it installs one. To lo
 - **Install updates automatically**: Rounds downloads a new version and installs it when it quits, with no question.
 - **Update channel**: Stable gets each release. Beta gets a build of each change on the main branch, to test fixes before a release; it can have bugs. When you go back to Stable, Rounds keeps the beta until a release is newer.
 
-Rounds 0.1.1 and earlier cannot update themselves: download the next release, or run `brew upgrade --cask rounds`, one time.
-
-## Build from source
-
-See [Build from source](/build).
-
-## Open Rounds the first time
-
-This step is only for a copy from the disk image. Rounds has no Developer ID signature and Apple does not notarize it. So macOS says "Rounds is damaged and can't be opened" at the first launch. Rounds is not damaged: the browser added a quarantine flag, and macOS does not trust the Rounds certificate. Click Cancel, not Move to Trash.
-
-In Terminal, remove the quarantine flag and open Rounds:
-
-```sh
-xattr -dr com.apple.quarantine /Applications/Rounds.app && open /Applications/Rounds.app
-```
-
-The disk image has the same steps in "Read me if Rounds is damaged.txt". The one-line install, Homebrew, a build from source and an update from Rounds itself need no step.
+Rounds 0.1.1 and earlier cannot update themselves: run the install line again, one time.
 
 ## First launch
 
@@ -82,3 +54,29 @@ pi has no hooks. Rounds gets the live state of pi sessions from a small pi exten
 ## After a rename or a move
 
 If the Claude Code or Codex row says "Needs repair", the hook command points to a path that is not valid now. Open the status menu of that row and choose Repair Hooks.
+
+## Other ways to install
+
+Use the one line above if you can. These ways are for special cases.
+
+### Homebrew
+
+```sh
+brew trust --tap henryqw/tap && brew install --cask henryqw/tap/rounds
+```
+
+Homebrew loads a cask from a tap that is not official only after you trust the tap. The first part of the command does that. The cask removes the quarantine flag, so Rounds opens at once.
+
+### Disk image
+
+Each release has `Rounds.dmg` on the [releases page](https://github.com/HenryQW/rounds/releases). Open it and drag Rounds to Applications. Rounds has no Developer ID signature and Apple does not notarize it, so macOS says "Rounds is damaged and can't be opened" at the first launch. Rounds is not damaged: the browser added a quarantine flag, and macOS does not trust the Rounds certificate. Click Cancel, not Move to Trash. Then, in Terminal, remove the flag and open Rounds:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Rounds.app && open /Applications/Rounds.app
+```
+
+The disk image has the same steps in "Read me if Rounds is damaged.txt".
+
+### Build from source
+
+See [Build from source](/build).
