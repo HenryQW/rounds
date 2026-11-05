@@ -1,11 +1,11 @@
+import AppKit
 import CoreGraphics
 import Foundation
 import Observation
 import RoundsCore
 import Security
-import UserNotifications
 
-/// Push notifications (spec 2.9): a banner on this Mac at once, and, when the Mac has had no input for a time, one
+/// Push notifications (spec 2.9): a sound on this Mac at once, and, when the Mac has had no input for a time, one
 /// message through each channel that has values. The values live only in the Keychain. Checks run on each regroup, so
 /// also on the app's 30 s timer.
 @MainActor @Observable
@@ -19,22 +19,28 @@ final class PushStore {
         didSet {
             appDefaults.set(states.map(\.rawValue).sorted(), forKey: "pushStates")
             queue = PushQueue()
-            bannerQueue = PushQueue()
+            soundQueue = PushQueue()
         }
     }
-    /// Banners on this Mac. Turning them on asks macOS for permission; a refusal turns them off again.
-    var banners: Bool {
+    /// Sounds on this Mac. A change learns the current events again, so it plays none of them.
+    var sounds: Bool {
         didSet {
-            appDefaults.set(banners, forKey: "pushBanners")
-            // The first check after this only learns, so events from before it show no banner.
-            bannerQueue = PushQueue()
-            if banners { authorize() }
+            appDefaults.set(sounds, forKey: "pushSounds")
+            soundQueue = PushQueue()
         }
     }
-    /// A sound with the banners of Needs input and Failed.
-    var bannerSound: Bool { didSet { appDefaults.set(bannerSound, forKey: "pushBannerSound") } }
-    /// Why banners are off, after macOS refused them.
-    private(set) var bannerError: String?
+    /// The sound of each state; an empty name is None.
+    var soundNames: [SessionState: String] {
+        didSet {
+            appDefaults.set(Dictionary(uniqueKeysWithValues: soundNames.map { ($0.key.rawValue, $0.value) }), forKey: "pushSoundNames")
+            soundQueue = PushQueue()
+        }
+    }
+    /// The system sounds, by name.
+    static let soundList: [String] = ((try? FileManager.default.contentsOfDirectory(atPath: "/System/Library/Sounds")) ?? [])
+        .map { ($0 as NSString).deletingPathExtension }.sorted()
+    /// Most urgent first: one check plays one sound.
+    private static let soundOrder: [SessionState] = [.needsInput, .failed, .ready]
     /// Minutes with no key or pointer input before an event goes out; 0 sends at once.
     var awayMinutes: Int { didSet { appDefaults.set(awayMinutes, forKey: "pushAwayMinutes") } }
     /// The channels that have values: not secret, so no Keychain read happens while it is empty.
@@ -48,22 +54,17 @@ final class PushStore {
     /// Tests asked for while the Keychain read runs.
     @ObservationIgnored private var tests: Set<PushChannel> = []
     @ObservationIgnored private var queue = PushQueue()
-    /// Banners go out at once: the same queue with no away time.
-    @ObservationIgnored private var bannerQueue = PushQueue()
-    /// The rows of the banners sent, as sent, so each banner goes once its event is no longer current.
-    @ObservationIgnored private var bannerRows: [SessionRow] = []
-    /// nil outside the app bundle (tests, `swift run`), where the notification center stops the process.
-    private static let center = Bundle.main.bundleURL.pathExtension == "app" ? UNUserNotificationCenter.current() : nil
-    private static let bannerDelegate = BannerDelegate()
+    /// Sounds play at once: the same queue with no away time.
+    @ObservationIgnored private var soundQueue = PushQueue()
 
     private init() {
         let defaultStates: [SessionState] = [.needsInput, .failed, .ready]
         states = Set(appDefaults.stringArray(forKey: "pushStates")?.compactMap(SessionState.init) ?? defaultStates)
         awayMinutes = appDefaults.object(forKey: "pushAwayMinutes") as? Int ?? 2
         channels = Set((appDefaults.stringArray(forKey: "pushChannels") ?? []).compactMap(PushChannel.init))
-        banners = appDefaults.bool(forKey: "pushBanners")
-        bannerSound = appDefaults.object(forKey: "pushBannerSound") as? Bool ?? true
-        Self.center?.delegate = Self.bannerDelegate
+        sounds = appDefaults.bool(forKey: "pushSounds")
+        let stored = appDefaults.dictionary(forKey: "pushSoundNames") as? [String: String] ?? [:]
+        soundNames = Dictionary(uniqueKeysWithValues: zip(Self.soundOrder, ["Submarine", "Basso", "Glass"]).map { ($0, stored[$0.rawValue] ?? $1) })
     }
 
     func status(of channel: PushChannel) -> Status {
@@ -74,7 +75,7 @@ final class PushStore {
     /// The sessions of the list groups, after each regroup: sends the events that are due.
     func check(_ rows: [SessionRow]) {
         guard !Demo.isOn else { return }
-        if banners { showBanners(rows) }
+        if sounds { playSound(rows) }
         guard !channels.isEmpty else { return }
         // The first check after the read only learns, so events from before it do not send.
         guard let values else { return load() }
@@ -85,46 +86,15 @@ final class PushStore {
         }
     }
 
-    /// Posts the new events (a banner replaces the one of the same row), then takes away the banners whose event is
-    /// no longer current: seen, changed or out of Your Turn.
-    private func showBanners(_ rows: [SessionRow]) {
-        guard let center = Self.center else { return }
-        for row in bannerQueue.check(rows, states: states, idle: 0, awayMinutes: 0) {
-            let message = PushMessage(row), content = UNMutableNotificationContent()
-            (content.title, content.body) = (message.title, message.body)
-            if bannerSound && message.urgent { content.sound = .default }
-            center.add(UNNotificationRequest(identifier: row.id, content: content, trigger: nil)) { error in
-                guard let error else { return }
-                log.error("push: banner failed (\(error.localizedDescription, privacy: .public))")
-                // The user turned notifications off for Rounds in System Settings.
-                if (error as? UNError)?.code == .notificationsNotAllowed { DispatchQueue.main.async { MainActor.assumeIsolated { self.refused() } } }
-            }
-            bannerRows.removeAll { $0.id == row.id }
-            bannerRows.append(row)
-        }
-        let stale = Set(PushQueue.stale(bannerRows, in: rows).map(\.id))
-        guard !stale.isEmpty else { return }
-        center.removeDeliveredNotifications(withIdentifiers: Array(stale))
-        bannerRows.removeAll { stale.contains($0.id) }
+    /// Plays the sound of the most urgent new event.
+    private func playSound(_ rows: [SessionRow]) {
+        let named = soundNames.filter { !$0.value.isEmpty }
+        let new = soundQueue.check(rows, states: Set(named.keys), idle: 0, awayMinutes: 0)
+        guard let state = Self.soundOrder.first(where: { s in new.contains { $0.status.state == s } }), let name = named[state] else { return }
+        play(name)
     }
 
-    private func authorize() {
-        guard !Demo.isOn, let center = Self.center else { return }
-        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
-            DispatchQueue.main.async { MainActor.assumeIsolated { if granted { self.bannerError = nil } else { self.refused() } } }
-        }
-    }
-
-    private func refused() {
-        banners = false
-        bannerError = "Turn on notifications for Rounds in System Settings."
-    }
-
-    /// A banner click opens its session as a row click does, which also closes the session window.
-    fileprivate func open(_ id: String) {
-        guard let row = AppModel.shared.allGroups.sessions.first(where: { $0.id == id }) else { return }
-        if PanelController.shared.state.shown { PanelController.shared.open(row) } else { AppModel.shared.open(row) }
-    }
+    func play(_ name: String) { NSSound(named: name)?.play() }
 
     func save(_ channel: PushChannel, values new: [String: String]) {
         guard !Demo.isOn else { return }
@@ -200,18 +170,6 @@ final class PushStore {
     private func sent(_ channel: PushChannel, failure: String?) {
         log.info("push: \(channel.rawValue, privacy: .public), \(failure ?? "sent", privacy: .public)")
         failures[channel] = failure
-    }
-}
-
-/// Shows banners while Rounds is active too, and opens the session of a clicked banner.
-private final class BannerDelegate: NSObject, UNUserNotificationCenterDelegate {
-    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        [.banner, .list, .sound]
-    }
-
-    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        let id = response.notification.request.identifier
-        await PushStore.shared.open(id)
     }
 }
 

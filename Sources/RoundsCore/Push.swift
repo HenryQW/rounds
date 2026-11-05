@@ -153,10 +153,4 @@ public struct PushQueue: Sendable {
         waiting.subtract(due.map(\.event))
         return due.map(\.row)
     }
-
-    /// The `sent` rows whose event is no longer current: it left Your Turn, changed or was seen.
-    public static func stale(_ sent: [SessionRow], in rows: [SessionRow]) -> [SessionRow] {
-        let current = Set(rows.filter { $0.status.group == .yourTurn && !$0.isSeen }.map(Event.init))
-        return sent.filter { !current.contains(Event($0)) }
-    }
 }

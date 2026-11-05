@@ -52,7 +52,7 @@ A Linear issue or a GitHub issue linked to a session: by its branch, its pull re
 _Avoid_: issue (alone), task, card
 
 **Channel**:
-A remote service that gets push messages from Rounds: Telegram or Bark. A channel sends only after the user gives its values (a token, a key). Banners on this Mac are not a channel.
+A remote service that gets push messages from Rounds: Telegram or Bark. A channel sends only after the user gives its values (a token, a key).
 _Avoid_: provider, integration, sink
 
 **Project**:

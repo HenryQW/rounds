@@ -63,7 +63,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .filters: "What Last Call counts, and when a session is Aged."
         case .agents: "Where the live state of each session comes from."
         case .tickets: "Shows the Linear and GitHub issues of each session."
-        case .notifications: "Banners on this Mac, and remote messages when you are away."
+        case .notifications: "Sounds on this Mac, and remote messages when you are away."
         case .keys: "Keyboard shortcuts in the session window."
         }
     }
@@ -437,16 +437,39 @@ struct SettingsView: View {
         }
     }
 
-    /// Banners on this Mac and the remote channels (spec 2.9), then what sends and when.
+    private static let soundStates: [(SessionState, Color)] = [(.needsInput, .orange), (.failed, .red), (.ready, .green)]
+
+    /// Sounds on this Mac and the remote channels (spec 2.9), then what sends and when.
     @ViewBuilder private var notifications: some View {
         Section {
-            Toggle(isOn: $push.banners) { described("Show banners", "At once; a click opens the session.") }
-            Toggle(isOn: $push.bannerSound) { described("Play a sound", "For Needs input and Failed.") }
-                .disabled(!push.banners)
+            Toggle(isOn: $push.sounds) { described("Play sounds", "When a session comes into Your Turn.") }
+            ForEach(Self.soundStates, id: \.0) { s, color in
+                let name = push.soundNames[s] ?? ""
+                LabeledContent {
+                    HStack(spacing: 6) {
+                        Picker("", selection: Binding(get: { name }, set: { push.soundNames[s] = $0 })) {
+                            Text("None").tag("")
+                            ForEach(PushStore.soundList, id: \.self) { Text($0).tag($0) }
+                        }
+                        .labelsHidden().fixedSize()
+                        Button { push.play(name) } label: { Image(systemName: "play.fill") }
+                            .buttonStyle(.borderless)
+                            .padding(4)
+                            .background(Color.primary.opacity(state.hoveredButton == "play-\(s.rawValue)" ? 0.08 : 0), in: .rect(cornerRadius: 6))
+                            .onHover { if $0 { state.hoveredButton = "play-\(s.rawValue)" } else if state.hoveredButton == "play-\(s.rawValue)" { state.hoveredButton = nil } }
+                            .help("Play")
+                            .disabled(name.isEmpty)
+                    }
+                } label: {
+                    HStack(spacing: 6) {
+                        Circle().fill(color).frame(width: 7, height: 7)
+                        Text(s.title)
+                    }
+                }
+                .disabled(!push.sounds)
+            }
         } header: {
-            Text("This Mac")
-        } footer: {
-            footer(push.bannerError)
+            Text("Sounds")
         }
         Section {
             ForEach(PushChannel.allCases) { channel in
@@ -469,8 +492,8 @@ struct SettingsView: View {
             Text("Remote")
         }
         Section {
-            described("Send for", "The states that send a banner or a message.")
-            ForEach([(SessionState.needsInput, Color.orange), (.failed, .red), (.ready, .green)], id: \.0) { s, color in
+            described("Send for", "The states that send a remote message.")
+            ForEach(Self.soundStates, id: \.0) { s, color in
                 Toggle(isOn: Binding(get: { push.states.contains(s) }, set: { if $0 { push.states.insert(s) } else { push.states.remove(s) } })) {
                     HStack(spacing: 6) {
                         Circle().fill(color).frame(width: 7, height: 7)
