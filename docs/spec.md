@@ -48,6 +48,7 @@ Path: `~/Library/Application Support/Claude/claude-code-sessions/*/*/local_*.jso
 | `postTurnSummary` `{status_category, needs_action, status_detail, summarizes_uuid}` | Desktop end-of-turn status: `completed`, `review_ready`, `blocked`, `failed`, `need_input` |
 | `error`, `errorAt` | Failed, if `errorAt` is less than 7 days old |
 | `interruptedAwaitingPerson` | App quit while a prompt was pending |
+| `sideSessionWakesSinceUserMessage` | Turns since the user's last message that a side session's report started (rule 9) |
 | `sshConfig`, `remoteTarget` | No live state (hooks run on the remote host) |
 | `spawnedFrom` `{sessionId, taskId, title, sideSession?, userFork?, btw?}` | Side session or fork: a child session of the session with that `sessionId` (5.2). `userFork` true: a fork the user made |
 
@@ -186,12 +187,12 @@ A push event is a session in Your Turn in one of the chosen states (Needs input,
 | 6 | Last `Stop` has `bg_tasks > 0` | Running | Background tasks (the `task_list` of that `Stop` shows as lines under the row, 5.2) |
 | 7 | Last hook event is `StopFailure`, or `errorAt` less than 7 days old, or fresh summary is `failed` | Needs your input | Failed: `<error>` |
 | 8 | A cron in the last `Stop` fires within 15 min | Running | Wakes in `<n>` min |
-| 9 | `turnWrapUp.needsUser` set, or a wrap-up question in the transcript tail (2.2), or fresh summary is `blocked` or `need_input` (and not `turnWrapUp` without `needsUser` when `needs_action` is empty) | Needs your input | Question |
+| 9 | `turnWrapUp.needsUser` set, or a wrap-up question in the transcript tail (2.2), or fresh summary is `blocked` or `need_input` (and not `turnWrapUp` without `needsUser` when `needs_action` is empty, and not in a turn that a side session started) | Needs your input | Question |
 | 10 | Otherwise | Quiet | Completed / Review ready / Stopped by you / New |
 
 "Fresh summary" means `postTurnSummary.summarizes_uuid == lastAssistantUuid`, and the last hook event is `Stop` or `StopFailure` (a summary can arrive mid-turn).
 
-Rule 9 follows the desktop summary as it is, also when `needs_action` points to side sessions or the user already opened the session. The user clears these with Mark as Done (decided 2026-10-26).
+Rule 9 follows the desktop summary as it is, also when `needs_action` points to side sessions or the user already opened the session. The user clears these with Mark as Done (decided 2026-10-26). Exception: when `sideSessionWakesSinceUserMessage` is above 0, a side session's report started the turn, and a blocked summary only passes on that session's wait. The side session's own row shows the wait, and it stays after the user answers there, so the parent ignores the summary (decided 2026-11-05). A wrap-up question in that turn still counts.
 
 MCP tool names (`mcp__<server>__<tool>`) show as the tool part in Running and Permission labels.
 

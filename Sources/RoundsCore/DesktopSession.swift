@@ -70,6 +70,8 @@ public struct DesktopSession: Sendable, Equatable, Identifiable {
     public let summary: PostTurnSummary?
     public let errorAt: Date?
     public let interruptedAwaitingPerson: Bool
+    /// Turns since the user's last message that a side session's report started.
+    public let sideSessionWakes: Int
     public let isRemote: Bool
     public let spawnedFrom: SpawnedFrom?
 
@@ -108,6 +110,7 @@ public struct DesktopSession: Sendable, Equatable, Identifiable {
         }
         errorAt = date(d["errorAt"])
         interruptedAwaitingPerson = d["interruptedAwaitingPerson"] as? Bool ?? false
+        sideSessionWakes = d["sideSessionWakesSinceUserMessage"] as? Int ?? 0
         spawnedFrom = (d["spawnedFrom"] as? [String: Any]).flatMap { f in
             (f["sessionId"] as? String).map { SpawnedFrom(sessionId: $0, title: f["title"] as? String ?? "", userFork: f["userFork"] as? Bool ?? false) }
         }

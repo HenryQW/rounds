@@ -215,7 +215,8 @@ public func classify(_ input: ClassifierInput) -> SessionStatus {
         return SessionStatus(.background, "Wakes in \(minutes) min", since: stop.at)
     }
     // Rule 9.
-    let blockedSummary = summary.map { ["blocked", "need_input"].contains($0.category) } ?? false
+    // A turn that a side session's report started passes on that session's wait; the side session's row shows it.
+    let blockedSummary = s.sideSessionWakes == 0 && summary.map { ["blocked", "need_input"].contains($0.category) } ?? false
     // A wrap-up without a question turns a blocked summary into review, unless the summary names a step for the user.
     let reviewReady = summary?.category == "review_ready"
         || (s.hasWrapUp && s.wrapUpNeedsUser == nil && blockedSummary && summary?.needsAction.isEmpty == true)

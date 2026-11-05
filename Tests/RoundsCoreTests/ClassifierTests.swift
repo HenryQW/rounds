@@ -119,6 +119,14 @@ func rule5Running(l: HookLine, label: String) {
     expect(classify(session(["turnWrapUp": ["description": "d"]]), stop, tail: .question), .needsInput, "Question")
 }
 
+@Test func sideSessionWakePassesOnItsWait() {
+    // A turn that a side session's report started: the blocked summary is the side session's wait.
+    expect(classify(session(["postTurnSummary": blockedSummary, "sideSessionWakesSinceUserMessage": 2]), stop), .finished)
+    // A question the woken turn asks itself still counts.
+    let asked: [String: Any] = ["postTurnSummary": blockedSummary, "sideSessionWakesSinceUserMessage": 1, "turnWrapUp": ["description": "d", "needsUser": "Q?"]]
+    expect(classify(session(asked), stop), .needsInput, "Question")
+}
+
 @Test func staleSummaryIgnored() {
     var s = blockedSummary
     s["summarizes_uuid"] = "old"
