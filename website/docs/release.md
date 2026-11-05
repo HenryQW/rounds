@@ -7,7 +7,7 @@ A tag starts a release. The GitHub Actions workflow `.github/workflows/release.y
 
 ## Make a release
 
-1. Write the new version in `VERSION`, for example `0.2.0`, and its section in `CHANGELOG.md` (`## 0.2.0`), and commit them. The section is the release notes: one short line for each change a user can see, in words a user knows, under Breaking changes, Features and Fixes. Put all commits of one feature on one line, and leave out commits that undo each other, fixes to work that was not released, and changes only to code, tests, docs or the build. Start from `scripts/release-notes.sh v<previous> HEAD HenryQW/rounds`, which lists the commits by type.
+1. Write the new version in `VERSION`, for example `0.2.0`, and its section in `CHANGELOG.md` (`## 0.2.0`), and commit them. The section is the release notes: one short line for each change a user can see, in words a user knows, under Breaking changes, Features and Fixes. Put all commits of one feature on one line, and leave out commits that undo each other, fixes to work that was not released, and changes only to code, tests, docs or the build. An agent drafts it with a cheaper model from `scripts/release-notes.sh v<previous> HEAD HenryQW/rounds`, which lists the commits by type (AGENTS.md).
 2. Tag the commit with the same version, then push the tag:
 
 ```sh

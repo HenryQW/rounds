@@ -39,6 +39,7 @@ Code: `Sources/RoundsCore` (models, parsers, classifier, hook settings; no UI), 
 - Update the spec in the same commit as a behaviour change.
 - Docs and UI copy: ASD-STE100 Simplified Technical English, no em or en dashes.
 - Commit each change; never push without the user's go-ahead.
+- Release notes: before the tag, a cheaper model (in Claude Code, a Sonnet subagent, `model: "sonnet"`) drafts the version's `CHANGELOG.md` section from `scripts/release-notes.sh v<previous> HEAD HenryQW/rounds` and the rules at the top of `CHANGELOG.md`. The main agent checks the draft against those rules, shows it to the user, and commits it with `VERSION` (website/docs/release.md).
 
 ## UI rules (all windows, menus, hints and docs)
 
