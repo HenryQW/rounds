@@ -41,14 +41,17 @@ enum Processes {
         return arguments(of: pid).env.first { $0.hasPrefix(prefix) }.map { String($0.dropFirst(prefix.count)) }
     }
 
+    /// The executable path (same user); empty when it cannot be read.
+    static func path(of pid: pid_t) -> String { arguments(of: pid).path }
+
     /// The arguments and environment of a process (same user), from `KERN_PROCARGS2`:
     /// argc, the executable path, padding, argc argument strings, then the environment strings.
-    private static func arguments(of pid: pid_t) -> (args: [String], env: [String]) {
+    private static func arguments(of pid: pid_t) -> (path: String, args: [String], env: [String]) {
         var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
         var size = 0
-        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 4 else { return ([], []) }
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 4 else { return ("", [], []) }
         var bytes = [UInt8](repeating: 0, count: size)
-        guard sysctl(&mib, 3, &bytes, &size, nil, 0) == 0, size > 4 else { return ([], []) }
+        guard sysctl(&mib, 3, &bytes, &size, nil, 0) == 0, size > 4 else { return ("", [], []) }
         let argc = Int(bytes.withUnsafeBytes { $0.load(as: Int32.self) })
         var i = 4
         func string() -> String? {
@@ -58,11 +61,11 @@ enum Processes {
             defer { i += 1 }
             return String(decoding: bytes[start..<i], as: UTF8.self)
         }
-        _ = string()
+        let path = string() ?? ""
         while i < size, bytes[i] == 0 { i += 1 }
         let args = (0..<argc).compactMap { _ in string() }
         var env: [String] = []
         while let entry = string(), !entry.isEmpty { env.append(entry) }
-        return (args, env)
+        return (path, args, env)
     }
 }

@@ -182,12 +182,21 @@ enum TerminalOpener {
         var current = pid
         for _ in 0..<12 {
             guard let parent = Processes.parent(of: current), parent > 1 else { return nil }
-            if let app = NSRunningApplication(processIdentifier: parent), app.activationPolicy == .regular {
+            if let app = NSRunningApplication(processIdentifier: parent).flatMap({ $0.activationPolicy == .regular ? $0 : nil }) ?? appAround(parent) {
                 return Client(app: app, rootshellPane: Processes.environment(of: pid, "LC_ROOTSHELL_PANE").flatMap(UUID.init(uuidString:)))
             }
             current = parent
         }
         return nil
+    }
+
+    /// The running regular app whose bundle holds the process's executable. rootshell keeps its shells in
+    /// rootshell-helper, a background app that `NSRunningApplication` does not list and that outlives a restart of
+    /// rootshell, then runs under launchd.
+    nonisolated private static func appAround(_ pid: pid_t) -> NSRunningApplication? {
+        let path = Processes.path(of: pid)
+        guard let end = path.range(of: ".app/")?.lowerBound, let id = Bundle(path: path[..<end] + ".app")?.bundleIdentifier else { return nil }
+        return NSRunningApplication.runningApplications(withBundleIdentifier: id).first { $0.activationPolicy == .regular }
     }
 
     /// A local client: its exact rootshell pane, else its app. No local client: herdr in a new tab of a running
