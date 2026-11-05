@@ -32,7 +32,11 @@ Homebrew loads a cask from a tap that is not official only after you trust the t
 
 ## Updates
 
-Rounds looks for a new version once a day and asks before it installs one. To look now, right-click the pill and choose Check for Updates…. To stop the daily check, turn off "Check for updates automatically" in Settings > General.
+Rounds looks for a new version once a day and asks before it installs one. To look now, right-click the pill and choose Check for Updates…. The settings are in Settings > General > Updates:
+
+- **Check for updates automatically**: turn it off to stop the daily check.
+- **Install updates automatically**: Rounds downloads a new version and installs it when it quits, with no question.
+- **Update channel**: Release gets each release. Beta gets a build of each change on the main branch, to test fixes before a release; it can have bugs. When you go back to Release, Rounds keeps the beta until a release is newer.
 
 Rounds 0.1.1 and earlier cannot update themselves: download the next release, or run `brew upgrade --cask rounds`, one time.
 

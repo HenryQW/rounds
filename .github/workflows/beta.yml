@@ -1,0 +1,70 @@
+name: Beta
+
+# Each push to main (and each release tag) builds Rounds like a release and publishes it on the rolling prerelease
+# "beta": Rounds.dmg and appcast.xml, the feed of the Beta update channel (spec 5.8). Version: <last tag>.<commits
+# since it>, so it is above that release and below the next one; on a tagged commit it is the release version. A
+# prerelease is never the latest release, so the Release channel, the download link and the cask do not change.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: beta
+  cancel-in-progress: true
+
+jobs:
+  beta:
+    runs-on: xcode-27
+    env:
+      SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
+      SIGNING_CERTIFICATE_P12: ${{ secrets.SIGNING_CERTIFICATE_P12 }}
+      SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # the version and the notes need the last tag and the commits since it
+
+      - name: Set the version
+        run: |
+          TAG="$(git describe --tags --abbrev=0 --match 'v*')"
+          COUNT="$(git rev-list --count "$TAG..HEAD")"
+          SHA="$(git rev-parse --short HEAD)"
+          if [ "$COUNT" = 0 ]; then VERSION="${TAG#v}"; else VERSION="${TAG#v}.$COUNT"; fi
+          { echo "TAG=$TAG"; echo "ROUNDS_VERSION=$VERSION"; echo "ROUNDS_SHORT_VERSION=$VERSION beta ($SHA)"; } >> "$GITHUB_ENV"
+
+      - name: Test
+        run: swift test
+
+      - name: Import the signing identity
+        run: scripts/import-identity.sh
+
+      - name: Build the app and the disk image
+        run: |
+          scripts/bundle.sh
+          # The release identity, so permissions and Keychain access stay when a user changes channel.
+          codesign -dvv build/Rounds.app 2>&1 | grep -x "Authority=Rounds Self-Signed" > /dev/null  # no -q: an early exit is SIGPIPE
+          scripts/dmg.sh
+
+      - name: Sign the update and write the appcast
+        run: |
+          test -n "$SPARKLE_ED_PRIVATE_KEY"
+          SIGNATURE="$(printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/sign_update --ed-key-file - build/Rounds.dmg)"
+          # Notes: the commits since the last release.
+          scripts/release-notes.sh "$TAG" HEAD "$GITHUB_REPOSITORY" > build/notes.md
+          scripts/appcast.sh "$ROUNDS_VERSION" "$ROUNDS_SHORT_VERSION" "https://github.com/$GITHUB_REPOSITORY/releases/download/beta/Rounds.dmg" "$SIGNATURE" build/notes.md > build/appcast.xml
+          xmllint --noout build/appcast.xml
+          swift scripts/verify-update.swift build/Rounds.app build/Rounds.dmg build/appcast.xml
+
+      - name: Publish the beta
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The tag "beta" follows the build; the release keeps its name and gets the new files.
+          git tag -f beta && git push -f origin refs/tags/beta
+          gh release view beta > /dev/null 2>&1 || gh release create beta --prerelease --latest=false --title "Rounds beta" --notes "Beta"
+          gh release upload beta build/Rounds.dmg build/appcast.xml --clobber
+          gh release edit beta --prerelease --latest=false --title "Rounds $ROUNDS_SHORT_VERSION" --notes-file build/notes.md

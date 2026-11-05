@@ -11,8 +11,10 @@ cp "$BIN/Rounds" "$APP/Contents/MacOS/Rounds"
 cp "$BIN/rounds-hook" "$APP/Contents/Helpers/rounds-hook"
 ditto "$BIN/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
-# VERSION is the one place the version lives; Settings reads it from there, and Sparkle compares CFBundleVersion.
-/usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string $(cat VERSION)" -c "Add :CFBundleVersion string $(cat VERSION)" "$APP/Contents/Info.plist"
+# VERSION is the one place the version lives; Settings reads it from there, and Sparkle compares CFBundleVersion. A beta
+# build (beta.yml) sets ROUNDS_VERSION and ROUNDS_SHORT_VERSION.
+VERSION="${ROUNDS_VERSION:-$(cat VERSION)}"
+/usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${ROUNDS_SHORT_VERSION:-$VERSION}" -c "Add :CFBundleVersion string $VERSION" "$APP/Contents/Info.plist"
 cp Resources/*.svg Resources/rounds-pi.ts "$APP/Contents/Resources/"
 cp Resources/AppIcon.icns Resources/henry.png "$APP/Contents/Resources/"
 # The stable self-signed identity when a keychain has it (the release, website/docs/release.md): each build then has the

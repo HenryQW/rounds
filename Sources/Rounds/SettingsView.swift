@@ -242,7 +242,7 @@ struct SettingsView: View {
             .textSelection(.disabled)
     }
 
-    private var general: some View {
+    @ViewBuilder private var general: some View {
         Section {
             Toggle(isOn: Binding(
                 get: { SMAppService.mainApp.status == .enabled },
@@ -269,11 +269,26 @@ struct SettingsView: View {
                 described("Session window shortcut", "Opens or closes the session window.")
             }
             .help("Works in any app. With no shortcut, open the window from the pill.")
+        } footer: {
+            footer(state.error ?? state.recorder.message)
+        }
+        Section {
             Toggle(isOn: $updater.automaticChecks) {
                 described("Check for updates automatically", "Look for a new version once a day.")
             }
-        } footer: {
-            footer(state.error ?? state.recorder.message)
+            Toggle(isOn: $updater.automaticInstall) {
+                described("Install updates automatically", "Download a new version and install it when Rounds quits.")
+            }
+            .disabled(!updater.automaticChecks)
+            Picker(selection: $updater.channel) {
+                Text("Release").tag(Updater.Channel.release)
+                Text("Beta").tag(Updater.Channel.beta)
+            } label: {
+                described("Update channel", "Beta: a build of each change on the main branch. It can have bugs.")
+            }
+            .pickerStyle(.segmented)
+        } header: {
+            Text("Updates")
         }
     }
 
