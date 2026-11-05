@@ -54,9 +54,10 @@ jobs:
           test -n "$SPARKLE_ED_PRIVATE_KEY"
           # The sign_update of the Sparkle package that `swift build` fetched, so the tool matches the framework.
           SIGNATURE="$(printf '%s' "$SPARKLE_ED_PRIVATE_KEY" | .build/artifacts/sparkle/Sparkle/bin/sign_update --ed-key-file - build/Rounds.dmg)"
-          # Notes: the commits since the previous tag, grouped by type; the first release has no previous tag. The
+          # Notes: the commits since the previous release tag (v*, not the rolling "beta" tag), grouped by type; the first
+          # release has no previous tag. The
           # release page and Sparkle's update window show the same Markdown.
-          PREV="$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || true)"
+          PREV="$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true)"
           if [ -n "$PREV" ]; then
             scripts/release-notes.sh "$PREV" "$GITHUB_REF_NAME" "$GITHUB_REPOSITORY" > build/notes.md
           else
