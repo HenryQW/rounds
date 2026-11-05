@@ -469,7 +469,8 @@ struct SettingsView: View {
                 .disabled(!push.sounds)
             }
         } header: {
-            Text("Sounds")
+            // The first header after the page title gets the title's small grey style and no gap; this matches "Remote".
+            Text("Sounds").font(.headline).foregroundStyle(.primary).padding(.top, 12)
         }
         Section {
             ForEach(PushChannel.allCases) { channel in
