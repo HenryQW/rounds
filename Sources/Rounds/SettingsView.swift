@@ -24,6 +24,9 @@ final class SettingsState {
     var pushSheet: PushChannel?
     /// The push values as the user types them; cleared at any close (the values live only in the Keychain).
     var pushValues: [String: String] = [:]
+    /// The Connect sheet checks the values with the service before it saves them.
+    var pushChecking = false
+    var pushError: String?
     @ObservationIgnored weak var window: NSWindow?
 }
 
@@ -104,7 +107,7 @@ struct SettingsView: View {
         .sheet(item: $state.installTarget) { installSheet($0) }
         // Cancel or any other close clears a key typed but not saved.
         .sheet(isPresented: $state.linearSheet, onDismiss: { state.linearKey = "" }) { linearSheet }
-        .sheet(item: $state.pushSheet, onDismiss: { state.pushValues = [:] }) { pushSheet($0) }
+        .sheet(item: $state.pushSheet, onDismiss: { (state.pushValues, state.pushChecking, state.pushError) = ([:], false, nil) }) { pushSheet($0) }
         .onAppear {
             NSApp.activate()
             model.refreshHookStatus()
@@ -637,7 +640,10 @@ struct SettingsView: View {
             Text(channel.hint).font(.callout).foregroundStyle(.secondary)
             Form {
                 ForEach(channel.fields, id: \.key) { field in
-                    let value = Binding(get: { state.pushValues[field.key, default: ""] }, set: { state.pushValues[field.key] = $0 })
+                    let value = Binding(get: { state.pushValues[field.key, default: ""] }, set: {
+                        state.pushValues[field.key] = $0
+                        state.pushError = nil
+                    })
                     if field.isSecret {
                         SecureField(field.label, text: value, prompt: Text(field.placeholder))
                     } else {
@@ -646,16 +652,44 @@ struct SettingsView: View {
                 }
             }
             .formStyle(.columns)
+            .disabled(state.pushChecking)
+            if let error = state.pushError {
+                Text(error).foregroundStyle(.orange)
+            }
             HStack {
                 Spacer()
-                Button("Cancel") { state.pushSheet = nil }
-                Button("Save") {
-                    push.save(channel, values: state.pushValues)
+                Button("Cancel") {
+                    state.pushChecking = false
                     state.pushSheet = nil
+                }
+                Button {
+                    let values = state.pushValues
+                    state.pushChecking = true
+                    Task {
+                        let failure = await push.verify(channel, values: values)
+                        // Cancel, or a closed sheet, drops the result.
+                        guard state.pushChecking, state.pushSheet == channel else { return }
+                        state.pushChecking = false
+                        if let failure {
+                            state.pushError = failure
+                        } else {
+                            push.save(channel, values: values)
+                            state.pushSheet = nil
+                        }
+                    }
+                } label: {
+                    if state.pushChecking {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small)
+                            Text("Checking…")
+                        }
+                    } else {
+                        Text("Save")
+                    }
                 }
                 .keyboardShortcut(.defaultAction)
                 // A field with a default value may stay empty.
-                .disabled(channel.fields.contains { $0.defaultValue == nil && (state.pushValues[$0.key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
+                .disabled(state.pushChecking || channel.fields.contains { $0.defaultValue == nil && (state.pushValues[$0.key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
             }
         }
         .padding(20)

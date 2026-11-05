@@ -68,6 +68,28 @@ private let message = PushMessage(title: "Needs input: Fix login", body: "In atl
     #expect(PushChannel.bark.failure(status: 502, body: Data("<html>".utf8)) == "HTTP 502")
 }
 
+@Test func checkRequests() throws {
+    let telegram = try PushChannel.telegram.checks(values: ["token": "123:abc", "chat": "42"])
+    #expect(telegram.map(\.request.url?.absoluteString) == ["https://api.telegram.org/bot123:abc/getMe", "https://api.telegram.org/bot123:abc/getChat?chat_id=42"])
+    #expect(telegram.allSatisfy { $0.request.httpMethod == "GET" })
+    let bark = try PushChannel.bark.checks(values: ["key": "dev", "server": "https://bark.example.com/"])
+    #expect(bark.map(\.request.url?.absoluteString) == ["https://bark.example.com/register/dev"])
+    #expect(throws: PushError.invalid("Server")) { try PushChannel.bark.checks(values: ["key": "dev", "server": "api.day.app"]) }
+}
+
+@Test func checkFailureText() throws {
+    let c = try PushChannel.telegram.checks(values: ["token": "123:abc", "chat": "42"])
+    #expect(PushChannel.telegram.checkFailure(c[0], status: 200, body: Data(#"{"ok":true,"result":{}}"#.utf8)) == nil)
+    // A rejected value: the check's own sentence, not the service's.
+    #expect(PushChannel.telegram.checkFailure(c[0], status: 401, body: Data(#"{"ok":false,"description":"Unauthorized"}"#.utf8)) == "Bot token: Telegram does not know this token.")
+    #expect(PushChannel.telegram.checkFailure(c[1], status: 400, body: Data(#"{"ok":false,"description":"Bad Request: chat not found"}"#.utf8)) == "Chat ID: the bot cannot find this chat. Send your bot a message first.")
+    let b = try PushChannel.bark.checks(values: ["key": "dev"])
+    #expect(PushChannel.bark.checkFailure(b[0], status: 400, body: Data(#"{"code":400,"message":"failed to get [dev] device token from database"}"#.utf8)) == "Device key: the server does not know this key. Copy it again from the Bark app.")
+    // No answer, or a server error: what happened.
+    #expect(PushChannel.bark.checkFailure(b[0], status: nil, body: nil) == "Could not reach the Bark server.")
+    #expect(PushChannel.telegram.checkFailure(c[0], status: 502, body: Data("<html>".utf8)) == "Telegram: HTTP 502")
+}
+
 private let all: Set<SessionState> = [.needsInput, .failed, .ready]
 
 @Test func firstCheckOnlyLearns() {

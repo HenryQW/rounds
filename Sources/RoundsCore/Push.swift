@@ -32,6 +32,21 @@ public struct PushField: Equatable, Sendable {
 /// The label of the field that is missing or not valid.
 public enum PushError: Error, Equatable { case missing(String), invalid(String) }
 
+extension PushError {
+    public var text: String {
+        switch self {
+        case .missing(let label): "\(label) is missing"
+        case .invalid(let label): "\(label) is not valid"
+        }
+    }
+}
+
+/// A request that checks saved values, and the sentence for a value the service rejects.
+public struct PushCheck: Sendable {
+    public let request: URLRequest
+    public let rejected: String
+}
+
 /// A service that gets push messages (GLOSSARY "Channel"). This enum is the only place a channel is defined: to add
 /// one, add a case with its words, its logo (`Resources/<rawValue>.svg`) and colour, its fields, its request and its
 /// failure parts.
@@ -82,33 +97,69 @@ public enum PushChannel: String, CaseIterable, Codable, Sendable, Identifiable {
 
     /// A POST with a JSON body. Throws for a missing value, or a value that would make a bad URL.
     public func request(for message: PushMessage, values: [String: String]) throws(PushError) -> URLRequest {
+        let (v, base) = try resolved(values)
+        let url: URL, body: [String: Any]
+        switch self {
+        case .telegram:
+            url = base.appending(path: "sendMessage")
+            body = ["chat_id": v["chat"]!, "text": message.title + "\n" + message.body, "disable_web_page_preview": true]
+        case .bark:
+            url = base.appending(path: "push")
+            body = ["device_key": v["key"]!, "title": message.title, "body": message.body, "group": "Rounds",
+                    "level": message.urgent ? "timeSensitive" : "active"]
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = try! JSONSerialization.data(withJSONObject: body)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        return request
+    }
+
+    /// The requests that check the values before they are saved, in order; none sends a message. Telegram: the token
+    /// (`getMe`), then the chat (`getChat`). Bark: the device key (`/register/<key>`, bark-server's key check).
+    public func checks(values: [String: String]) throws(PushError) -> [PushCheck] {
+        let (v, base) = try resolved(values)
+        switch self {
+        case .telegram:
+            return [PushCheck(request: URLRequest(url: base.appending(path: "getMe")), rejected: "Bot token: Telegram does not know this token."),
+                    PushCheck(request: URLRequest(url: base.appending(path: "getChat").appending(queryItems: [URLQueryItem(name: "chat_id", value: v["chat"])])),
+                              rejected: "Chat ID: the bot cannot find this chat. Send your bot a message first.")]
+        case .bark:
+            return [PushCheck(request: URLRequest(url: base.appending(path: "register").appending(path: v["key"]!)),
+                              rejected: "Device key: the server does not know this key. Copy it again from the Bark app.")]
+        }
+    }
+
+    /// nil when the check passed. A rejected value (HTTP 4xx) gets the check's sentence; no answer (`status` nil) or
+    /// another failure says what happened.
+    public func checkFailure(_ check: PushCheck, status: Int?, body: Data?) -> String? {
+        guard let status else { return self == .telegram ? "Could not reach Telegram." : "Could not reach the Bark server." }
+        guard let failure = failure(status: status, body: body ?? Data()) else { return nil }
+        return (400..<500).contains(status) ? check.rejected : "\(title): \(failure)"
+    }
+
+    /// The trimmed values with defaults, and the URL that the requests start from. Throws for a missing value, or a
+    /// value that would make a bad URL.
+    private func resolved(_ values: [String: String]) throws(PushError) -> (values: [String: String], base: URL) {
         var v: [String: String] = [:]
         for f in fields {
             let value = values[f.key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
             guard let value = value.isEmpty ? f.defaultValue : value else { throw PushError.missing(f.label) }
             v[f.key] = value
         }
-        let url: URL?, body: [String: Any]
         switch self {
         case .telegram:
             // The token is part of the URL path.
             let token = v["token"]!
-            guard token.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || ":_-".contains($0)) }) else { throw PushError.invalid("Bot token") }
-            url = URL(string: "https://api.telegram.org/bot\(token)/sendMessage")
-            body = ["chat_id": v["chat"]!, "text": message.title + "\n" + message.body, "disable_web_page_preview": true]
+            guard token.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || ":_-".contains($0)) }),
+                  let base = URL(string: "https://api.telegram.org/bot\(token)") else { throw PushError.invalid("Bot token") }
+            return (v, base)
         case .bark:
             var server = v["server"]!
             while server.hasSuffix("/") { server.removeLast() }
-            url = URL(string: server + "/push").flatMap { ["https", "http"].contains($0.scheme) && $0.host() != nil ? $0 : nil }
-            guard url != nil else { throw PushError.invalid("Server") }
-            body = ["device_key": v["key"]!, "title": message.title, "body": message.body, "group": "Rounds",
-                    "level": message.urgent ? "timeSensitive" : "active"]
+            guard let base = URL(string: server), ["https", "http"].contains(base.scheme), base.host() != nil else { throw PushError.invalid("Server") }
+            return (v, base)
         }
-        var request = URLRequest(url: url!)
-        request.httpMethod = "POST"
-        request.httpBody = try! JSONSerialization.data(withJSONObject: body)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        return request
     }
 
     /// nil when the service took the message; else its own message, or "HTTP <status>".

@@ -96,6 +96,24 @@ final class PushStore {
 
     func play(_ name: String) { NSSound(named: name)?.play() }
 
+    /// Checks the values with the service before they are saved, one request at a time (15 s each); nil when all
+    /// pass, else the line for the Connect sheet. The log names the channel and the result, never the values.
+    func verify(_ channel: PushChannel, values: [String: String]) async -> String? {
+        guard !Demo.isOn else { return nil }
+        let checks: [PushCheck]
+        do { checks = try channel.checks(values: values) } catch { return error.text }
+        for check in checks {
+            var request = check.request
+            request.timeoutInterval = 15
+            let answer = try? await URLSession.shared.data(for: request)
+            if let failure = channel.checkFailure(check, status: (answer?.1 as? HTTPURLResponse)?.statusCode, body: answer?.0) {
+                log.info("push: \(channel.rawValue, privacy: .public) check failed, \(failure, privacy: .public)")
+                return failure
+            }
+        }
+        return nil
+    }
+
     func save(_ channel: PushChannel, values new: [String: String]) {
         guard !Demo.isOn else { return }
         keychainIO.async {
@@ -152,13 +170,7 @@ final class PushStore {
     /// holds the Telegram token.
     private func send(_ channel: PushChannel, _ message: PushMessage, _ values: [String: String]) {
         var request: URLRequest
-        do { request = try channel.request(for: message, values: values) } catch {
-            let text = switch error {
-            case .missing(let label): "\(label) is missing"
-            case .invalid(let label): "\(label) is not valid"
-            }
-            return sent(channel, failure: text)
-        }
+        do { request = try channel.request(for: message, values: values) } catch { return sent(channel, failure: error.text) }
         request.timeoutInterval = 15
         URLSession.shared.dataTask(with: request) { data, response, _ in
             let status = (response as? HTTPURLResponse)?.statusCode
