@@ -3,7 +3,7 @@ name: Beta
 # Each push to main (and each release tag) builds Rounds like a release and publishes it on the rolling prerelease
 # "beta": Rounds.dmg and appcast.xml, the feed of the Beta update channel (spec 5.8). Version: <last tag>.<commits
 # since it>, so it is above that release and below the next one; on a tagged commit it is the release version. A
-# prerelease is never the latest release, so the Release channel, the download link and the cask do not change.
+# prerelease is never the latest release, so the Stable channel, the download link and the cask do not change.
 on:
   push:
     branches: [main]

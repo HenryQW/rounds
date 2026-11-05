@@ -28,7 +28,7 @@ The workflow stops if the tag is not `v` followed by the version in `VERSION`.
 
 ## Beta builds
 
-`.github/workflows/beta.yml` builds each push to `main`, and each release tag, the same way: tests, the same certificate and Sparkle key, `scripts/verify-update.swift`. It replaces the files of the GitHub prerelease `beta`, and moves the tag `beta` to the build. Users who choose the Beta update channel get it. Its version is the last tag and the number of commits since it (`0.1.3.8`), so it is above that release and below the next one; on a tagged commit it is the release version. The notes list the commits since the last release. A prerelease is never the latest release, so the download link, the Release channel and the cask do not change. `scripts/import-identity.sh` and `scripts/appcast.sh` are shared by both workflows.
+`.github/workflows/beta.yml` builds each push to `main`, and each release tag, the same way: tests, the same certificate and Sparkle key, `scripts/verify-update.swift`. It replaces the files of the GitHub prerelease `beta`, and moves the tag `beta` to the build. Users who choose the Beta update channel get it. Its version is the last tag and the number of commits since it (`0.1.3.8`), so it is above that release and below the next one; on a tagged commit it is the release version. The notes list the commits since the last release. A prerelease is never the latest release, so the download link, the Stable channel and the cask do not change. `scripts/import-identity.sh` and `scripts/appcast.sh` are shared by both workflows.
 
 ## Checks
 

@@ -281,7 +281,7 @@ struct SettingsView: View {
             }
             .disabled(!updater.automaticChecks)
             Picker(selection: $updater.channel) {
-                Text("Release").tag(Updater.Channel.release)
+                Text("Stable").tag(Updater.Channel.stable)
                 Text("Beta").tag(Updater.Channel.beta)
             } label: {
                 described("Update channel", "Beta: a build of each change on the main branch. It can have bugs.")

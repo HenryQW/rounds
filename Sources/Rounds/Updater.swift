@@ -6,7 +6,7 @@ import Sparkle
 /// check.
 @MainActor @Observable
 final class Updater {
-    enum Channel: String, CaseIterable { case release, beta }
+    enum Channel: String, CaseIterable { case stable, beta }
 
     static let shared = Updater()
     @ObservationIgnored private let controller: SPUStandardUpdaterController
@@ -21,7 +21,7 @@ final class Updater {
     var automaticInstall: Bool {
         didSet { controller.updater.automaticallyDownloadsUpdates = automaticInstall }
     }
-    /// Release: the latest GitHub release (`SUFeedURL`). Beta: the `beta` prerelease, a build of each push to main.
+    /// Stable: the latest GitHub release (`SUFeedURL`). Beta: the `beta` prerelease, a build of each push to main.
     var channel: Channel {
         didSet {
             appDefaults.set(channel.rawValue, forKey: "updateChannel")
@@ -30,7 +30,7 @@ final class Updater {
     }
 
     private init() {
-        let channel = appDefaults.string(forKey: "updateChannel").flatMap(Channel.init) ?? .release
+        let channel = appDefaults.string(forKey: "updateChannel").flatMap(Channel.init) ?? .stable
         self.channel = channel
         let feed = Feed(beta: channel == .beta)
         self.feed = feed
