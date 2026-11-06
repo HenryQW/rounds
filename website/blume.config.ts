@@ -1,19 +1,15 @@
+import { footer } from "@henryqw/theme/projects";
 import { colors } from "@henryqw/theme/tokens";
 import { defineConfig } from "blume";
+
+const site = "https://rounds.henry.wang";
 
 export default defineConfig({
   title: "Rounds",
   description:
     "Your agents work in parallel. You need to stay sober. Rounds keeps a tab on every Claude Code, Codex and herdr session and calls you when one needs you.",
   feedback: false,
-  footer: {
-    links: [
-      { label: "About Henry", href: "https://henry.wang" },
-      { label: "Henry Pi Harness", href: "https://pi.henry.wang" },
-      { label: "MIT License", href: "https://github.com/HenryQW/rounds/blob/main/LICENSE" },
-      { label: "GitHub", href: "https://github.com/HenryQW/rounds" },
-    ],
-  },
+  footer: footer(site, "HenryQW/rounds"),
   logo: { image: "/icon.png", text: "Rounds" },
   // Share cards in the colours of the dark site, with the app icon; the home page has its own picture (pages/index.astro).
   seo: {
@@ -29,7 +25,7 @@ export default defineConfig({
     },
   },
   deployment: {
-    site: "https://rounds.henry.wang",
+    site,
   },
   github: {
     owner: "HenryQW",

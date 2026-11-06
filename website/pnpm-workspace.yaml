@@ -1,2 +1,2 @@
 minimumReleaseAgeExclude:
-  - '@henryqw/theme@0.1.0'
+  - '@henryqw/theme'
