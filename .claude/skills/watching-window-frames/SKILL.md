@@ -5,7 +5,7 @@ description: Use when the Rounds session window changes size by itself (it jumps
 
 # Watching window frames
 
-REQUIRED BACKGROUND: the `debugging-window-resizes` skill (method, flags, fixes).
+REQUIRED BACKGROUND: `window-resizes.md` in the `macos-app` skill (method, flags, fixes).
 
 The session window fits its content height (spec 5.7). Each size change is in the debug log `com.henryqw.rounds`, category `frame`. Run the watch with `bash scripts/watch-frames.sh 10m` (Rounds' copy has the subsystem built in).
 
