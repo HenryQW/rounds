@@ -87,3 +87,12 @@ func herdrSubAgentParentIsTheOneSessionInItsWorkspace(sessions: Int, linked: Boo
     #expect(agents.map(\.sessionPath) == ["/s/b.jsonl", "/s/a.jsonl"])
     #expect(agents.map(\.id) == ["herdr:/s/b.jsonl", "herdr:/s/a.jsonl"] && agents.allSatisfy(\.isListed))
 }
+
+@Test func herdrSeenTurnKeepsItsTime() {
+    let then = Date(timeIntervalSince1970: 100), now = Date(timeIntervalSince1970: 200)
+    // Focusing the pane clears done: the user saw the turn, nothing happened in the session.
+    #expect(herdrStateStart(previous: ("done", then), status: "idle", now: now) == then)
+    #expect(herdrStateStart(previous: ("idle", then), status: "idle", now: now) == then)
+    #expect(herdrStateStart(previous: ("working", then), status: "idle", now: now) == now)
+    #expect(herdrStateStart(previous: ("idle", then), status: "done", now: now) == now)
+}

@@ -405,7 +405,7 @@ final class AppModel {
         herdrRows = joiningSessions(herdrAgents, paneSessions: piPanes).filter(\.isListed).map { a in
             let start: Date
             if let previous = herdrSince[a.id] {
-                start = previous.status == a.agentStatus ? previous.since : now
+                start = herdrStateStart(previous: previous, status: a.agentStatus, now: now)
             } else {
                 // First sight (launch or a new pane): the agent's session file shows its last activity. A quiet
                 // agent without one has no known activity, so it counts as old; a busy one starts now.

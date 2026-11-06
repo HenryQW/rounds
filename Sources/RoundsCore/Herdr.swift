@@ -72,6 +72,13 @@ func herdrTitle(_ terminalTitle: String, cwd: String, agent: String) -> String {
     return title.isEmpty ? agent : title
 }
 
+/// When an agent's status began (herdr reports no times): a new status starts now. Done to idle is only the user
+/// looking at the turn (herdr clears done when the pane is focused), so the turn keeps its time; else the opened row
+/// would be a new, unseen result.
+public func herdrStateStart(previous: (status: String, since: Date), status: String, now: Date) -> Date {
+    previous.status == status || (previous.status == "done" && status == "idle") ? previous.since : now
+}
+
 /// herdr states map to the standard states: done is a turn the user has not looked at yet (herdr clears it when the
 /// pane is focused).
 public func herdrStatus(_ agentStatus: String, since: Date) -> SessionStatus {
