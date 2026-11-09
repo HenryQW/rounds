@@ -60,7 +60,7 @@ public func loadCodexThreads(database: URL) throws(CodexError) -> [CodexThread] 
 
 /// The last turn edge in a thread's rollout file.
 public struct CodexTurn: Sendable, Equatable {
-    public enum Kind: Sendable { case started, completed, aborted }
+    public enum Kind: String, Sendable { case started, completed, aborted }
     public let kind: Kind
     public let at: Date
 
@@ -102,22 +102,28 @@ public func firstUserPrompt(codexRollout data: Data) -> String? {
 /// A Codex thread's state: the newer of the last hook event and the last rollout turn edge. Hooks carry the
 /// waiting state and tool names; the rollout covers threads that ran without hooks. `live`: a Codex process runs.
 public func classifyCodex(_ thread: CodexThread, hook: HookState?, turn: CodexTurn?, live: Bool) -> SessionStatus {
-    func quiet(_ state: SessionState) -> SessionStatus {
-        SessionStatus(state, since: thread.updatedAt)
+    decideCodex(thread, hook: hook, turn: turn, live: live).status
+}
+
+/// `classifyCodex` with the rule that decided the state (spec 3.4).
+func decideCodex(_ thread: CodexThread, hook: HookState?, turn: CodexTurn?, live: Bool) -> (status: SessionStatus, rule: StateRule) {
+    func quiet(_ state: SessionState, _ rule: String) -> (status: SessionStatus, rule: StateRule) {
+        (SessionStatus(state, since: thread.updatedAt), StateRule(nil, rule))
     }
+    let offline = quiet(.offline, "Codex is not running")
     if let turn, hook.map({ turn.at > $0.last.at }) ?? true {
         switch turn.kind {
-        case .started: return live ? SessionStatus(.working, "Thinking", since: turn.at) : quiet(.offline)
-        case .completed: return quiet(.finished)
-        case .aborted: return quiet(.stopped)
+        case .started: return live ? (SessionStatus(.working, "Thinking", since: turn.at), StateRule(nil, "Turn started, from the rollout")) : offline
+        case .completed: return quiet(.finished, "Turn completed, from the rollout")
+        case .aborted: return quiet(.stopped, "Turn aborted, from the rollout")
         }
     }
-    guard let last = hook?.last else { return quiet(.finished) }
+    guard let last = hook?.last else { return quiet(.finished, "No turn or hook event") }
     if let label = blockedLabel(last) {
-        return live ? SessionStatus(.needsInput, label, since: last.at) : quiet(.offline)
+        return live ? (SessionStatus(.needsInput, label, since: last.at), StateRule(nil, "Waits for the user, from the hook")) : offline
     }
     if runningEvents.contains(last.event) {
-        return live ? SessionStatus(.working, runningLabel(last), since: last.at) : quiet(.offline)
+        return live ? (SessionStatus(.working, runningLabel(last), since: last.at), StateRule(nil, "Running, from the hook")) : offline
     }
-    return quiet(last.event == "Interrupt" ? .stopped : .finished)
+    return last.event == "Interrupt" ? quiet(.stopped, "Interrupted, from the hook") : quiet(.finished, "Turn ended, from the hook")
 }

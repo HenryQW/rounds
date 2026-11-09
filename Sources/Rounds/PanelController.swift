@@ -19,6 +19,8 @@ final class PanelState {
     @ObservationIgnored var contentHeight: CGFloat = 0
     /// The Quit confirmation shows on the window.
     var confirmQuit = false
+    /// The open Why This State… popover, under its row.
+    var why: WhyThisState?
     /// Ids of parent rows the user unfolded; parent rows start folded.
     var expanded: Set<String> = []
     /// Ids of context rows the user folded; context rows start unfolded, so a filter's matches show at once.
@@ -88,6 +90,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     func close() {
         HoverCard.shared.close()
+        state.why = nil
         if let panel { EdgeDrawer.shared.slideOut(panel) }
         state.shown = false
         model.query = ""
@@ -132,6 +135,11 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     func row(_ id: String?) -> SessionRow? { sections().lazy.flatMap(\.rows).flatMap(\.withChildren).first { $0.id == id } }
+
+    /// Why This State… (⌘I): the popover under the row.
+    func explain(_ row: SessionRow) {
+        state.why = WhyThisState(row: row, explained: model.explain(row))
+    }
 
     func markDone(_ row: SessionRow) { changeMarks("Mark as Done", of: row) { model.markDone(row) } }
 
@@ -185,7 +193,7 @@ final class PanelController: NSObject, NSWindowDelegate {
 
     /// ↑/↓ move the list selection and ↵ opens it, also while the search field has focus, so the user can type and
     /// pick without leaving the field. Esc clears the search, then closes.
-    /// ⌘D marks the selected row done; ⌘⌫ hides it (with an empty search, else it edits the text).
+    /// ⌘D marks the selected row done; ⌘I shows why it has its state; ⌘⌫ hides it (with an empty search, else it edits the text).
     /// ⌘1 to ⌘5 pick the tile All, Last Call, On Tap, Served, Aged; ⌘Z and ⇧⌘Z undo and redo (marks and search typing share the window's undo stack).
     private func handle(_ event: NSEvent) -> Bool {
         let editor = panel?.firstResponder as? NSTextView
@@ -200,6 +208,9 @@ final class PanelController: NSObject, NSWindowDelegate {
         switch (modifiers, event.charactersIgnoringModifiers?.lowercased()) {
         case (.command, "d"):
             if let row = row(state.selectedId) { markDone(row) }
+            return true
+        case (.command, "i"):
+            if let row = row(state.selectedId) { explain(row) }
             return true
         case (.command, "s"):
             // The row under the pointer, else the selected row.

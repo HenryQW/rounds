@@ -23,7 +23,7 @@ public struct PiSession: Sendable, Equatable {
 
 /// What the last message in a session file says.
 public struct PiTurn: Sendable, Equatable {
-    public enum Kind: Sendable { case working, done, error, stopped }
+    public enum Kind: String, Sendable { case working, done, error, stopped }
     public let kind: Kind
     public let detail: String
     public let at: Date
@@ -146,24 +146,33 @@ public func livePiSessions(_ states: [String: PiState], running: (Int32) -> Bool
 /// or pi quit) and gets no row, like an archived Claude session (decided 2026-11-03). `aged`: quiet for the Aged
 /// time, so not Working, and a wait (Needs input, Failed), which never ages, is Offline, not in Last Call for ever.
 public func classifyPi(_ session: PiSession, state: PiState?, live: Bool, aged: Bool = false) -> SessionStatus {
-    func quiet(_ s: SessionState) -> SessionStatus { SessionStatus(s, since: session.updatedAt) }
-    guard live else { return SessionStatus(.finished, since: session.updatedAt, group: .hidden) }
-    let active = !aged
+    decidePi(session, state: state, live: live, aged: aged).status
+}
+
+/// `classifyPi` with the rule that decided the state (spec 3.4).
+func decidePi(_ session: PiSession, state: PiState?, live: Bool, aged: Bool) -> (status: SessionStatus, rule: StateRule) {
+    func quiet(_ s: SessionState, _ rule: String) -> (status: SessionStatus, rule: StateRule) {
+        (SessionStatus(s, since: session.updatedAt), StateRule(nil, rule))
+    }
+    guard live else { return (SessionStatus(.finished, since: session.updatedAt, group: .hidden), StateRule(nil, "Closed, no pi process")) }
+    let active = !aged, agedWait = quiet(.offline, "A wait quiet for the Aged time")
     if let turn = session.turn, state.map({ turn.at > $0.at }) ?? true {
+        let rule = StateRule(nil, "Last message in the session file")
         switch turn.kind {
-        case .working: return active ? SessionStatus(.working, since: turn.at) : quiet(.offline)
-        case .done: return quiet(.finished)
-        case .error: return active ? SessionStatus(.failed, turn.detail, since: turn.at) : quiet(.offline)
-        case .stopped: return quiet(.stopped)
+        case .working: return active ? (SessionStatus(.working, since: turn.at), rule) : quiet(.offline, "Quiet for the Aged time")
+        case .done: return quiet(.finished, rule.name)
+        case .error: return active ? (SessionStatus(.failed, turn.detail, since: turn.at), rule) : agedWait
+        case .stopped: return quiet(.stopped, rule.name)
         }
     }
-    guard let state else { return quiet(.finished) }
+    guard let state else { return quiet(.finished, "No extension state") }
+    let rule = StateRule(nil, "Extension state")
     switch state.state {
-    case "blocked": return active ? SessionStatus(.needsInput, state.detail, since: state.at) : quiet(.offline)
-    case "working": return active ? SessionStatus(.working, state.detail, since: state.at) : quiet(.offline)
-    case "error": return active ? SessionStatus(.failed, state.detail, since: state.at) : quiet(.offline)
-    case "stopped": return SessionStatus(.stopped, since: state.at)
-    case "idle": return quiet(.finished)
-    default: return SessionStatus(.finished, since: state.at)
+    case "blocked": return active ? (SessionStatus(.needsInput, state.detail, since: state.at), rule) : agedWait
+    case "working": return active ? (SessionStatus(.working, state.detail, since: state.at), rule) : quiet(.offline, "Quiet for the Aged time")
+    case "error": return active ? (SessionStatus(.failed, state.detail, since: state.at), rule) : agedWait
+    case "stopped": return (SessionStatus(.stopped, since: state.at), rule)
+    case "idle": return quiet(.finished, rule.name)
+    default: return (SessionStatus(.finished, since: state.at), rule)
     }
 }

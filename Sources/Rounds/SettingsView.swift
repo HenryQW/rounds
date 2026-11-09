@@ -725,6 +725,7 @@ struct SettingsView: View {
         ("Select the next or previous row", "[↑] [↓]"),
         ("Mark as Done", "[⌘][D]"),
         ("Star or Unstar", "[⌘][S]"),
+        ("Why This State", "[⌘][I]"),
         ("Hide or Unhide", "[⌘][⌫]"),
         ("Undo or Redo", "[⌘][Z] [⇧][⌘][Z]"),
         ("Show a tile, All to Aged", "[⌘][1] to [⌘][5]"),

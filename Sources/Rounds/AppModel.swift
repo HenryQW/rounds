@@ -101,6 +101,8 @@ final class AppModel {
     @ObservationIgnored private let sessionCache = FileCache<Result<DesktopSession, DesktopSessionError>>()
     @ObservationIgnored private let stateCache = FileCache<HookState?>()
     @ObservationIgnored private var watchers: [DirectoryWatcher] = []
+    /// What each source's classifier read for each row, by source name and row id: Why This State… runs it again.
+    @ObservationIgnored private var inputs: [String: [String: StateInput]] = [:]
     @ObservationIgnored private var timer: Timer?
 
     private init() {
@@ -193,13 +195,17 @@ final class AppModel {
 
         let claude = NSRunningApplication.runningApplications(withBundleIdentifier: "com.anthropic.claudefordesktop").first
         let now = Date()
+        var inputs: [String: StateInput] = [:]
         rows = sessions.map { s in
             let hook = states[s.cliSessionId]
             // A wrap-up without `needsUser` can still have asked a question; only the transcript holds it.
             let wrapUpQuestion = s.hasWrapUp && s.wrapUpNeedsUser == nil
             let tail = !s.isArchived && (needsTail(session: s, hook: hook) || wrapUpQuestion) ? cachedTail(s) : nil
-            return SessionRow(session: s, status: classify(ClassifierInput(session: s, hook: hook, tail: tail, claudeRunning: claude != nil, claudeLaunchedAt: claude?.launchDate, now: now)))
+            let input = ClassifierInput(session: s, hook: hook, tail: tail, claudeRunning: claude != nil, claudeLaunchedAt: claude?.launchDate, now: now)
+            inputs[s.id] = .claude(input)
+            return SessionRow(session: s, status: classify(input))
         }
+        self.inputs["claude"] = inputs
     }
 
     private func cachedTail(_ s: DesktopSession) -> LastMessage? {
@@ -221,13 +227,16 @@ final class AppModel {
             (codexThreads, codexStamp) = (threads, stamp)
             let live = Processes.isRunning("codex")
             let now = Date()
+            var inputs: [String: StateInput] = [:]
             codexRows = threads.map { t in
                 // A thread quiet for the Aged time is Older whatever its rollout says; skip reading the file.
                 let rollout = URL(fileURLWithPath: t.rolloutPath)
                 let aged = now.timeIntervalSince(t.updatedAt) > lastCall.agedAfter
                 let turn = aged ? nil : turnCache.value(at: rollout, read: { readTail($0) }, decode: parseCodexRollout) ?? nil
+                inputs["codex:" + t.id] = .codex(t, hook: states[t.id], turn: turn, live: live)
                 return SessionRow(thread: t, status: classifyCodex(t, hook: states[t.id], turn: turn, live: live))
             }
+            self.inputs["codex"] = inputs
             codexError = nil
         } catch {
             if codexError == nil { log.error("Codex threads unreadable: \(String(describing: error), privacy: .public)") }
@@ -269,6 +278,7 @@ final class AppModel {
         let now = Date()
         var panes: [String: String] = [:]
         let running = livePiSessions(piStates, running: Processes.isPi)
+        var inputs: [String: StateInput] = [:]
         piRows = piSessions.values.map { session in
             let state = piStates[session.id].flatMap { $0.sessionPath == session.path ? $0 : nil }
             // The extension names the process; a session without its line runs in a pi from before the install, or not at all.
@@ -276,8 +286,10 @@ final class AppModel {
             if live, let state, let pane = Processes.environment(of: state.pid, "HERDR_PANE_ID") { panes[pane] = session.path }
             // A session quiet for the Aged time is Older whatever its last message says.
             let aged = now.timeIntervalSince(session.updatedAt) > lastCall.agedAfter
+            inputs["pi:" + session.path] = .pi(session, state: state, live: live, aged: aged)
             return SessionRow(pi: session, status: classifyPi(session, state: state, live: live, aged: aged))
         }
+        self.inputs["pi"] = inputs
         if panes != piPanes {
             piPanes = panes
             updateHerdrRows()
@@ -402,6 +414,7 @@ final class AppModel {
     private func updateHerdrRows() {
         let now = Date()
         var since: [String: (status: String, since: Date)] = [:]
+        var inputs: [String: StateInput] = [:]
         herdrRows = joiningSessions(herdrAgents, paneSessions: piPanes).filter(\.isListed).map { a in
             let start: Date
             if let previous = herdrSince[a.id] {
@@ -413,9 +426,11 @@ final class AppModel {
                 start = modified ?? (a.agentStatus == "working" || a.agentStatus == "blocked" ? now : .distantPast)
             }
             since[a.id] = (a.agentStatus, start)
+            inputs[a.id] = .herdr(status: a.agentStatus, since: start)
             return SessionRow(agent: a, status: herdrStatus(a.agentStatus, since: start))
         }
         herdrSince = since
+        self.inputs["herdr"] = inputs
     }
 
     /// The project folder of a session folder (its git repository's main checkout), cached per folder.
@@ -448,10 +463,26 @@ final class AppModel {
         else if let pane = Processes.environment(of: pid, "HERDR_PANE_ID") { herdr?.focus(pane: pane) }
     }
 
+    /// Why This State… (spec 3.4): the classifier input of a row and what the classifier says about it, with whether the
+    /// user has seen the state. Nil for a row with no input (some demo rows).
+    func explain(_ row: SessionRow) -> (input: StateInput, explanation: StateExplanation)? {
+        guard let input = inputs.values.lazy.compactMap({ $0[row.id] }).first else { return nil }
+        var explanation = input.explain().explanation
+        explanation.signals.append(StateSignal("Seen", row.isSeen ? "yes" : "no"))
+        return (input, explanation)
+    }
+
+    /// Report Wrong State… (spec 2.10): saves the report in the reports folder and returns the file.
+    func saveReport(_ row: SessionRow, input: StateInput, explanation: StateExplanation, correct: SessionState?) throws -> URL {
+        try save(WrongStateReport(input: input, shown: row.status.state, explanation: explanation, correct: correct, savedAt: Date()),
+                 in: reportsDirectory())
+    }
+
     /// Demo mode only: new placeholder rows (`Demo`'s window-turn scene).
     /// The demo's quiet sessions are seen, so they show in Served and Last Call has only what wants the user.
     func setDemoRows(_ r: (claude: [SessionRow], codex: [SessionRow], herdr: [SessionRow])) {
         (rows, codexRows, herdrRows) = r
+        inputs = ["demo": Demo.inputs(r.claude + r.codex + r.herdr)]
         for row in r.claude + r.codex + r.herdr where row.status.state.group == .quiet { marks.markSeen(row.id, at: Date()) }
         regroup()
     }

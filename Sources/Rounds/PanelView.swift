@@ -257,6 +257,8 @@ struct PanelView: View {
         }
         Button(model.isHidden(row) ? "Unhide" : "Hide") { controller.toggleHidden(row) }.keyboardShortcut(.delete)
         Divider()
+        Button("Why This State…") { controller.explain(row) }.keyboardShortcut("i")
+        Divider()
         ForEach(row.pullRequests, id: \.url) { pr in
             Button(pr.openLabel) { NSWorkspace.shared.open(pr.url) }
         }
@@ -371,6 +373,10 @@ struct PanelView: View {
             if inside { state.hoveredId = row.id } else if state.hoveredId == row.id { state.hoveredId = nil }
         }
         .contextMenu { actions(row) }
+        .popover(isPresented: Binding { state.why?.row.id == row.id } set: { if !$0, state.why?.row.id == row.id { state.why = nil } },
+                 arrowEdge: .bottom) {
+            if let why = state.why { WhyThisStateView(why: why) }
+        }
         .id(row.id)
     }
 

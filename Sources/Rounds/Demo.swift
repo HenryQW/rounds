@@ -27,7 +27,8 @@ private final class EmptyDefaults: UserDefaults {
 
 /// Demo mode, for the README picture (`scripts/screenshots.sh`) and the frame checks (`scripts/check-frames.sh`). `--demo` shows fixed placeholder
 /// sessions and reads no source, hook file or setting; every source is on. `--demo-scene <name>` opens one window after
-/// launch, with no key or pointer events; `--demo-appearance light|dark` sets the appearance.
+/// launch, with no key or pointer events (window-why: with the Why This State… popover); `--demo-appearance light|dark`
+/// sets the appearance.
 enum Demo {
     static let isOn = CommandLine.arguments.contains("--demo")
     private static let scene = argument("--demo-scene")
@@ -67,6 +68,19 @@ enum Demo {
                     if quiet { PanelController.shared.state.filter = .yourTurn }
                     NSApp.activate(ignoringOtherApps: true)
                     PanelController.shared.show()
+                    // window-why opens Why This State… on the row that needs input; window-why-report shows its report form,
+                    // window-why-saved its confirmation (no file is written).
+                    if scene?.hasPrefix("window-why") == true {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            guard let row = PanelController.shared.row("demo-search") else { return }
+                            PanelController.shared.explain(row)
+                            switch scene {
+                            case "window-why-report": PanelController.shared.state.why?.step = .report
+                            case "window-why-saved": PanelController.shared.state.why?.step = .saved(reportsDirectory().appending(path: "wrong-state-20261109-143200.json"))
+                            default: break
+                            }
+                        }
+                    }
                     if scene == "window-turn" || scene == "window-slide" {
                         DispatchQueue.main.asyncAfter(deadline: .now() + (scene == "window-turn" ? 2 : 0.1)) { AppModel.shared.setDemoRows(rows(quiet: false)) }
                     }
@@ -134,6 +148,33 @@ enum Demo {
     }
 
     private static let loginBranch = "fix/bbq-123-login-redirect"
+
+    /// Classifier inputs that give the demo rows their states, for Why This State…: herdr and Codex rows, and the Claude
+    /// rows whose state one hook line gives (Needs input, Working, Failed, Background).
+    static func inputs(_ rows: [SessionRow], now: Date = Date()) -> [String: StateInput] {
+        var inputs: [String: StateInput] = [:]
+        for row in rows {
+            let since = row.status.since
+            switch row.source {
+            case .herdr(let agent): inputs[row.id] = .herdr(status: agent.agentStatus, since: since)
+            case .codex(let thread):
+                inputs[row.id] = .codex(thread, hook: nil, turn: CodexTurn(kind: row.status.state == .working ? .started : .completed, at: since), live: true)
+            case .claude(let session):
+                let line: HookLine? = switch row.status.state {
+                case .needsInput: HookLine(at: since, event: "PermissionRequest", detail: "Bash", backgroundTasks: nil, cronSchedules: [])
+                case .working: HookLine(at: since, event: "PreToolUse", detail: row.status.detail, backgroundTasks: nil, cronSchedules: [])
+                case .failed: HookLine(at: since, event: "StopFailure", detail: "", backgroundTasks: nil, cronSchedules: [])
+                case .background: HookLine(at: since, event: "Stop", detail: "", backgroundTasks: row.status.tasks.count, cronSchedules: [], tasks: row.status.tasks)
+                default: nil
+                }
+                if let line {
+                    inputs[row.id] = .claude(ClassifierInput(session: session, hook: HookState(last: line), tail: nil, claudeRunning: true, now: now))
+                }
+            case .pi: break
+            }
+        }
+        return inputs
+    }
 
     /// The tickets `TicketStore` shows in demo mode, by lookup: a Linear issue on the login row's branch, the GitHub
     /// issue that PR #42 closes, and each demo PR.
