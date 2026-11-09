@@ -111,16 +111,17 @@ private let utc: Calendar = {
     #expect(closed.map(\.duration) == [100])
 }
 
-@Test func returnWithTheSameSinceStartsAtTheLastEnd() {
-    // Mark as Done, then undo: the row leaves Last Call and comes back with the same since. No minute counts twice.
+@Test func returnWithTheSameSinceStartsWhenItComesBack() {
+    // Mark as Done, then undo: the row leaves Last Call and comes back with the same since. No minute counts twice,
+    // and the time out of Last Call does not count.
     var t = WaitTracker()
     let wait = row(.needsInput, since: 100)
     _ = t.check(placed([wait], now: 150), now: at(150), project: project)
     #expect(t.check([], now: at(200), project: project).map(\.start) == [at(100)])
     #expect(t.check(placed([wait], now: 300), now: at(300), project: project).isEmpty)
-    #expect(t.live(now: at(310)).map(\.start) == [at(200)])
+    #expect(t.live(now: at(310)).map(\.start) == [at(300)])
     let closed = t.check(placed([row(.working, since: 400)], now: 400), now: at(400), project: project)
-    #expect(closed.map(\.start) == [at(200)])
+    #expect(closed.map(\.start) == [at(300)])
 }
 
 @Test func seenFailedCloses() {

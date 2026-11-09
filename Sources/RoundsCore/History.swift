@@ -68,7 +68,8 @@ public struct WaitTracker: Sendable {
     /// An open wait and the since of its row at the last check.
     private var open: [Key: (wait: WaitInterval, since: Date)] = [:]
     /// The end written for each row, state and since: a row that leaves Last Call and comes back with the same since
-    /// (Mark as Done, then undo) starts again there, so no minute counts twice.
+    /// (Mark as Done, then undo) starts again at the check that finds it, so no minute counts twice and the time out of
+    /// Last Call does not count.
     private var ended: [Ended: Date] = [:]
 
     public init() {}
@@ -82,7 +83,7 @@ public struct WaitTracker: Sendable {
         for r in rows where r.status.group == .yourTurn && WaitInterval.states.contains(r.status.state)
             && (r.status.state == .needsInput || !r.isSeen) {
             let key = Key(id: r.id, state: r.status.state), since = r.status.since
-            let start = open[key]?.wait.start ?? max(since, ended[Ended(id: r.id, state: key.state, since: since)] ?? since)
+            let start = open[key]?.wait.start ?? (ended[Ended(id: r.id, state: key.state, since: since)] == nil ? since : now)
             current[key] = (WaitInterval(start: start, end: now, state: key.state, source: r.sourceName, rowId: r.id, project: project(r),
                                          title: r.title), since)
         }
