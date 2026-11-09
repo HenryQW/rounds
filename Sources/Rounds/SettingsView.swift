@@ -32,7 +32,7 @@ final class SettingsState {
 
 /// The Settings pages in the sidebar (spec 5.4), each with a title and one line on what it is for.
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, pill, filters, agents, tickets, notifications, keys
+    case general, pill, filters, agents, tickets, notifications, history, keys
     var id: Self { self }
 
     var title: String {
@@ -43,6 +43,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .agents: "Agents"
         case .tickets: "Tickets"
         case .notifications: "Notifications"
+        case .history: "History"
         case .keys: "Keys"
         }
     }
@@ -55,6 +56,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .agents: "sparkles"
         case .tickets: "ticket"
         case .notifications: "bell"
+        case .history: "chart.bar"
         case .keys: "keyboard"
         }
     }
@@ -67,6 +69,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .agents: "Where the live state of each session comes from."
         case .tickets: "Shows the Linear and GitHub issues of each session."
         case .notifications: "Sounds on this Mac, and remote messages when you are away."
+        case .history: "When agents waited for you, in the last 90 days."
         case .keys: "Keyboard shortcuts in the session window."
         }
     }
@@ -79,7 +82,7 @@ struct SettingsView: View {
     @Bindable private var updater = Updater.shared
     @Bindable private var push = PushStore.shared
 
-    /// Seven pages in a sidebar (spec 5.4), each a short grouped form under its title.
+    /// Eight pages in a sidebar (spec 5.4), each a short grouped form under its title.
     var body: some View {
         NavigationSplitView {
             List(SettingsPage.allCases, selection: $state.page) { Label($0.title, systemImage: $0.symbol) }
@@ -95,6 +98,11 @@ struct SettingsView: View {
             case .agents: page(.agents) { sources }
             case .tickets: page(.tickets) { tickets }
             case .notifications: page(.notifications) { notifications }
+            case .history:
+                // The data loads when the page opens and goes when it closes.
+                page(.history) { HistorySections(model: model, state: HistoryState.shared) }
+                    .onAppear { HistoryState.shared.open() }
+                    .onDisappear { HistoryState.shared.close() }
             case .keys: page(.keys) { keys }
             }
         }
@@ -123,6 +131,7 @@ struct SettingsView: View {
             // A key typed but not saved does not stay in memory.
             state.linearKey = ""
             state.pushValues = [:]
+            HistoryState.shared.close()
         }
     }
 
@@ -761,16 +770,6 @@ struct SettingsView: View {
     }
 
     /// Section footer: an error in red when there is one, else the help text.
-    /// A setting's name and, under it in the secondary colour, what it does (spec 5.4). The same maximum width on
-    /// every row keeps the labels one column and the controls another.
-    private func described(_ title: String, _ explanation: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-            Text(explanation).font(.callout).foregroundStyle(.secondary)
-        }
-        .labelColumn()
-    }
-
     @ViewBuilder
     private func footer(_ error: String?, help: String? = nil) -> some View {
         if let error {
@@ -839,6 +838,16 @@ struct SettingsView: View {
 extension View {
     /// The label column of every Settings tab: one maximum width, so labels and controls read as two columns.
     func labelColumn() -> some View { frame(maxWidth: 240, alignment: .leading) }
+}
+
+/// A setting's name and, under it in the secondary colour, what it does (spec 5.4). The same maximum width on every row
+/// keeps the labels one column and the controls another.
+@MainActor func described(_ title: String, _ explanation: String) -> some View {
+    VStack(alignment: .leading, spacing: 2) {
+        Text(title)
+        Text(explanation).font(.callout).foregroundStyle(.secondary)
+    }
+    .labelColumn()
 }
 
 /// SwiftUI's Settings window has no resizable style, whatever the scene's resizability; add it, as in a normal window.

@@ -505,6 +505,7 @@ final class AppModel {
             : group(rows, query: query, marks: marks, includeOlder: includeOlder, trackSeen: seenStopsAlert, rule: lastCall, now: now)
         let sessions = allGroups.sessions
         PushStore.shared.check(sessions)
+        HistoryStore.shared.check(sessions) { URL(fileURLWithPath: root(for: $0.cwd)).lastPathComponent }
         // The pill shows the Last Call count; it rings only for a wait the user has not opened.
         let g = allGroups, running = sessions.count { $0.status.group == .running }
         if yourTurnCount != g.lastCallCount { yourTurnCount = g.lastCallCount }

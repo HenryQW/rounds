@@ -176,6 +176,38 @@ enum Demo {
         return inputs
     }
 
+    /// The waits the History page shows in demo mode: the same each run, 2 to 7 a day in work hours over 30 days, from
+    /// the demo's titles, folders and agents. Each ends before `now`.
+    nonisolated static func history(now: Date = Date()) -> [WaitInterval] {
+        let waits: [(title: String, project: String, source: String, rowId: String)] = [
+            ("Add search to the docs", "atlas", "claude", "demo-search"), ("Fix login redirect", "harbor", "claude", "demo-login"),
+            ("Refactor the parser", "atlas", "claude", "demo-parser"), ("Speed up the test suite", "harbor", "codex", "codex:demo-tests"),
+            ("Update the release notes", "notes", "claude", "demo-notes"), ("Review the API changes", "notes", "pi", "demo-api"),
+            ("Write the upgrade guide", "notes", "codex", "codex:demo-guide"), ("Add dark mode to settings", "harbor", "claude", "demo-dark"),
+        ]
+        var seed: UInt64 = 42
+        func next(_ n: Int) -> Int {
+            seed = seed &* 6364136223846793005 &+ 1442695040888963407
+            return Int((seed >> 33) % UInt64(n))
+        }
+        let calendar = Calendar.current, today = calendar.startOfDay(for: now)
+        var intervals: [WaitInterval] = []
+        for day in 0..<30 {
+            let date = calendar.date(byAdding: .day, value: -day, to: today)!
+            // Fewer waits on the weekend.
+            let count = calendar.isDateInWeekend(date) ? next(2) : 2 + next(6)
+            for _ in 0..<count {
+                let w = waits[next(waits.count)]
+                let state = [SessionState.needsInput, .needsInput, .needsInput, .failed, .ready, .ready][next(6)]
+                let start = date.addingTimeInterval(TimeInterval((8 + next(10)) * 3600 + next(60) * 60))
+                let end = start.addingTimeInterval(TimeInterval(60 + next(state == .ready ? 15 : 9) * 120 + next(60)))
+                guard end < now else { continue }
+                intervals.append(WaitInterval(start: start, end: end, state: state, source: w.source, rowId: w.rowId, project: w.project, title: w.title))
+            }
+        }
+        return intervals
+    }
+
     /// The tickets `TicketStore` shows in demo mode, by lookup: a Linear issue on the login row's branch, the GitHub
     /// issue that PR #42 closes, and each demo PR.
     static func tickets(now: Date = Date()) -> [(Lookup, TicketService, [Ticket])] {
