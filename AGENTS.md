@@ -17,7 +17,7 @@ Code: `Sources/RoundsCore` (models, parsers, classifier, hook settings; no UI), 
 ## Build and test
 
 - `scripts/test.sh`: the only way to run tests (it passes the Swift Testing plugin path).
-- `scripts/bundle.sh --install`: builds, ad-hoc signs and copies `Rounds.app` to `/Applications`. Relaunch with `pkill -x Rounds; open "/Applications/Rounds.app"`.
+- `scripts/bundle.sh --install`: builds, signs and copies `Rounds.app` to `/Applications`. It signs with "Rounds Self-Signed" when the login keychain has it, else ad hoc. An ad hoc build is a new app to macOS, so the Keychain (the Linear key, push values) and permissions ask again after each install; the user imports the release `.p12` from 1Password once (`security import <file> -k ~/Library/Keychains/login.keychain-db -T /usr/bin/codesign`) to stop that. Relaunch with `pkill -x Rounds; open "/Applications/Rounds.app"`.
 - Linker "search path ... not found" warnings are harmless toolchain noise.
 
 ## Toolchain and platform traps
