@@ -14,7 +14,7 @@ final class HistoryState {
     var period = HistoryPeriod(rawValue: appDefaults.string(forKey: "historyPeriod") ?? "") ?? .week {
         didSet {
             appDefaults.set(period.rawValue, forKey: "historyPeriod")
-            if period != oldValue, summary != nil { load() }
+            if period != oldValue, isOpen { load() }
         }
     }
     /// The tab the user picked; Today shows Minutes Waited whatever it is (`shownChart`).
@@ -24,8 +24,10 @@ final class HistoryState {
     var split = Split(rawValue: appDefaults.string(forKey: "historySplit") ?? "") ?? .project {
         didSet { appDefaults.set(split.rawValue, forKey: "historySplit") }
     }
-    /// nil while the page is closed.
+    /// nil while the page is closed, and during its first load.
     private(set) var summary: HistorySummary?
+    /// The page shows, so a period change loads again, also during the first load.
+    @ObservationIgnored private var isOpen = false
     /// The hour or day under the pointer in Minutes Waited.
     var selectedBar: Date?
     /// The Longest waits row under the pointer, which then shows the grey hover fill.
@@ -35,10 +37,14 @@ final class HistoryState {
 
     var shownChart: ChartTab { period == .today ? .minutes : chart }
 
-    func open() { load() }
+    func open() {
+        isOpen = true
+        load()
+    }
 
     /// Releases the data.
     func close() {
+        isOpen = false
         generation += 1
         (summary, selectedBar, hoveredWait) = (nil, nil, nil)
     }
