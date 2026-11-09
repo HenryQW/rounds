@@ -2,11 +2,13 @@
 
 <h1 align="center">Rounds</h1>
 
-<p align="center">Your agents work in parallel. You need to stay sober.</p>
+<p align="center">Make every round count.</p>
 
 <p align="center"><a href="https://rounds.henry.wang">Docs</a> · <a href="LICENSE">MIT License</a> · Made with <a href="https://henry.wang">Henry</a> by AI 🤖.</p>
 
 Rounds is a native macOS app that shows the live state of your AI coding sessions from Claude Code, Codex, pi (any model) and herdr in one list. A pill at the screen edge shows how many sessions run and turns orange when one needs you. Hover over the pill to open the session window, then press Return to go to a session.
+
+Your agents work in parallel, but your attention does not. By [Amdahl's law](https://en.wikipedia.org/wiki/Amdahl%27s_law) (Gene Amdahl, 1967), the part of a job that cannot run in parallel limits the total speed-up. With many agents, that part is you: you read, decide and approve one session at a time. More agents cannot finish work faster than you can answer them, so your attention is the scarcest resource. Rounds helps you spend it only where your judgment changes the result: you look when a session needs you, not to check if it does.
 
 The name is a round of drinks, one for each session. When nothing needs you, Rounds asks: "🍹 Another round?"
 

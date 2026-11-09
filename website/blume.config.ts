@@ -7,7 +7,7 @@ const site = "https://rounds.henry.wang";
 export default defineConfig({
   title: "Rounds",
   description:
-    "Your agents work in parallel. You need to stay sober. Rounds keeps a tab on every Claude Code, Codex and herdr session and calls you when one needs you.",
+    "Make every round count. Rounds keeps a tab on every Claude Code, Codex and herdr session and calls you when one needs you.",
   feedback: false,
   footer: footer(site, "HenryQW/rounds"),
   logo: { image: "/icon.png", text: "Rounds" },

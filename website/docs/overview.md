@@ -5,6 +5,8 @@ description: "Why Rounds exists: you run many AI coding agents at the same time,
 
 You run many AI coding agents at the same time: Claude Code in one window, Codex in another, pi on models from many vendors in a terminal or in herdr. The agents work in parallel. Your attention does not. An agent that waits for your answer does nothing until you see it, and a finished result is of no use until you read it.
 
+By [Amdahl's law](https://en.wikipedia.org/wiki/Amdahl%27s_law) (Gene Amdahl, 1967), the part of a job that cannot run in parallel limits the total speed-up. With many agents, that part is you. More agents cannot finish work faster than you can answer them, so your attention is the scarcest resource. Rounds helps you spend each glance where your judgment changes the result.
+
 To find what needs you, you look through each window in turn. That costs focus, and an agent that waits for an hour while you look at the wrong window costs that hour.
 
 Rounds puts every session in one list and gives you one number: the sessions that need you now. A small pill at the screen edge shows that number. While the pill is clear or blue, stay on your work. When it turns orange, red or green, an agent needs you, and one click shows which.
