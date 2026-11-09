@@ -1,8 +1,8 @@
 import Foundation
 
 /// One time a session waited for the user (spec 2.11): its time in Last Call in one of Needs input, Failed or Ready.
-/// It starts at the state's since and ends at the first regroup where the row is no longer in Last Call with that state
-/// and since.
+/// It starts at the state's since and ends at the first regroup where the row is no longer in Last Call with that
+/// state, or the user has seen a Failed or Ready row.
 public struct WaitInterval: Sendable, Equatable {
     /// The states that count, in the chart's stack order.
     public static let states: [SessionState] = [.needsInput, .failed, .ready]
@@ -57,23 +57,38 @@ public struct WaitTracker: Sendable {
     private struct Key: Hashable, Sendable {
         let id: String
         let state: SessionState
+    }
+
+    private struct Ended: Hashable, Sendable {
+        let id: String
+        let state: SessionState
         let since: Date
     }
 
-    private var open: [Key: WaitInterval] = [:]
+    /// An open wait and the since of its row at the last check.
+    private var open: [Key: (wait: WaitInterval, since: Date)] = [:]
+    /// The end written for each row, state and since: a row that leaves Last Call and comes back with the same since
+    /// (Mark as Done, then undo) starts again there, so no minute counts twice.
+    private var ended: [Ended: Date] = [:]
 
     public init() {}
 
     /// `rows`: the sessions of the list groups, children too. Returns the waits that ended, oldest first, with `now` as
     /// their end. `project` names a row's project.
+    /// A wait is keyed by row and state: a since that moves in the same state (a Notification after a PermissionRequest)
+    /// keeps the wait and its start. A Failed or Ready wait ends once the user has seen the row; Needs input goes on.
     public mutating func check(_ rows: [SessionRow], now: Date, project: (SessionRow) -> String) -> [WaitInterval] {
-        var current: [Key: WaitInterval] = [:]
-        for r in rows where r.status.group == .yourTurn && WaitInterval.states.contains(r.status.state) {
-            current[Key(id: r.id, state: r.status.state, since: r.status.since)] = WaitInterval(
-                start: r.status.since, end: now, state: r.status.state, source: r.sourceName, rowId: r.id, project: project(r), title: r.title)
+        var current: [Key: (wait: WaitInterval, since: Date)] = [:]
+        for r in rows where r.status.group == .yourTurn && WaitInterval.states.contains(r.status.state)
+            && (r.status.state == .needsInput || !r.isSeen) {
+            let key = Key(id: r.id, state: r.status.state), since = r.status.since
+            let start = open[key]?.wait.start ?? max(since, ended[Ended(id: r.id, state: key.state, since: since)] ?? since)
+            current[key] = (WaitInterval(start: start, end: now, state: key.state, source: r.sourceName, rowId: r.id, project: project(r),
+                                         title: r.title), since)
         }
-        let closed = open.filter { current[$0.key] == nil }.values.map { i in
-            var i = i
+        let closed = open.filter { current[$0.key] == nil }.map { key, o in
+            ended[Ended(id: key.id, state: key.state, since: o.since)] = now
+            var i = o.wait
             i.end = now
             return i
         }
@@ -83,8 +98,8 @@ public struct WaitTracker: Sendable {
 
     /// The waits still open, with `now` as their end, so the time until now counts.
     public func live(now: Date) -> [WaitInterval] {
-        open.values.map { i in
-            var i = i
+        open.values.map { o in
+            var i = o.wait
             i.end = now
             return i
         }

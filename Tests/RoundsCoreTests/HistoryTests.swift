@@ -100,6 +100,48 @@ private let utc: Calendar = {
     #expect(t.check(placed([wait], seen: ["s1": 160], now: 165), now: at(165), project: project).isEmpty)
 }
 
+@Test func sinceMoveInTheSameStateKeepsOneWait() {
+    // A Notification (permission_prompt) after a PermissionRequest moves the since; the wait stays one.
+    var t = WaitTracker()
+    _ = t.check(placed([row(.needsInput, since: 100)], now: 150), now: at(150), project: project)
+    #expect(t.check(placed([row(.needsInput, since: 120)], now: 160), now: at(160), project: project).isEmpty)
+    #expect(t.live(now: at(170)).map(\.start) == [at(100)])
+    let closed = t.check(placed([row(.working, since: 200)], now: 200), now: at(200), project: project)
+    #expect(closed.map(\.start) == [at(100)])
+    #expect(closed.map(\.duration) == [100])
+}
+
+@Test func returnWithTheSameSinceStartsAtTheLastEnd() {
+    // Mark as Done, then undo: the row leaves Last Call and comes back with the same since. No minute counts twice.
+    var t = WaitTracker()
+    let wait = row(.needsInput, since: 100)
+    _ = t.check(placed([wait], now: 150), now: at(150), project: project)
+    #expect(t.check([], now: at(200), project: project).map(\.start) == [at(100)])
+    #expect(t.check(placed([wait], now: 300), now: at(300), project: project).isEmpty)
+    #expect(t.live(now: at(310)).map(\.start) == [at(200)])
+    let closed = t.check(placed([row(.working, since: 400)], now: 400), now: at(400), project: project)
+    #expect(closed.map(\.start) == [at(200)])
+}
+
+@Test func seenFailedCloses() {
+    // A Failed wait measures attention: it ends when the user opens it, though it stays in Last Call.
+    var t = WaitTracker()
+    let failed = row(.failed, since: 100)
+    _ = t.check(placed([failed], now: 150), now: at(150), project: project)
+    let closed = t.check(placed([failed], seen: ["s1": 160], now: 165), now: at(165), project: project)
+    #expect(closed.map(\.duration) == [65])
+    #expect(t.check(placed([failed], seen: ["s1": 160], now: 200), now: at(200), project: project).isEmpty)
+    #expect(t.live(now: at(210)).isEmpty)
+}
+
+@Test func seenFailedAtLaunchDoesNotCount() {
+    // A Failed from a week ago that the user already opened adds no time.
+    var t = WaitTracker()
+    let failed = row(.failed, since: 0)
+    _ = t.check(placed([failed], seen: ["s1": 10], now: 7 * 86400), now: at(7 * 86400), project: project)
+    #expect(t.live(now: at(7 * 86400 + 60)).isEmpty)
+}
+
 @Test func firstCheckAfterLaunchStartsAtSince() {
     // Rows that waited before the launch start at their since and do not close.
     var t = WaitTracker()
