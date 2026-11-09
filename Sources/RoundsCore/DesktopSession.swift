@@ -72,6 +72,8 @@ public struct DesktopSession: Sendable, Equatable, Identifiable {
     public let interruptedAwaitingPerson: Bool
     /// Turns since the user's last message that a side session's report started.
     public let sideSessionWakes: Int
+    /// The scheduled task that started the session (`scheduledTaskId`); nil for a session the user started.
+    public let scheduledTaskId: String?
     public let isRemote: Bool
     public let spawnedFrom: SpawnedFrom?
 
@@ -111,6 +113,7 @@ public struct DesktopSession: Sendable, Equatable, Identifiable {
         errorAt = date(d["errorAt"])
         interruptedAwaitingPerson = d["interruptedAwaitingPerson"] as? Bool ?? false
         sideSessionWakes = d["sideSessionWakesSinceUserMessage"] as? Int ?? 0
+        scheduledTaskId = d["scheduledTaskId"] as? String
         spawnedFrom = (d["spawnedFrom"] as? [String: Any]).flatMap { f in
             (f["sessionId"] as? String).map { SpawnedFrom(sessionId: $0, title: f["title"] as? String ?? "", userFork: f["userFork"] as? Bool ?? false) }
         }

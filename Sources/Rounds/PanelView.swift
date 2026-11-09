@@ -467,7 +467,13 @@ struct SessionRowView: View {
                 Badge.origin(row.sourceName, size: 18).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + capMiddle }
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(row.title).fontWeight(.medium).lineLimit(1)
+                if let task = row.session?.scheduledTaskId {
+                    // A scheduled run: a grey clock, so the dot colour still means the state.
+                    (Text(Image(systemName: "clock")).foregroundStyle(.secondary).font(.caption) + Text(" ") + Text(row.title))
+                        .fontWeight(.medium).lineLimit(1).help("Scheduled: \(task)")
+                } else {
+                    Text(row.title).fontWeight(.medium).lineLimit(1)
+                }
                 (icon ? Text(subtitle) : Text("\(subtitle) · \(kind)"))
                     .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }

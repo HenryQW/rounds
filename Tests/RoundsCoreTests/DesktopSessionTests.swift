@@ -71,3 +71,10 @@ func missingRequiredKeyNamesIt(key: String) throws {
     let plain = try DesktopSession(json: fixture("session_minimal.json"))
     #expect(plain.spawnedFrom == nil && SessionRow(session: plain, status: SessionStatus(.finished, since: .distantPast)).parentId == nil)
 }
+
+@Test func scheduledRunNamesItsTask() throws {
+    var dict = try #require(JSONSerialization.jsonObject(with: fixture("session_minimal.json")) as? [String: Any])
+    dict["scheduledTaskId"] = "daily-tidy"
+    #expect(try DesktopSession(json: JSONSerialization.data(withJSONObject: dict)).scheduledTaskId == "daily-tidy")
+    #expect(try DesktopSession(json: fixture("session_minimal.json")).scheduledTaskId == nil)
+}
