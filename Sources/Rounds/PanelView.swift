@@ -469,7 +469,7 @@ struct SessionRowView: View {
             VStack(alignment: .leading, spacing: 2) {
                 if let task = row.session?.scheduledTaskId {
                     // A scheduled run: a grey clock, so the dot colour still means the state.
-                    (Text(Image(systemName: "clock")).foregroundStyle(.secondary).font(.caption) + Text(" ") + Text(row.title))
+                    (Text(Image(systemName: "calendar.badge.clock")).foregroundStyle(.secondary).font(.caption) + Text(" ") + Text(row.title))
                         .fontWeight(.medium).lineLimit(1).help("Scheduled: \(task)")
                 } else {
                     Text(row.title).fontWeight(.medium).lineLimit(1)

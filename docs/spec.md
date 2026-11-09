@@ -50,7 +50,7 @@ Path: `~/Library/Application Support/Claude/claude-code-sessions/*/*/local_*.jso
 | `interruptedAwaitingPerson` | App quit while a prompt was pending |
 | `sideSessionWakesSinceUserMessage` | Turns since the user's last message that a side session's report started (rule 9) |
 | `sshConfig`, `remoteTarget` | No live state (hooks run on the remote host) |
-| `scheduledTaskId` | The scheduled task that started the session: a grey clock before the row title, and the hint "Scheduled: <id>" (5.2; decided 2026-11-09) |
+| `scheduledTaskId` | The scheduled task that started the session: a grey calendar with a clock (`calendar.badge.clock`) before the row title, and the hint "Scheduled: <id>" (5.2; decided 2026-11-09) |
 | `spawnedFrom` `{sessionId, taskId, title, sideSession?, userFork?, btw?}` | Side session or fork: a child session of the session with that `sessionId` (5.2). `userFork` true: a fork the user made |
 
 Required keys: `sessionId`, `cliSessionId`, `cwd`, `title`, `isArchived`, `lastActivityAt`. All other keys are optional.
