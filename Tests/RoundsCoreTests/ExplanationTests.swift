@@ -99,6 +99,38 @@ func reportHoldsNoTitlePromptOrPath(input: StateInput) throws {
     #expect(mode == 0o700)
 }
 
+// The explanation of a row: its headline and report state are the classifier's; a row that shows another state says why.
+
+private func codex(_ id: String, parent: String? = nil, event: String) -> (row: SessionRow, input: StateInput) {
+    let t = CodexThread(id: id, title: "t", cwd: "/tmp/proj", branch: nil, updatedAt: ago(60), rolloutPath: "", parentId: parent)
+    let input = StateInput.codex(t, hook: HookState(last: HookLine(at: ago(20), event: event, detail: "", backgroundTasks: nil, cronSchedules: [])),
+                                 turn: nil, live: true)
+    return (SessionRow(thread: t, status: input.explain().status), input)
+}
+
+@Test func parentWithASubAgentAtWorkExplainsItsBackground() throws {
+    let parent = codex("p", event: "Stop"), child = codex("c", parent: "p", event: "PreToolUse")
+    let row = try #require(group([parent.row, child.row], query: "", now: now).all.first { $0.id == parent.row.id })
+    #expect(row.status.state == .background)
+    let (status, e) = parent.input.explain(row)
+    #expect(status.state == parent.input.explain().status.state)
+    #expect(status.state != .background)
+    #expect(e.signals.contains(StateSignal("Sub-agents at work", "1; the row shows Background (3.2)")))
+    #expect(e.signals.last == StateSignal("Seen", "no"))
+    let report = WrongStateReport(input: parent.input, shown: status.state, explanation: e, correct: nil, savedAt: now)
+    #expect(try #require(report.stateInput).explain().status.state == report.shown)
+}
+
+@Test func staleRowSaysItShowsAnEarlierState() {
+    let (row, input) = codex("p", event: "Stop")
+    var stale = row
+    stale.status = SessionStatus(.needsInput, since: ago(90))
+    let (status, e) = input.explain(stale)
+    #expect(status == input.explain().status)
+    #expect(e.signals.contains(StateSignal("Row shows", "Needs input, from an earlier check")))
+    #expect(!input.explain(row).explanation.signals.contains { $0.label == "Row shows" || $0.label == "Sub-agents at work" })
+}
+
 // One explanation per source: the rule the classifier took and the signals it read.
 
 @Test func claudeExplanationNamesTheSpecRule() {

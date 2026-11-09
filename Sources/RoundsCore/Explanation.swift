@@ -88,6 +88,22 @@ public enum StateInput: Sendable {
     }
 }
 
+extension StateInput {
+    /// Why This State… for a row: the classifier's state and explanation, so a report replays to the state it names,
+    /// with Seen. A row that shows another state says why: a result Background for its sub-agents at work (3.2), or a
+    /// row from an earlier check (a menu that opened before the state changed).
+    public func explain(_ row: SessionRow) -> (status: SessionStatus, explanation: StateExplanation) {
+        var (status, explanation) = explain()
+        if row.status.state != status.state {
+            explanation.signals.append(row.subAgentsAtWork > 0
+                ? StateSignal("Sub-agents at work", "\(row.subAgentsAtWork); the row shows Background (3.2)")
+                : StateSignal("Row shows", "\(row.status.state.title), from an earlier check"))
+        }
+        explanation.signals.append(StateSignal("Seen", row.isSeen ? "yes" : "no"))
+        return (status, explanation)
+    }
+}
+
 /// "PreToolUse (Bash)": the event and its tool name, notification type or error kind.
 private func hookSignal(_ hook: HookState?) -> StateSignal {
     guard let last = hook?.last else { return StateSignal("Last hook event", "none") }

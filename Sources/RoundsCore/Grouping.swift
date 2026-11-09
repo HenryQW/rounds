@@ -33,6 +33,8 @@ public struct SessionRow: Sendable, Equatable, Identifiable {
     public internal(set) var isIsolated = false
     /// The tickets of the session; the app sets them before `group`, which drops from a child those its parent shows.
     public var tickets: [Ticket] = []
+    /// The sub-agents at work that made a result Background (`group`); 0 when the state is the classifier's.
+    public internal(set) var subAgentsAtWork = 0
 
     public init(session: DesktopSession, status: SessionStatus) {
         (source, self.status, id, title, cwd) = (.claude(session), status, session.id, session.title, session.cwd)
@@ -185,6 +187,7 @@ public func group(_ rows: [SessionRow], query: String, marks: SessionMarks = Ses
         guard let n = atWork[r.id]?.count, [.ready, .finished].contains(r.status.state) else { return r }
         var r = r
         r.status = SessionStatus(.background, n == 1 ? "1 sub-agent" : "\(n) sub-agents", since: r.status.since)
+        r.subAgentsAtWork = n
         return r
     }
     let rows = rule.map { rule in waitingRows.map { rule.place($0, seen: trackSeen && marks.isSeen($0), now: now) } } ?? waitingRows

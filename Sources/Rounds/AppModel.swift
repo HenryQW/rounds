@@ -464,18 +464,17 @@ final class AppModel {
     }
 
     /// Why This State… (spec 3.4): the classifier input of a row and what the classifier says about it, with whether the
-    /// user has seen the state. Nil for a row with no input (some demo rows).
-    func explain(_ row: SessionRow) -> (input: StateInput, explanation: StateExplanation)? {
+    /// user has seen the state and why the row shows another state. Nil for a row with no input (some demo rows).
+    func explain(_ row: SessionRow) -> (input: StateInput, status: SessionStatus, explanation: StateExplanation)? {
         guard let input = inputs.values.lazy.compactMap({ $0[row.id] }).first else { return nil }
-        var explanation = input.explain().explanation
-        explanation.signals.append(StateSignal("Seen", row.isSeen ? "yes" : "no"))
-        return (input, explanation)
+        let (status, explanation) = input.explain(row)
+        return (input, status, explanation)
     }
 
-    /// Report Wrong State… (spec 2.10): saves the report in the reports folder and returns the file.
-    func saveReport(_ row: SessionRow, input: StateInput, explanation: StateExplanation, correct: SessionState?) throws -> URL {
-        try save(WrongStateReport(input: input, shown: row.status.state, explanation: explanation, correct: correct, savedAt: Date()),
-                 in: reportsDirectory())
+    /// Report Wrong State… (spec 2.10): saves the report in the reports folder and returns the file. `shown` is the
+    /// classifier's state, so the report replays to it.
+    func saveReport(input: StateInput, shown: SessionState, explanation: StateExplanation, correct: SessionState?) throws -> URL {
+        try save(WrongStateReport(input: input, shown: shown, explanation: explanation, correct: correct, savedAt: Date()), in: reportsDirectory())
     }
 
     /// Demo mode only: new placeholder rows (`Demo`'s window-turn scene).

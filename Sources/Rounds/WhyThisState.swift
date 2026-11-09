@@ -10,14 +10,26 @@ final class WhyThisState {
 
     let row: SessionRow
     let input: StateInput?
+    /// The classifier's state: the headline and the report's state. A row can show another one (spec 3.4).
+    let status: SessionStatus
     let explanation: StateExplanation?
     var step = Step.explain
     /// Nil: Not Sure.
     var correct: SessionState?
     var error: String?
 
-    init(row: SessionRow, explained: (input: StateInput, explanation: StateExplanation)?) {
-        (self.row, input, explanation) = (row, explained?.input, explained?.explanation)
+    init(row: SessionRow, explained: (input: StateInput, status: SessionStatus, explanation: StateExplanation)?) {
+        (self.row, input, status, explanation) = (row, explained?.input, explained?.status ?? row.status, explained?.explanation)
+    }
+
+    /// Save Report: the report file, or the error under the form.
+    func save() {
+        guard case .report = step, let input, let explanation else { return }
+        do {
+            step = .saved(try AppModel.shared.saveReport(input: input, shown: status.state, explanation: explanation, correct: correct))
+        } catch {
+            self.error = "The report was not saved: \(error.localizedDescription)"
+        }
     }
 
     /// "Source", "Rule", then each signal, as label and value; a signal with a time adds "13 min. ago".
@@ -31,7 +43,7 @@ final class WhyThisState {
 
     /// The text that Copy puts on the pasteboard: the state, the sentence and every line. No title.
     var text: String {
-        ([row.status.label] + (explanation.map { [$0.sentence] } ?? []) + lines.map { "\($0.label): \($0.value)" }).joined(separator: "\n")
+        ([status.label] + (explanation.map { [$0.sentence] } ?? []) + lines.map { "\($0.label): \($0.value)" }).joined(separator: "\n")
     }
 }
 
@@ -55,7 +67,7 @@ struct WhyThisStateView: View {
     @ViewBuilder
     private var explanation: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(why.row.status.label).font(.headline)
+            Text(why.status.label).font(.headline)
             Text(why.explanation?.sentence ?? "Rounds has no signals for this session.").font(.callout).foregroundStyle(.secondary)
         }
         if why.explanation != nil {
@@ -100,7 +112,7 @@ struct WhyThisStateView: View {
         HStack {
             Spacer()
             Button("Cancel") { (why.step, why.error) = (.explain, nil) }.keyboardShortcut(.cancelAction)
-            Button("Save Report") { save() }.keyboardShortcut(.defaultAction)
+            Button("Save Report") { why.save() }.keyboardShortcut(.defaultAction)
         }
     }
 
@@ -114,15 +126,6 @@ struct WhyThisStateView: View {
                 Spacer()
                 Button("Show in Finder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
             }
-        }
-    }
-
-    private func save() {
-        guard let input = why.input, let explanation = why.explanation else { return }
-        do {
-            why.step = .saved(try AppModel.shared.saveReport(why.row, input: input, explanation: explanation, correct: why.correct))
-        } catch {
-            why.error = "The report was not saved: \(error.localizedDescription)"
         }
     }
 }
