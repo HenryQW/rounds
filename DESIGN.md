@@ -107,6 +107,7 @@ Only live work moves, and it moves like a round of drinks. A working row shows a
 - **Don't** add a second brand colour, a gradient or a shadow.
 - **Don't** let hover and selection look alike.
 - **Don't** put a pun on a state or an action: status words must read at a glance.
+- **Don't** let a nice-to-have fact pull the eye from a core one: core facts (the state, what the agent asks or said, why) get the type and the space; nice-to-have facts (times, counts) are one grey caption line or stay out.
 
 ## Differences from Linear
 
