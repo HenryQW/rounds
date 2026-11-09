@@ -104,6 +104,7 @@ Only live work moves, and it moves like a round of drinks. A working row shows a
 - **Do** use a native control before a custom one.
 - **Do** show a state with its colour on a small mark (a dot, a symbol), not a filled card.
 - **Do** keep puns to the tile names, the banner and the motion.
+- **Do** put views of the same data (charts, breakdowns by project or agent) behind a segmented control, one view at a time: the page stays short, so the user scrolls less.
 - **Don't** add a second brand colour, a gradient or a shadow.
 - **Don't** let hover and selection look alike.
 - **Don't** put a pun on a state or an action: status words must read at a glance.
