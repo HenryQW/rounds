@@ -192,13 +192,25 @@ final class PanelController: NSObject, NSWindowDelegate {
     }
 
     /// ↑/↓ move the list selection and ↵ opens it, also while the search field has focus, so the user can type and
-    /// pick without leaving the field. Esc clears the search, then closes.
+    /// pick without leaving the field. Esc closes Why This State…, clears the search, then closes.
     /// ⌘D marks the selected row done; ⌘I shows why it has its state; ⌘⌫ hides it (with an empty search, else it edits the text).
     /// ⌘1 to ⌘5 pick the tile All, Last Call, On Tap, Served, Aged; ⌘Z and ⇧⌘Z undo and redo (marks and search typing share the window's undo stack).
     private func handle(_ event: NSEvent) -> Bool {
         let editor = panel?.firstResponder as? NSTextView
         // While an input method composes text, its keys belong to it.
         if let editor, editor.hasMarkedText() { return false }
+        // While Why This State… shows, Esc closes it first, and Return saves its report form. Keys that go to the
+        // popover's own window (a child window) reach its Cancel and Save Report buttons instead.
+        if let why = state.why {
+            if event.keyCode == 53 {
+                state.why = nil
+                return true
+            }
+            if [36, 76].contains(event.keyCode), case .report = why.step {
+                why.save()
+                return true
+            }
+        }
         if event.keyCode == 53 {
             if model.query.isEmpty { close() } else { model.query = "" }
             return true

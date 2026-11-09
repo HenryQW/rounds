@@ -342,10 +342,10 @@ final class EdgeDrawer {
             pointerTimer?.invalidate()
             return
         }
-        // A menu, a sheet (the Quit confirmation) or Settings keeps the window open while it shows; so does the pointer
-        // on the hover card, which can hang past the window's edge.
-        if menuOpen || window.attachedSheet != nil || SettingsState.shared.isOpen || HoverCard.shared.onCard
-            || NSMouseInRect(NSEvent.mouseLocation, window.frame, false) {
+        // A menu, a sheet (the Quit confirmation), Settings or the Why This State… popover keeps the window open while it
+        // shows; so does the pointer on the hover card. The card and the popover can hang past the window's edge.
+        if menuOpen || window.attachedSheet != nil || SettingsState.shared.isOpen || PanelController.shared.state.why != nil
+            || HoverCard.shared.onCard || NSMouseInRect(NSEvent.mouseLocation, window.frame, false) {
             (pointerEntered, pointerLeftAt) = (true, nil)
         } else if pointerEntered {
             let left = pointerLeftAt ?? Date()
