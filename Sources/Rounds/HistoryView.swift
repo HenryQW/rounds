@@ -200,7 +200,7 @@ struct HistorySections: View {
 
     /// An hour by weekday grid in one grey: the minutes of each hour (7 Days), or their average per weekday (30 Days).
     private func slowHours(_ s: HistorySummary) -> some View {
-        let names = Calendar.current.shortWeekdaySymbols
+        let names = Calendar.current.shortWeekdaySymbols, days = Calendar.current.weekdaySymbols
         let seconds = Dictionary(uniqueKeysWithValues: s.cells.map { ($0.weekday * 24 + $0.hour, $0.seconds) })
         let top = s.cells.map(\.seconds).max() ?? 0
         // Work hours at least, wider when a wait came earlier or later.
@@ -218,6 +218,9 @@ struct HistorySections: View {
                                       yStart: .value("Day", Double(6 - row) + 0.08), yEnd: .value("Day", Double(7 - row) - 0.08))
                             .foregroundStyle(shade(seconds[weekday * 24 + hour] ?? 0))
                             .cornerRadius(2)
+                            // VoiceOver: "Monday, 09:00 to 10:00", "12 min".
+                            .accessibilityLabel("\(days[weekday - 1]), \(label(hour)):00 to \(label((hour + 1) % 24)):00")
+                            .accessibilityValue(Self.minutes(seconds[weekday * 24 + hour] ?? 0))
                     }
                 }
             }
