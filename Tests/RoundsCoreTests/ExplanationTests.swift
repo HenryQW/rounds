@@ -91,6 +91,14 @@ func reportHoldsNoTitlePromptOrPath(input: StateInput) throws {
     #expect(try #require(saved.stateInput).explain().explanation.rule == explanation.rule)
 }
 
+@Test func reportsFolderIsPrivate() throws {
+    let dir = try tempDir().appending(path: "reports")
+    let (status, explanation) = herdrInput.explain()
+    _ = try save(WrongStateReport(input: herdrInput, shown: status.state, explanation: explanation, correct: nil, savedAt: now), in: dir)
+    let mode = try FileManager.default.attributesOfItem(atPath: dir.path)[.posixPermissions] as? Int
+    #expect(mode == 0o700)
+}
+
 // One explanation per source: the rule the classifier took and the signals it read.
 
 @Test func claudeExplanationNamesTheSpecRule() {

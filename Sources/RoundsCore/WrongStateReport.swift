@@ -193,11 +193,11 @@ public func reportsDirectory() -> URL {
     hookStateDirectory().deletingLastPathComponent().appending(path: "reports")
 }
 
-/// Writes the report to `dir/wrong-state-<yyyyMMdd-HHmmss>.json`, readable by the user only (mode 0600), and returns
-/// the file. A second report in the same second gets "-2", "-3" and so on.
+/// Writes the report to `dir/wrong-state-<yyyyMMdd-HHmmss>.json`, readable by the user only (mode 0600, a new folder
+/// 0700), and returns the file. A second report in the same second gets "-2", "-3" and so on.
 public func save(_ report: WrongStateReport, in dir: URL) throws -> URL {
     let data = try WrongStateReport.encoder().encode(report)
-    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
     let stamp = report.savedAt.formatted(Date.VerbatimFormatStyle(
         format: "\(year: .defaultDigits)\(month: .twoDigits)\(day: .twoDigits)-\(hour: .twoDigits(clock: .twentyFourHour, hourCycle: .zeroBased))\(minute: .twoDigits)\(second: .twoDigits)",
         timeZone: .current, calendar: Calendar(identifier: .gregorian)))
