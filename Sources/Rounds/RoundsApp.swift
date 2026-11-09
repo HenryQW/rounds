@@ -6,8 +6,8 @@ struct RoundsApp: App {
     private let model = AppModel.shared
 
     init() {
-        // Hover hints (`.help`) show after 1 s instead of the system default.
-        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 1000])
+        // Hover hints (`.help`) show after 0.5 s: the system default (key not set) felt slower than 1 s.
+        UserDefaults.standard.register(defaults: ["NSInitialToolTipDelay": 500])
         HotkeyManager.shared.onPress = { PanelController.shared.toggle() }
         HotkeyManager.shared.register(HotkeyManager.saved())
         // NSApp does not exist yet in App.init; the drawer makes its pill once the app runs. The pill is the app's only
