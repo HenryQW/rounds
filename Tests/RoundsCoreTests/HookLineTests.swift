@@ -17,12 +17,12 @@ private func payload(_ fields: [String: Any]) throws -> Data {
         "background_tasks": [["id": "a"], ["id": "b"]],
         "session_crons": [["id": "c1", "schedule": "*/5 * * * *", "recurring": true, "prompt": "secret prompt"]],
     ])
-    let (id, line) = try HookLine.from(payload: data, now: now)
+    let (id, line, _) = try HookLine.from(payload: data, now: now)
     #expect(id == sid)
     #expect(line.event == "Stop")
     #expect(line.backgroundTasks == 2)
     #expect(line.cronSchedules == ["*/5 * * * *"])
-    #expect(line.encoded == "1792986997683\tStop\t\t2\t*/5 * * * *\t:;:\n")
+    #expect(line.encoded == "1792986997683\tStop\t\t2\t*/5 * * * *\t:;:\t\n")
     #expect(!line.encoded.contains("secret"))
 }
 
@@ -65,7 +65,7 @@ private func payload(_ fields: [String: Any]) throws -> Data {
     (["hook_event_name": "UserPromptSubmit", "prompt": "secret"], ""),
 ] as [([String: any Sendable], String)])
 func encodeDecodeRoundTrip(fields: [String: any Sendable], detail: String) throws {
-    let (_, line) = try HookLine.from(payload: payload(fields), now: now)
+    let line = try HookLine.from(payload: payload(fields), now: now).line
     #expect(line.detail == detail)
     #expect(line.backgroundTasks == nil && line.cronSchedules.isEmpty)
     #expect(!line.encoded.contains("secret"))
@@ -84,8 +84,66 @@ func encodeDecodeRoundTrip(fields: [String: any Sendable], detail: String) throw
 }
 
 @Test func detailDropsTabsAndNewlines() throws {
-    let (_, line) = try HookLine.from(payload: payload(["hook_event_name": "PreToolUse", "tool_name": "a\tb\nc"]), now: now)
+    let line = try HookLine.from(payload: payload(["hook_event_name": "PreToolUse", "tool_name": "a\tb\nc"]), now: now).line
     #expect(line.detail == "abc")
+}
+
+/// A permission request keeps the first allow rule that Claude Code suggests; an MCP tool rule has no content.
+@Test(arguments: [
+    ([["type": "addRules", "rules": [["toolName": "Bash", "ruleContent": "swift test"]], "behavior": "deny", "destination": "localSettings"],
+      ["type": "addRules", "rules": [["toolName": "Bash", "ruleContent": "swift test"], ["toolName": "Read"]], "behavior": "allow",
+       "destination": "localSettings"]], "Bash(swift test)"),
+    ([["type": "addRules", "rules": [["toolName": "mcp__github__get_issue"]], "behavior": "allow", "destination": "localSettings"]],
+     "mcp__github__get_issue"),
+    ([["type": "setMode", "mode": "acceptEdits", "destination": "session"]], ""),
+] as [([[String: any Sendable]], String)])
+func permissionRequestKeepsSuggestedRule(suggestions: [[String: any Sendable]], rule: String) throws {
+    let line = try HookLine.from(payload: payload(["hook_event_name": "PermissionRequest", "tool_name": "Bash",
+                                                   "permission_suggestions": suggestions]), now: now).line
+    #expect(line.rule == rule)
+    #expect(HookLine(encoded: line.encoded.dropLast()) == line)
+}
+
+@Test func ruleKeepsSemicolonsAndDropsLineBreaks() throws {
+    let suggestion: [String: any Sendable] = ["type": "addRules", "behavior": "allow", "rules": [["toolName": "Bash", "ruleContent": "a;\tb\r\nc" + String(repeating: "x", count: 400)]]]
+    let line = try HookLine.from(payload: payload(["hook_event_name": "PermissionRequest", "tool_name": "Bash",
+                                                   "permission_suggestions": [suggestion]]), now: now).line
+    #expect(line.rule.hasPrefix("Bash(a;bc") && line.rule.count == 300)
+    #expect(try HookLine.from(payload: payload(["hook_event_name": "PermissionRequest", "tool_name": "Bash"]), now: now).line.rule == "")
+    // Only a PermissionRequest keeps it.
+    #expect(try HookLine.from(payload: payload(["hook_event_name": "PreToolUse", "tool_name": "Bash",
+                                                "permission_suggestions": [suggestion]]), now: now).line.rule == "")
+}
+
+/// A line from the helper before the rule field has six fields.
+@Test func sixFieldLineHasNoRule() throws {
+    let line = try #require(HookLine(encoded: "100\tPermissionRequest\tBash\t\t\t"))
+    #expect(line.detail == "Bash" && line.rule == "")
+    let seven = try #require(HookLine(encoded: "100\tPermissionRequest\tBash\t\t\t\tBash(rm -rf a; ls)"))
+    #expect(seven.rule == "Bash(rm -rf a; ls)")
+    #expect(seven.encoded == "100\tPermissionRequest\tBash\t\t\t\tBash(rm -rf a; ls)\n")
+}
+
+private func hook(_ event: String, _ detail: String, rule: String = "") -> HookLine {
+    HookLine(at: now, event: event, detail: detail, backgroundTasks: nil, cronSchedules: [], rule: rule)
+}
+
+@Test func approvedRequestGivesItsRule() {
+    let asked = [hook("PreToolUse", "Bash"), hook("PermissionRequest", "Bash", rule: "Bash(swift test)")]
+    #expect(approvedRule(asked + [hook("PostToolUse", "Bash")]) == "Bash(swift test)")
+    #expect(approvedRule(asked + [hook("Notification", "permission_prompt"), hook("PostToolUseFailure", "Bash")]) == "Bash(swift test)")
+}
+
+@Test func deniedOrOtherToolGivesNoRule() {
+    let asked = [hook("PreToolUse", "Bash"), hook("PermissionRequest", "Bash", rule: "Bash(rm -rf a)")]
+    // Denied: the next call of the same tool starts with a PreToolUse.
+    #expect(approvedRule(asked + [hook("UserPromptSubmit", ""), hook("PreToolUse", "Bash"), hook("PostToolUse", "Bash")]) == nil)
+    // Another tool ran.
+    #expect(approvedRule(asked + [hook("PreToolUse", "Read"), hook("PostToolUse", "Read")]) == nil)
+    // The newest line is not a tool result.
+    #expect(approvedRule(asked + [hook("Notification", "permission_prompt")]) == nil)
+    // Out of the 64 lines before the newest.
+    #expect(approvedRule(asked + Array(repeating: hook("PostToolUse", "Read"), count: 64) + [hook("PostToolUse", "Bash")]) == nil)
 }
 
 @Test(arguments: ["../x", "a/b", "", String(repeating: "a", count: 65), "a b"])

@@ -67,16 +67,25 @@ Path: `~/.claude/projects/<cwd with "/" and "." replaced by "-">/<cliSessionId>.
 Path: `~/Library/Application Support/Rounds/state/<session_id>`. One line per event, appended with `O_APPEND`:
 
 ```
-<unix-ms>\t<event>\t<tool_name or notification_type or error>\t<bg_tasks>\t<cron_schedules>\t<task_list>
+<unix-ms>\t<event>\t<tool_name or notification_type or error>\t<bg_tasks>\t<cron_schedules>\t<task_list>\t<rule>
 ```
 
 - `bg_tasks`: count of `background_tasks[]` entries whose `type` is not `monitor` (Stop only, else empty). Monitors, such as an artifact watch, stay open after the turn and are not work.
 - `task_list`: the same entries (items are `{id, type, status, description}`) as `<type>:<description>`, joined with `;` (Stop only, else empty). The description loses tabs, line breaks and `;`, and is cut to 120 characters. Lines from an older helper have no sixth field: the app then knows the count only.
 - `cron_schedules`: the `schedule` cron expressions of `session_crons[]` (items are `{id, schedule, recurring, prompt}`), joined with `;` (Stop only, else empty). The app checks if one fires in the next 15 min, in local time.
+- `rule`: the allow rule that Claude Code suggests (`PermissionRequest` only, else empty). It is the first entry of `permission_suggestions` with `type` `addRules` and `behavior` `allow`; the helper writes its first rule as `toolName(ruleContent)`, or `toolName` when the rule has no content (an MCP tool). The rule loses tabs and line breaks, keeps `;` (commands use it), and is cut to 300 characters. Lines from an older helper have no seventh field.
 - The app uses the line with the highest time, plus the last `Stop` line for background and cron data.
-- No prompt text, tool input or message text is written, except the short task descriptions of `task_list` (the row shows them).
+- No prompt text, tool input or message text is written, except the short task descriptions of `task_list` (the row shows them) and `rule`, which holds the command text of a permission request. The files stay 0600 and never leave the Mac.
 - A "New session" offer card (`PreToolUse` for `mcp__ccd_session__start_session` with `initiation` `offer`) waits until the user answers it; the helper writes its tool name with `:offer` added. `initiation` is the only tool input field the helper reads. Other `start_session` calls do not wait for the user, except on a permission prompt (`PermissionRequest`).
 - When the file is larger than 64 KiB, the app rewrites it with the last line only.
+
+Approvals log: `~/Library/Application Support/Rounds/approvals/<yyyy-MM-dd>.tsv` (local date), one file a day. The state files are not durable, so the helper keeps each approved rule here. After it appends a `PostToolUse` or `PostToolUseFailure` line for tool T, it reads the state file. The request is approved when the latest `PermissionRequest` line for T with a rule is in the 64 lines before, with no `PreToolUse`, `PostToolUse` or `PostToolUseFailure` line for T between them (a `PreToolUse` of T there is a new call after a denial). Then the helper appends one line with `O_APPEND` (folder 0700, file 0600):
+
+```
+<unix-ms>\t<session_id>\t<cwd>\t<rule>
+```
+
+`cwd` loses tabs and line breaks. Retention of these files and the History "Suggested rules" list, which counts repeated rules, are step 2 and are not built.
 
 ### 2.4 Hook entries
 

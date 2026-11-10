@@ -27,5 +27,5 @@ private func names(_ dir: URL) -> Set<String> { Set((try? FileManager.default.co
     try write(dir, "s", text)
     pruneStateFiles(dir: dir, liveIds: nil, maxBytes: 1024)
     let kept = try String(contentsOf: dir.appending(path: "s"), encoding: .utf8)
-    #expect(kept == "3199\tPreToolUse\tBash\t\t\t\n")
+    #expect(kept == "3199\tPreToolUse\tBash\t\t\t\t\n")
 }

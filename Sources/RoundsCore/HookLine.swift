@@ -17,7 +17,7 @@ public struct BackgroundTask: Sendable, Equatable {
 }
 
 /// One hook event, stored as one tab-separated line (spec 2.3). Holds no prompt, tool input or message text, except
-/// the short descriptions of background tasks.
+/// the short descriptions of background tasks and the rule that a permission request suggests, which holds the command.
 public struct HookLine: Sendable, Equatable {
     public let at: Date
     public let event: String
@@ -26,37 +26,42 @@ public struct HookLine: Sendable, Equatable {
     public let cronSchedules: [String]
     /// The background tasks of a Stop; empty in lines from an older helper, which kept the count only.
     public let tasks: [BackgroundTask]
+    /// The allow rule that Claude Code suggests for a PermissionRequest, such as `Bash(swift test)`; else empty.
+    public let rule: String
 
-    public init(at: Date, event: String, detail: String, backgroundTasks: Int?, cronSchedules: [String], tasks: [BackgroundTask] = []) {
+    public init(at: Date, event: String, detail: String, backgroundTasks: Int?, cronSchedules: [String], tasks: [BackgroundTask] = [],
+                rule: String = "") {
         self.at = at
         self.event = event
         self.detail = detail
         self.backgroundTasks = backgroundTasks
         self.cronSchedules = cronSchedules
         self.tasks = tasks
+        self.rule = rule
     }
 
     public var encoded: String {
         let ms = Int64((at.timeIntervalSince1970 * 1000).rounded())
         let bg = backgroundTasks.map(String.init) ?? ""
         let list = tasks.map { "\($0.type):\($0.description)" }.joined(separator: ";")
-        return "\(ms)\t\(event)\t\(detail)\t\(bg)\t\(cronSchedules.joined(separator: ";"))\t\(list)\n"
+        return "\(ms)\t\(event)\t\(detail)\t\(bg)\t\(cronSchedules.joined(separator: ";"))\t\(list)\t\(rule)\n"
     }
 
     public init?(encoded: Substring) {
         let f = encoded.split(separator: "\t", omittingEmptySubsequences: false)
-        guard f.count == 5 || f.count == 6, let ms = Int64(f[0]), !f[1].isEmpty else { return nil }
+        guard (5...7).contains(f.count), let ms = Int64(f[0]), !f[1].isEmpty else { return nil }
         let bg: Int?
         if f[3].isEmpty { bg = nil } else if let n = Int(f[3]) { bg = n } else { return nil }
-        let tasks: [BackgroundTask] = f.count == 6 ? f[5].split(separator: ";").map { item in
+        let tasks: [BackgroundTask] = f.count >= 6 ? f[5].split(separator: ";").map { item in
             let parts = item.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
             return BackgroundTask(type: String(parts[0]), description: parts.count > 1 ? String(parts[1]) : "")
         } : []
         self.init(at: Date(timeIntervalSince1970: Double(ms) / 1000), event: String(f[1]), detail: String(f[2]),
-                  backgroundTasks: bg, cronSchedules: f[4].split(separator: ";").map(String.init), tasks: tasks)
+                  backgroundTasks: bg, cronSchedules: f[4].split(separator: ";").map(String.init), tasks: tasks,
+                  rule: f.count == 7 ? String(f[6]) : "")
     }
 
-    public static func from(payload: Data, now: Date) throws(HookPayloadError) -> (sessionId: String, line: HookLine) {
+    public static func from(payload: Data, now: Date) throws(HookPayloadError) -> (sessionId: String, line: HookLine, cwd: String) {
         guard let p = (try? JSONSerialization.jsonObject(with: payload)) as? [String: Any],
               let event = p["hook_event_name"] as? String else { throw .invalidJSON }
         guard let id = p["session_id"] as? String, isValidSessionId(id) else { throw .badSessionId }
@@ -73,8 +78,9 @@ public struct HookLine: Sendable, Equatable {
                                 let text = (t["description"] as? String ?? "").map { "\t\n\r".contains($0) ? " " : $0 }
                                 return BackgroundTask(type: clean(t["type"] as? String ?? "").filter { $0 != ":" },
                                                       description: String(clean(String(text)).prefix(120)))
-                            })
-        return (id, line)
+                            },
+                            rule: event == "PermissionRequest" ? suggestedRule(p["permission_suggestions"]) : "")
+        return (id, line, p["cwd"] as? String ?? "")
     }
 }
 
@@ -84,11 +90,22 @@ func toolDetail(_ name: String, input: Any?) -> String {
     name == "mcp__ccd_session__start_session" && (input as? [String: Any])?["initiation"] as? String == "offer" ? name + ":offer" : name
 }
 
+/// The first allow rule of a PermissionRequest's `permission_suggestions`, as `toolName` or `toolName(ruleContent)`
+/// (an MCP tool rule has no content). It keeps `;`, which commands use, and is cut to 300 characters.
+func suggestedRule(_ suggestions: Any?) -> String {
+    guard let entry = (suggestions as? [[String: Any]])?.first(where: { $0["type"] as? String == "addRules" && $0["behavior"] as? String == "allow" }),
+          let first = (entry["rules"] as? [[String: Any]])?.first, let tool = first["toolName"] as? String else { return "" }
+    return String(oneLine((first["ruleContent"] as? String).map { "\(tool)(\($0))" } ?? tool).prefix(300))
+}
+
 private func isValidSessionId(_ s: String) -> Bool {
     (1...64).contains(s.count) && s.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
 }
 
 private func clean(_ s: String) -> String { s.filter { $0 != "\t" && $0 != "\n" && $0 != "\r" && $0 != ";" } }
+
+/// Drops tabs, CR and LF by scalar, so a CRLF pair (one Character) goes too.
+private func oneLine(_ s: String) -> String { String(s.unicodeScalars.filter { $0 != "\t" && $0 != "\r" && $0 != "\n" }) }
 
 /// Latest hook state of one session: the newest line. Claude compacts an idle session between turns (a PreCompact,
 /// maybe a StopFailure, after a Stop and no prompt); that changes nothing, so the Stop stays the newest line.
@@ -114,6 +131,30 @@ public struct HookState: Sendable, Equatable {
 public func hookStateDirectory() -> URL {
     if let dir = ProcessInfo.processInfo.environment["ROUNDS_STATE_DIR"] { return URL(fileURLWithPath: dir) }
     return URL.applicationSupportDirectory.appending(path: "Rounds/state")
+}
+
+/// The rule of the request that the newest line approved, else nil. The newest line (the last) is a PostToolUse or
+/// PostToolUseFailure of tool T; the request is the latest PermissionRequest for T with a rule in the 64 lines before
+/// it, with no PreToolUse, PostToolUse or PostToolUseFailure of T between (a PreToolUse there is a new call after a denial).
+public func approvedRule(_ lines: [HookLine]) -> String? {
+    guard let newest = lines.last, ["PostToolUse", "PostToolUseFailure"].contains(newest.event) else { return nil }
+    // A PreToolUse detail can carry a suffix, such as ":offer".
+    for l in lines.dropLast().suffix(64).reversed() where l.detail == newest.detail || l.detail.hasPrefix(newest.detail + ":") {
+        if l.event == "PermissionRequest", !l.rule.isEmpty { return l.rule }
+        if ["PreToolUse", "PostToolUse", "PostToolUseFailure"].contains(l.event) { return nil }
+    }
+    return nil
+}
+
+/// `~/Library/Application Support/Rounds/approvals`; `ROUNDS_APPROVALS_DIR` overrides it (tests only).
+public func approvalsDirectory() -> URL {
+    if let dir = ProcessInfo.processInfo.environment["ROUNDS_APPROVALS_DIR"] { return URL(fileURLWithPath: dir) }
+    return URL.applicationSupportDirectory.appending(path: "Rounds/approvals")
+}
+
+/// One line of the approvals log (spec 2.3): `<unix-ms>\t<session_id>\t<cwd>\t<rule>\n`.
+public func approvalLine(at: Date, sessionId: String, cwd: String, rule: String) -> String {
+    "\(Int64((at.timeIntervalSince1970 * 1000).rounded()))\t\(sessionId)\t\(oneLine(cwd))\t\(rule)\n"
 }
 
 public func loadHookStates(dir: URL, cache: FileCache<HookState?> = FileCache()) -> [String: HookState] {
