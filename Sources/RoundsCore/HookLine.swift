@@ -75,7 +75,8 @@ public struct HookLine: Sendable, Equatable {
                             backgroundTasks: isStop ? tasks.count : nil, cronSchedules: crons,
                             tasks: tasks.map { t in
                                 // Free text up to 1000 characters: one short line for the row.
-                                let text = (t["description"] as? String ?? "").map { "\t\n\r".contains($0) ? " " : $0 }
+                                var text = String.UnicodeScalarView()
+                                for c in (t["description"] as? String ?? "").unicodeScalars { text.append("\t\n\r".unicodeScalars.contains(c) ? " " : c) }
                                 return BackgroundTask(type: clean(t["type"] as? String ?? "").filter { $0 != ":" },
                                                       description: String(clean(String(text)).prefix(120)))
                             },
@@ -102,7 +103,8 @@ private func isValidSessionId(_ s: String) -> Bool {
     (1...64).contains(s.count) && s.allSatisfy { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-") }
 }
 
-private func clean(_ s: String) -> String { s.filter { $0 != "\t" && $0 != "\n" && $0 != "\r" && $0 != ";" } }
+/// Drops the characters that frame a line and its lists (tab, CR, LF, `;`).
+private func clean(_ s: String) -> String { oneLine(s).filter { $0 != ";" } }
 
 /// Drops tabs, CR and LF by scalar, so a CRLF pair (one Character) goes too.
 private func oneLine(_ s: String) -> String { String(s.unicodeScalars.filter { $0 != "\t" && $0 != "\r" && $0 != "\n" }) }

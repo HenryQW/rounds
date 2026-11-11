@@ -213,3 +213,12 @@ func rejectsPathLikeSessionId(bad: String) throws {
     #expect(HookState.parse([line(1, "PostToolUse"), line(2, "PreCompact")].joined())?.last.event == "PreCompact")
     #expect(HookState.parse([line(1, "UserPromptSubmit"), line(2, "PreCompact"), line(3, "StopFailure")].joined())?.last.event == "StopFailure")
 }
+
+@Test func crlfNeverReachesALine() throws {
+    // "\r\n" is one Character, so a filter by Character let it through.
+    let payload = #"{"hook_event_name":"Stop","session_id":"s1","background_tasks":[{"type":"sh\r\nell","description":"Build\r\nthe site"}],"session_crons":[{"schedule":"0 9\r\n* * 1"}]}"#
+    let line = try HookLine.from(payload: Data(payload.utf8), now: Date(timeIntervalSince1970: 0)).line
+    #expect(line.tasks == [BackgroundTask(type: "shell", description: "Build  the site")])
+    #expect(line.cronSchedules == ["0 9* * 1"])
+    #expect(!line.encoded.dropLast().unicodeScalars.contains { $0 == "\r" || $0 == "\n" })
+}
