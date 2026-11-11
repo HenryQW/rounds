@@ -47,14 +47,13 @@ public enum HookTarget: Sendable, Identifiable {
 
 /// Pure edits of a hooks dictionary (spec 2.4): Claude Code `settings.json` or Codex `hooks.json` share the shape.
 public enum HookSettings {
-    /// The helper's name, and its name before 2026-10-30 (`aiecg-hook`), so Repair Hooks replaces the old entries.
-    private static let helperSuffixes = ["/Contents/Helpers/rounds-hook", "/Contents/Helpers/aiecg-hook"]
+    private static let helperSuffix = "/Contents/Helpers/rounds-hook"
 
     /// Our helper path inside a hook group, if the group runs it.
     private static func ourPath(_ group: [String: Any]) -> String? {
         for hook in group["hooks"] as? [[String: Any]] ?? [] {
             let path = (hook["command"] as? String ?? "").replacingOccurrences(of: "\"", with: "")
-            if helperSuffixes.contains(where: path.hasSuffix) { return path }
+            if path.hasSuffix(helperSuffix) { return path }
         }
         return nil
     }

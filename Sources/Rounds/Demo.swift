@@ -3,21 +3,7 @@ import RoundsCore
 
 /// The app's settings store: `UserDefaults.standard`, or in demo mode a store that reads nothing and saves nothing, so
 /// a demo run shows the default settings and never changes the user's. UserDefaults is thread-safe.
-nonisolated(unsafe) let appDefaults: UserDefaults = Demo.isOn ? EmptyDefaults(suiteName: "com.henryqw.rounds.demo")! : movedFromOldName()
-
-/// Rounds was AI ECG (bundle id `com.henryqw.aiecg`) until 2026-10-30. On the first launch under the new id, its settings
-/// (window frame names with Rounds in place of AIECG) and its hook state folder move over once.
-private func movedFromOldName() -> UserDefaults {
-    let standard = UserDefaults.standard
-    if let id = Bundle.main.bundleIdentifier, standard.persistentDomain(forName: id) == nil,
-       let old = standard.persistentDomain(forName: "com.henryqw.aiecg") {
-        standard.setPersistentDomain(Dictionary(uniqueKeysWithValues: old.map { ($0.key.replacing("AIECG", with: "Rounds"), $0.value) }),
-                                     forName: id)
-        let support = URL.applicationSupportDirectory
-        try? FileManager.default.moveItem(at: support.appending(path: "AI ECG"), to: support.appending(path: "Rounds"))
-    }
-    return standard
-}
+nonisolated(unsafe) let appDefaults: UserDefaults = Demo.isOn ? EmptyDefaults(suiteName: "com.henryqw.rounds.demo")! : .standard
 
 /// The typed getters and setters of `UserDefaults` all go through these two.
 private final class EmptyDefaults: UserDefaults {

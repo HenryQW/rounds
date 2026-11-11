@@ -53,12 +53,6 @@ private func groups(_ d: [String: Any], _ event: String) -> [[String: Any]] {
     #expect(HookSettings.status(moved, helperPath: helper) == .wrongPath(found: "/Users/x/Downloads/Rounds.app/Contents/Helpers/rounds-hook"))
 }
 
-@Test func repairReplacesTheHelperOfItsOldName() {
-    let old = HookSettings.install(rtkSettings(), helperPath: "/Applications/Rounds.app/Contents/Helpers/aiecg-hook")
-    #expect(HookSettings.status(old, helperPath: helper) == .wrongPath(found: "/Applications/Rounds.app/Contents/Helpers/aiecg-hook"))
-    #expect(canonical(HookSettings.install(old, helperPath: helper)) == canonical(HookSettings.install(rtkSettings(), helperPath: helper)))
-}
-
 @Test func installerRefusesInvalidJSON() throws {
     let url = try tempDir().appending(path: "settings.json")
     try Data("{".utf8).write(to: url)
