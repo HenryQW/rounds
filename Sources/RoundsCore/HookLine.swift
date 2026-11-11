@@ -172,7 +172,8 @@ public func loadHookStates(dir: URL, cache: FileCache<HookState?> = FileCache())
 }
 
 /// Deletes state files of sessions not in `liveIds` (nil: delete nothing, the session list is not reliable)
-/// and rewrites files over `maxBytes` to their last line.
+/// and rewrites files over `maxBytes` to their last 64 lines: the newest line is the state, and the lines before it
+/// hold a permission request that waits for its answer (`approvedRule`).
 public func pruneStateFiles(dir: URL, liveIds: Set<String>?, maxBytes: Int = 65_536) {
     let fm = FileManager.default
     for file in (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey])) ?? [] {
@@ -181,8 +182,9 @@ public func pruneStateFiles(dir: URL, liveIds: Set<String>?, maxBytes: Int = 65_
             continue
         }
         let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-        if size > maxBytes, let text = try? String(contentsOf: file, encoding: .utf8), let state = HookState.parse(text) {
-            try? state.last.encoded.write(to: file, atomically: true, encoding: .utf8)
+        if size > maxBytes, let text = try? String(contentsOf: file, encoding: .utf8) {
+            let kept = text.split(separator: "\n").suffix(64).joined(separator: "\n") + "\n"
+            try? kept.write(to: file, atomically: true, encoding: .utf8)
         }
     }
 }

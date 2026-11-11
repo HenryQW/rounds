@@ -20,12 +20,14 @@ private func names(_ dir: URL) -> Set<String> { Set((try? FileManager.default.co
     #expect(names(dir) == ["a"])
 }
 
-@Test func shrinksLargeFileToLastLine() throws {
+@Test func shrinksLargeFileToLastLines() throws {
     let dir = try tempDir()
     var text = "100\tStop\t\t2\t*/5 * * * *\n"
     for i in 0..<3000 { text += "\(200 + i)\tPreToolUse\tBash\t\t\n" }
     try write(dir, "s", text)
     pruneStateFiles(dir: dir, liveIds: nil, maxBytes: 1024)
     let kept = try String(contentsOf: dir.appending(path: "s"), encoding: .utf8)
-    #expect(kept == "3199\tPreToolUse\tBash\t\t\t\t\n")
+    // The newest 64 lines, as they were: a permission request that waits stays with its rule.
+    #expect(kept == (2936..<3000).map { "\(200 + $0)\tPreToolUse\tBash\t\t\n" }.joined())
+    #expect(HookState.parse(kept)?.last.at == Date(timeIntervalSince1970: 3.199))
 }
