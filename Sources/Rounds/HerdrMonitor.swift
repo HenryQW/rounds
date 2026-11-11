@@ -123,6 +123,9 @@ final class HerdrMonitor: @unchecked Sendable {
     private static func request(_ method: String, _ params: [String: Any]) throws -> Data {
         let fd = try connect()
         defer { close(fd) }
+        // A herdr that takes the connection and never answers would block `queue`, and with it Open and the list.
+        var timeout = timeval(tv_sec: 5, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
         try send(fd, method, params)
         var reader = LineReader(fd: fd)
         guard let line = reader.next() else { throw HerdrError.invalidResponse }
