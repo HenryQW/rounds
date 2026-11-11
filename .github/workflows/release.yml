@@ -66,6 +66,11 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" build/Rounds.dmg build/appcast.xml \
             --title "Rounds $VERSION" --notes-file build/notes.md
+          # The Beta channel gets each release too: the rolling prerelease "beta" takes the same files (beta.yml).
+          git tag -f beta && git push -f origin refs/tags/beta
+          gh release view beta > /dev/null 2>&1 || gh release create beta --prerelease --latest=false --title "Rounds beta" --notes "Beta"
+          gh release upload beta build/Rounds.dmg build/appcast.xml --clobber
+          gh release edit beta --prerelease --latest=false --title "Rounds $VERSION" --notes-file build/notes.md
 
       - name: Update the Homebrew tap
         if: env.TAP_TOKEN != ''
