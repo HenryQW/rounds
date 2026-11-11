@@ -1,7 +1,5 @@
 # Rounds: design spec
 
-The app was named AI ECG until 2026-10-29. On 2026-10-30 the internal names changed too: bundle id `com.henryqw.rounds`, executable `Rounds`, helper `rounds-hook`, state folder `Rounds`. On its first launch under the new id, the app copies the settings of `com.henryqw.aiecg` (window frame names with Rounds in place of AIECG) and moves `~/Library/Application Support/AI ECG` to `Rounds`. The Claude Code and Codex hooks show "Needs repair" once, because they still run `aiecg-hook`; Repair Hooks replaces those entries.
-
 Date: 2026-10-26. Status: draft for review.
 
 ## 1. Goal
@@ -78,7 +76,7 @@ Path: `~/Library/Application Support/Rounds/state/<session_id>`. One line per ev
 - The app uses the line with the highest time, plus the last `Stop` line for background and cron data.
 - No prompt text, tool input or message text is written, except the short task descriptions of `task_list` (the row shows them) and `rule`, which holds the command text of a permission request. The files stay 0600 and never leave the Mac.
 - A "New session" offer card (`PreToolUse` for `mcp__ccd_session__start_session` with `initiation` `offer`) waits until the user answers it; the helper writes its tool name with `:offer` added. `initiation` is the only tool input field the helper reads. Other `start_session` calls do not wait for the user, except on a permission prompt (`PermissionRequest`).
-- When the file is larger than 64 KiB, the app rewrites it with the last line only.
+- When the file is larger than 64 KiB, the app rewrites it with its last 64 lines: the newest line is the state, and a permission request that waits keeps its rule.
 
 Approvals log: `~/Library/Application Support/Rounds/approvals/<yyyy-MM-dd>.tsv` (local date), one file a day. The state files are not durable, so the helper keeps each approved rule here. After it appends a `PostToolUse` or `PostToolUseFailure` line for tool T, it reads the state file. The request is approved when the latest `PermissionRequest` line for T with a rule is in the 64 lines before, with no `PreToolUse`, `PostToolUse` or `PostToolUseFailure` line for T between them (a `PreToolUse` of T there is a new call after a denial). Then the helper appends one line with `O_APPEND` (folder 0700, file 0600):
 
@@ -120,6 +118,7 @@ herdr is a terminal workspace manager for coding agents. Its own integrations (f
 
 - Socket `~/.config/herdr/herdr.sock`, JSON lines. One request per connection: `{"id", "method", "params"}`, one response line.
 - `agent.list` gives per agent: `pane_id`, `agent` (pi, claude, ...), `agent_status` (`idle`, `working`, `blocked`, `done`, `unknown`), `cwd`, `terminal_title_stripped`, and `agent_session` (`kind: path` gives the agent's session file).
+- A request waits at most 5 s for its answer (`SO_RCVTIMEO`), so a herdr that does not answer stops no later request.
 - A second connection stays open with `events.subscribe`: `pane.created`, `pane.closed`, `pane.exited`, `pane.agent_detected`, `pane.updated`, and one `pane.agent_status_changed` per agent pane (this type needs a `pane_id`). Any event reads `agent.list` again (once per burst). A changed pane set closes the connection and subscribes again. The 30 s timer also reads the list, so a missed event heals. No socket: retry every 5 s; Settings shows "Not running" or "Not installed". A list and status equal to the last ones are not sent to the app again, except from the 30 s timer (for the time windows).
 - Row id: `herdr:` + session file path (stable across herdr restarts), else `herdr:` + pane id. Title: the terminal title without the agent icon part ("π - ") and without a trailing folder name; else the agent name.
 - An idle agent with no session file gets no row: it has no conversation (pi writes its session file at the first prompt), and one pane each would show as rows with the same folder-name title. Working, blocked and done agents always show.
