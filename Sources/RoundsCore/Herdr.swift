@@ -1,6 +1,6 @@
 import Foundation
 
-/// One agent pane that herdr (a terminal workspace manager for coding agents) reports through `agent.list` (spec 2.4).
+/// One agent pane that herdr (a terminal workspace manager for coding agents) reports through `agent.list` (spec 2.5).
 public struct HerdrAgent: Sendable, Equatable, Identifiable {
     /// Stable across herdr restarts when the agent reports its session file; else the pane id.
     public let id: String

@@ -3,7 +3,7 @@ import Darwin
 import RoundsCore
 import Foundation
 
-/// Live herdr agents over herdr's socket API (spec 2.4): one request per connection, plus one subscription
+/// Live herdr agents over herdr's socket API (spec 2.5): one request per connection, plus one subscription
 /// connection that stays open. Any event re-reads `agent.list`; a changed pane set subscribes again.
 final class HerdrMonitor: @unchecked Sendable {
     enum Status: Equatable {

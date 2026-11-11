@@ -116,7 +116,7 @@ Logs: the service, the request size and the result; never the key, branch names 
   time; at most 3 tickets, then "and 2 more". A click on a ticket opens it. A PR card has the same layout ("#42 ·
   GitHub", Open, Merged or Closed, author).
 - Search also matches ticket identifiers and titles.
-- Settings > Sources, a Tickets section: "Linear API key" (secure field) with "Connected: <workspace>", "Key not
+- Settings > Tickets: "Linear API key" (secure field) with "Connected: <workspace>", "Key not
   valid" or "Offline", and Remove Key; "GitHub" with "Uses gh, signed in as <user>", "gh not found" or "gh not signed
   in".
 

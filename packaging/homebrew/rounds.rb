@@ -27,7 +27,7 @@ cask "rounds" do
   ]
 
   caveats <<~EOS
-    Before you uninstall Rounds, click Remove Hooks in Settings > Sources, for Claude Code and Codex.
+    Before you uninstall Rounds, click Remove Hooks in Settings > Agents, for Claude Code and Codex.
     The hooks run a helper inside Rounds.app.
   EOS
 end

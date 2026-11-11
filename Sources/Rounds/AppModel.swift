@@ -88,7 +88,7 @@ final class AppModel {
     /// The parsed session files by path, so a file event reads only the changed files.
     @ObservationIgnored private var piSessions: [String: PiSession] = [:]
     @ObservationIgnored private let piStateCache = FileCache<PiState?>()
-    /// herdr agents (spec 2.4), kept apart because they update from the socket, not from files.
+    /// herdr agents (spec 2.5), kept apart because they update from the socket, not from files.
     private var herdrRows: [SessionRow] = []
     private(set) var herdrConnection: HerdrMonitor.Status = .notRunning
     /// Agent id to its last status and when that status began (herdr reports no times).

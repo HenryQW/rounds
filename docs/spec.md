@@ -6,11 +6,12 @@ Date: 2026-10-26. Status: draft for review.
 
 ## 1. Goal
 
-Rounds is a macOS background app (no Dock icon, no menu bar item). It shows the live state of Claude desktop Code-tab sessions in three groups:
+Rounds is a macOS background app (no Dock icon, no menu bar item). It shows the live state of AI coding sessions (Claude desktop Code-tab sessions, Codex threads, pi sessions and herdr agents) in four groups (3.2):
 
-1. Needs your input
+1. Your Turn
 2. Running
 3. Quiet
+4. Older
 
 It works like a drawer: a small pill at a screen edge, and a session window that slides out from it (hover, click, or a global shortcut).
 
@@ -18,7 +19,7 @@ It works like a drawer: a small pill at a screen edge, and a session window that
 
 - In scope: local Claude desktop Code-tab sessions on this Mac, the agents a local herdr server runs (pi and any agent herdr detects; section 2.5), local Codex threads (section 2.6), and local pi sessions in any terminal (section 2.7).
 - Out of scope (v1): terminal `claude` CLI sessions, cloud sessions, the desktop "unread" dot, macOS notification banners, App Store.
-- Platform: macOS 27 or later, Apple silicon. Swift 6.4, SwiftUI. Not sandboxed. Ad-hoc signed, also a release (no Developer ID, not notarized: macOS calls a copy from a browser damaged until its quarantine flag is removed; the install script and the cask leave no flag). Installed in `/Applications`, from the release disk image, the Homebrew tap (`henryqw/tap/rounds`) or a local build.
+- Platform: macOS 27 or later, Apple silicon. Swift 6.4, SwiftUI. Not sandboxed. Signed with the self-signed certificate "Rounds Self-Signed" (5.8), or ad hoc in a local build without it (no Developer ID, not notarized: macOS calls a copy from a browser damaged until its quarantine flag is removed; the install script and the cask leave no flag). Installed in `/Applications`, from the release disk image, the Homebrew tap (`henryqw/tap/rounds`) or a local build.
 
 ### Success criteria
 
