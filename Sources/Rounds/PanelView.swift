@@ -642,7 +642,7 @@ extension SessionRow {
     private var childNoun: String {
         switch source {
         case .claude(let s): s.spawnedFrom?.userFork == true ? "fork" : "session"
-        case .pi: "fork"
+        case .pi(let s): s.isDelegate ? "sub-agent" : "fork"
         case .codex, .herdr: "sub-agent"
         }
     }

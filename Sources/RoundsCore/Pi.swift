@@ -19,6 +19,28 @@ public struct PiSession: Sendable, Equatable {
     public init(id: String, path: String, cwd: String, parentPath: String?, title: String, updatedAt: Date, turn: PiTurn?, ticketRefs: [TicketRef] = []) {
         (self.id, self.path, self.cwd, self.parentPath, self.title, self.updatedAt, self.turn, self.ticketRefs) = (id, path, cwd, parentPath, title, updatedAt, turn, ticketRefs)
     }
+
+    /// An acp_delegate run (`isPiDelegate`): a sub-agent, not a session of the user's own.
+    public var isDelegate: Bool { isPiDelegate(path) }
+
+    /// The session with `parent` as the session that started it (an acp_delegate run has no `parentSession`).
+    public func started(by parent: String?) -> PiSession {
+        PiSession(id: id, path: path, cwd: cwd, parentPath: parent, title: title, updatedAt: updatedAt, turn: turn, ticketRefs: ticketRefs)
+    }
+}
+
+/// billion-context's `acp_delegate` tool starts a fresh pi for one task, with its session file in
+/// `$TMPDIR/acp-delegate`, outside the sessions folder (spec 2.7).
+public func isPiDelegate(_ path: String) -> Bool {
+    URL(fileURLWithPath: path).deletingLastPathComponent().lastPathComponent == "acp-delegate"
+}
+
+/// The acp_delegate runs that a pi process runs now (`live`, from `livePiSessions`), by session file, each with the
+/// session file of the pi that started it: the live session whose pid is the run's parent pid; nil when none is.
+public func livePiDelegates(_ states: [String: PiState], live: Set<String>, parent: (Int32) -> Int32?) -> [String: String?] {
+    let running = states.filter { live.contains($0.key) }.values
+    let byPid = Dictionary(running.map { ($0.pid, $0.sessionPath) }) { a, _ in a }
+    return Dictionary(running.filter { isPiDelegate($0.sessionPath) }.map { s in (s.sessionPath, parent(s.pid).flatMap { byPid[$0] }) }) { a, _ in a }
 }
 
 /// What the last message in a session file says.

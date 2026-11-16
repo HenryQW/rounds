@@ -141,3 +141,40 @@ func closedSessionLeavesTheList(raw: String) {
     #expect(s.title == "Look at this")
     #expect(s.ticketRefs == [.github(owner: "o", repo: "r", number: 3)])
 }
+
+private let delegatePath = "/T/acp-delegate/del_mwj0ch3d_bw0z.session.jsonl"
+
+/// The rows of a pi session (pid 10) and an acp_delegate run (pid 20, parent pid 10), as AppModel makes them.
+private func delegateRows(running: Set<Int32>, status: SessionState) throws -> [SessionRow] {
+    let states = ["s1": PiState(at: at(5), state: "idle", detail: "", pid: 10, sessionPath: path),
+                  "d1": PiState(at: at(6), state: "working", detail: "", pid: 20, sessionPath: delegatePath)]
+    let live = livePiSessions(states, running: running.contains)
+    let delegates = livePiDelegates(states, live: live, parent: { $0 == 20 ? 10 : 1 })
+    let parent = PiSession(id: "s1", path: path, cwd: "/Users/test/api", parentPath: nil, title: "t", updatedAt: at(1), turn: nil)
+    let parsed = try #require(parsePiSession(file([entry("user", #","content":"Review the diff\nin detail""#, at: 2)]), path: delegatePath, updatedAt: at(9)))
+    return [SessionRow(pi: parent, status: classifyPi(parent, state: states["s1"], live: live.contains("s1")))]
+        + delegates.compactMap { file, from in file == delegatePath ? SessionRow(pi: parsed.started(by: from), status: SessionStatus(status, since: at(9))) : nil }
+}
+
+@Test func aPiDelegateIsASubAgentUnderThePiThatStartedIt() throws {
+    let rows = try delegateRows(running: [10, 20], status: .working)
+    let child = try #require(rows.first { $0.id == "pi:" + delegatePath })
+    #expect(child.isSubAgent && child.parentId == "pi:" + path && child.title == "Review the diff")
+    // The parent waits for its sub-agent; in herdr it goes under the herdr agent that shows the parent.
+    let parent = try #require(group(rows, query: "", rule: LastCallRule(), now: at(60)).running.first)
+    #expect(parent.id == "pi:" + path && parent.children.map(\.id) == [child.id] && parent.status.detail == "1 sub-agent")
+    #expect(child.underHerdr([path]).parentId == "herdr:" + path)
+}
+
+@Test func aPiDelegateWithNoLiveParentIsATopLevelSubAgent() throws {
+    let rows = try delegateRows(running: [20], status: .finished)
+    let child = try #require(rows.first { $0.id == "pi:" + delegatePath })
+    #expect(child.isSubAgent && child.parentId == nil)
+    // Its result does not alert: the agent that started it handles it.
+    let g = group(rows, query: "", rule: LastCallRule(), now: at(60))
+    #expect(g.yourTurn.isEmpty && g.quiet.map(\.id) == [child.id])
+}
+
+@Test func aPiDelegateWhosePiEndedHasNoRow() throws {
+    #expect(try delegateRows(running: [10], status: .working).map(\.id) == ["pi:" + path])
+}

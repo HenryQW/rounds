@@ -74,7 +74,7 @@ public enum StateInput: Sendable {
             ]))
         case .pi(let session, let state, let live, let aged):
             let (status, rule) = decidePi(session, state: state, live: live, aged: aged)
-            return (status, StateExplanation(source: "pi", rule: rule, signals: [
+            return (status, StateExplanation(source: session.isDelegate ? "pi sub-agent" : "pi", rule: rule, signals: [
                 StateSignal("pi state line", state?.state ?? "none", at: state?.at),
                 StateSignal("Last message", session.turn?.kind.rawValue ?? "none", at: session.turn?.at),
                 StateSignal("pi process", live ? "running" : "not running"),

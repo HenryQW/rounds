@@ -260,30 +260,38 @@ final class AppModel {
             piStateCache.value(at: url) { PiState(String(decoding: $0, as: UTF8.self)) }.flatMap { $0.map { (url.lastPathComponent, $0) } }
         }) { $1 }
         piStateCache.keep(only: Set(stateFiles))
-        let files: [URL]
+        let running = livePiSessions(piStates, running: Processes.isPi)
+        // acp_delegate runs: only the files that live state lines name, read at each refresh (no events watch them).
+        let delegates = livePiDelegates(piStates, live: running, parent: Processes.parent)
+        let delegateFiles = delegates.keys.map { URL(fileURLWithPath: $0) }
+        var files: [URL]
         if let changed {
             files = changed.filter { $0.hasSuffix(".jsonl") }.map { URL(fileURLWithPath: $0) }
         } else {
             let folders = (try? fm.contentsOfDirectory(at: piHome.appending(path: "sessions"), includingPropertiesForKeys: nil)) ?? []
             files = folders.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: fileCacheKeys)) ?? [] }.filter { $0.pathExtension == "jsonl" }
-            piCache.keep(only: Set(files))
+            piCache.keep(only: Set(files + delegateFiles))
             piSessions = [:]
         }
+        // A run whose pi ended has no row and leaves no session behind.
+        piSessions = piSessions.filter { !$0.value.isDelegate || delegates[$0.key] != nil }
+        files += delegateFiles
         for url in files {
             let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-            piSessions[url.path] = modified.flatMap { modified in
+            let session = modified.flatMap { modified in
                 piCache.value(at: url, read: { readPiSession($0) }, decode: { parsePiSession($0, path: url.path, updatedAt: modified) }) ?? nil
             }
+            piSessions[url.path] = delegates[url.path].map { session?.started(by: $0) } ?? session
         }
         let now = Date()
         var panes: [String: String] = [:]
-        let running = livePiSessions(piStates, running: Processes.isPi)
         var inputs: [String: StateInput] = [:]
         piRows = piSessions.values.map { session in
             let state = piStates[session.id].flatMap { $0.sessionPath == session.path ? $0 : nil }
             // The extension names the process; a session without its line runs in a pi from before the install, or not at all.
             let live = state != nil && running.contains(session.id)
-            if live, let state, let pane = Processes.environment(of: state.pid, "HERDR_PANE_ID") { panes[pane] = session.path }
+            // An acp_delegate run has its parent's pane in its environment; the pane is the parent's.
+            if live, !session.isDelegate, let state, let pane = Processes.environment(of: state.pid, "HERDR_PANE_ID") { panes[pane] = session.path }
             // A session quiet for the Aged time is Older whatever its last message says.
             let aged = now.timeIntervalSince(session.updatedAt) > lastCall.agedAfter
             inputs["pi:" + session.path] = .pi(session, state: state, live: live, aged: aged)
@@ -489,7 +497,7 @@ final class AppModel {
     private func regroup() {
         // A pi session that runs in herdr shows once, as the herdr agent, which can focus its pane.
         let inHerdr = Set(herdrRows.compactMap { if case .herdr(let a) = $0.source { a.sessionPath } else { nil } })
-        let pi = piOn ? piRows.filter { if case .pi(let s) = $0.source { !inHerdr.contains(s.path) } else { true } } : []
+        let pi = piOn ? piRows.filter { if case .pi(let s) = $0.source { !inHerdr.contains(s.path) } else { true } }.map { $0.underHerdr(inHerdr) } : []
         let tickets = TicketStore.shared
         tickets.piSessions = piSessions
         let rows = ((claudeOn ? rows : []) + (codexOn ? codexRows : []) + pi + herdrRows).map { r in

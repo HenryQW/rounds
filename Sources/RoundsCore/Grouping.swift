@@ -22,7 +22,7 @@ public struct SessionRow: Sendable, Equatable, Identifiable {
     /// session file's last change.
     public let lastActivityAt: Date
     /// The row id of the session that started this one (a side session, fork or sub-agent); nil for a session of its own.
-    public let parentId: String?
+    public internal(set) var parentId: String?
     /// The user opened the session since its current state began (`group`): from Rounds, or in Claude desktop.
     public internal(set) var isSeen = false
     /// Child sessions shown under this row (`group`), in status order.
@@ -64,13 +64,23 @@ public struct SessionRow: Sendable, Equatable, Identifiable {
 
     public var withChildren: [SessionRow] { [self] + children }
 
-    /// A child that another agent started to do part of its work (Codex, herdr). Claude side sessions and forks, and pi
-    /// forks, are the user's own work.
+    /// A child that another agent started to do part of its work (Codex, herdr, a pi acp_delegate run, which is one
+    /// also when its parent is not found). Claude side sessions and forks, and pi forks, are the user's own work.
     public var isSubAgent: Bool {
         switch source {
         case .codex, .herdr: parentId != nil
-        case .claude, .pi: false
+        case .pi(let s): s.isDelegate
+        case .claude: false
         }
+    }
+
+    /// A pi session that runs in herdr shows once, as its herdr agent (spec 2.7), so a pi child of it (a fork, an
+    /// acp_delegate run) goes under that agent's row (`herdr:` + session file).
+    public func underHerdr(_ shown: Set<String>) -> SessionRow {
+        guard case .pi(let s) = source, let parent = s.parentPath, shown.contains(parent) else { return self }
+        var r = self
+        r.parentId = "herdr:" + parent
+        return r
     }
 
     /// The list group of the row with its children: the most urgent of their groups.
