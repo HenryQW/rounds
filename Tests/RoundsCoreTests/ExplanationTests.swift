@@ -115,7 +115,7 @@ private func codex(_ id: String, parent: String? = nil, event: String) -> (row: 
     let (status, e) = parent.input.explain(row)
     #expect(status.state == parent.input.explain().status.state)
     #expect(status.state != .background)
-    #expect(e.signals.contains(StateSignal("Sub-agents at work", "1; the row shows Background (3.2)")))
+    #expect(e.signals.contains(StateSignal("Subagents at work", "1; the row shows Background (3.2)")))
     #expect(e.signals.last == StateSignal("Seen", "no"))
     let report = WrongStateReport(input: parent.input, shown: status.state, explanation: e, correct: nil, savedAt: now)
     #expect(try #require(report.stateInput).explain().status.state == report.shown)
@@ -128,7 +128,7 @@ private func codex(_ id: String, parent: String? = nil, event: String) -> (row: 
     let (status, e) = input.explain(stale)
     #expect(status == input.explain().status)
     #expect(e.signals.contains(StateSignal("Row shows", "Needs input, from an earlier check")))
-    #expect(!input.explain(row).explanation.signals.contains { $0.label == "Row shows" || $0.label == "Sub-agents at work" })
+    #expect(!input.explain(row).explanation.signals.contains { $0.label == "Row shows" || $0.label == "Subagents at work" })
 }
 
 // One explanation per source: the rule the classifier took and the signals it read.

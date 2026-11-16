@@ -106,7 +106,7 @@ Each tile is a filter for one group. A click shows only that group; a click on t
 - **Agent:** The tool that runs a session and reports its state: Claude Code, Codex, pi, or herdr (the agents in its panes, pi too). An agent is On or Off. A toggle under the tiles hides the sessions of one agent in the window; the pill still counts them.
 - **Child session:** A session that another session started. It shows under its parent, after a chevron that folds it. Direct: it works in its parent's folder. Isolated: it works in a folder of its own.
 - **Context row:** Under a tile, a parent session that is not in that tile, shown above its children that are. It is grey, has no dot and cannot be selected: it only shows where the children belong. Its chevron folds it. Click All to see the parent as a normal row.
-- **Background task:** A shell, sub-agent or workflow that a session runs after its turn. It shows as one grey line under the session, with no dot.
-- **Sub-agent:** A session that a Codex or herdr agent started for its own work. It does not count in Last Call, because the agent that started it asks you itself; Settings > Filters can count it.
+- **Background task:** A shell, subagent or workflow that a session runs after its turn. It shows as one grey line under the session, with no dot.
+- **Subagent:** A session that a Codex or herdr agent started for its own work. It does not count in Last Call, because the agent that started it asks you itself; Settings > Filters can count it.
 - **Star, Done, Hide:** Your marks on a session (right-click a row). Star (⌘S) keeps it at the top of its tile and under All. Mark as Done (⌘D) takes it out of the list until it has newer activity. Hide (⌘⌫) shows it only in a search. ⌘Z undoes Done and Hide.
 - **Another round?:** What Last Call shows when nothing needs you: one button for each agent that is On, to start a new session there.

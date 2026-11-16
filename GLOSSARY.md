@@ -20,14 +20,14 @@ _Avoid_: enabled, connected, disabled
 Codex's word for a session; used only when the text is about Codex.
 
 **Child session**:
-A session that another session (its parent) started: a fork, a side session or a sub-agent. It shows under its parent while the parent is listed, else on its own.
+A session that another session (its parent) started: a fork, a side session or a subagent. It shows under its parent while the parent is listed, else on its own.
 _Avoid_: subsession, nested session
 
 **Context row**:
 Under a status tile, a parent session that is not in that tile, shown grey and without a dot above its children that are. It only shows where the children belong: it cannot be selected, and its chevron folds it.
 _Avoid_: ghost row, placeholder parent
 
-**Sub-agent**:
+**Subagent**:
 A child session that another session started to do part of its work. It never makes the pill alert: the session that started it handles its result and asks the user itself.
 _Avoid_: worker
 
@@ -44,7 +44,7 @@ A child session that works in a folder of its own. The kind comes from the folde
 _Avoid_: sandboxed, separate
 
 **Background task**:
-Work a session left running after its turn, such as a shell command or a sub-agent inside a Claude session.
+Work a session left running after its turn, such as a shell command or a subagent inside a Claude session.
 _Avoid_: job, child
 
 **Ticket**:
@@ -82,7 +82,7 @@ The session is in a turn now.
 _Avoid_: thinking, busy
 
 **Background**:
-The session is between turns but still has work scheduled: background tasks, a sub-agent at work or a timed wake-up.
+The session is between turns but still has work scheduled: background tasks, a subagent at work or a timed wake-up.
 _Avoid_: waiting, scheduled
 
 **Ready**:

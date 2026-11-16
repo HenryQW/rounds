@@ -21,7 +21,7 @@ public struct SessionRow: Sendable, Equatable, Identifiable {
     /// Claude: the desktop's last activity. herdr: the last state change. Codex: the thread's last update. pi: the
     /// session file's last change.
     public let lastActivityAt: Date
-    /// The row id of the session that started this one (a side session, fork or sub-agent); nil for a session of its own.
+    /// The row id of the session that started this one (a side session, fork or subagent); nil for a session of its own.
     public internal(set) var parentId: String?
     /// The user opened the session since its current state began (`group`): from Rounds, or in Claude desktop.
     public internal(set) var isSeen = false
@@ -33,7 +33,7 @@ public struct SessionRow: Sendable, Equatable, Identifiable {
     public internal(set) var isIsolated = false
     /// The tickets of the session; the app sets them before `group`, which drops from a child those its parent shows.
     public var tickets: [Ticket] = []
-    /// The sub-agents at work that made a result Background (`group`); 0 when the state is the classifier's.
+    /// The subagents at work that made a result Background (`group`); 0 when the state is the classifier's.
     public internal(set) var subAgentsAtWork = 0
 
     public init(session: DesktopSession, status: SessionStatus) {
@@ -158,7 +158,7 @@ public struct GroupedSessions: Sendable, Equatable {
 
 /// What Last Call counts and when a session is Older (Settings > Filters; spec 3.2, decided 2026-10-30). Last Call
 /// holds what needs the user, in one of the `counted` states: a wait (Needs input, Failed) until the agent goes on, and a result
-/// until the user opens it. A sub-agent (Codex, herdr) counts only with
+/// until the user opens it. A subagent (Codex, herdr, a pi acp_delegate run) counts only with
 /// `subAgents`: the agent that started it handles its result and asks the user itself. Out of Last Call, Needs input
 /// is Running (its work waits to go on) and the rest Quiet. A row with no activity for `agedHours` is Older, unless it
 /// runs or waits.
@@ -191,12 +191,12 @@ public struct LastCallRule: Sendable, Equatable {
 /// (Last Call, Older); without it the classifier's groups stay.
 public func group(_ rows: [SessionRow], query: String, marks: SessionMarks = SessionMarks(), includeOlder: Bool = false,
                   trackSeen: Bool = true, rule: LastCallRule? = nil, now: Date = Date()) -> GroupedSessions {
-    // A result with a sub-agent at work is not done: the session waits for it (Background).
+    // A result with a subagent at work is not done: the session waits for it (Background).
     let atWork = Dictionary(grouping: rows.filter { $0.isSubAgent && $0.status.state.group == .running }.compactMap(\.parentId)) { $0 }
     let waitingRows = rows.map { r -> SessionRow in
         guard let n = atWork[r.id]?.count, [.ready, .finished].contains(r.status.state) else { return r }
         var r = r
-        r.status = SessionStatus(.background, n == 1 ? "1 sub-agent" : "\(n) sub-agents", since: r.status.since)
+        r.status = SessionStatus(.background, n == 1 ? "1 subagent" : "\(n) subagents", since: r.status.since)
         r.subAgentsAtWork = n
         return r
     }

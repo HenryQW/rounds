@@ -9,7 +9,7 @@ public struct CodexThread: Sendable, Equatable {
     public let branch: String?
     public let updatedAt: Date
     public let rolloutPath: String
-    /// The thread that started this sub-agent thread; nil for a thread the user started.
+    /// The thread that started this subagent thread; nil for a thread the user started.
     public let parentId: String?
 
     public init(id: String, title: String, cwd: String, branch: String?, updatedAt: Date, rolloutPath: String, parentId: String? = nil) {
@@ -22,7 +22,7 @@ public enum CodexError: Error, Equatable {
     case database(String)
 }
 
-/// Threads that are not archived: the ones the user started (a plain `source`), and sub-agent threads, whose JSON
+/// Threads that are not archived: the ones the user started (a plain `source`), and subagent threads, whose JSON
 /// `source` names the parent thread and the agent's nickname. Reviews (`{"subagent":{"other":"guardian"}}`) stay out.
 private let threadsQuery = """
     SELECT id, rollout_path, cwd, COALESCE(NULLIF(nickname, ''), NULLIF(name, ''), NULLIF(title, ''), preview), git_branch,

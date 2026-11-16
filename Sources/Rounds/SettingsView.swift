@@ -356,9 +356,9 @@ struct SettingsView: View {
     private var filters: some View {
         Section {
             Toggle(isOn: Binding(get: { model.lastCall.subAgents }, set: { model.lastCall.subAgents = $0 })) {
-                described("Count sub-agents in Last Call", "Codex, herdr and pi sub-agents.")
+                described("Count subagents in Last Call", "Codex, herdr and pi subagents.")
             }
-            .help("When this is off, the agent that started a sub-agent handles its result and asks you itself.")
+            .help("When this is off, the agent that started a subagent handles its result and asks you itself.")
             LabeledContent {
                 let days = model.lastCall.agedHours % 24 == 0
                 let count = Binding(get: { days ? model.lastCall.agedHours / 24 : model.lastCall.agedHours },

@@ -11,11 +11,11 @@ public struct HerdrAgent: Sendable, Equatable, Identifiable {
     public let title: String
     public let cwd: String
     public let sessionPath: String?
-    /// For a sub-agent: the row id of the agent that started it.
+    /// For a subagent: the row id of the agent that started it.
     public let parentId: String?
 
     /// An agent without a session file gets a row only while it is blocked: it has no conversation of its own, either
-    /// a pi opened and never prompted, or a sub-agent another agent started (`herdr agent start`) whose parent is not
+    /// a pi opened and never prompted, or a subagent another agent started (`herdr agent start`) whose parent is not
     /// known. herdr still reports it, so the monitor keeps watching its pane.
     public var isListed: Bool { sessionPath != nil || parentId != nil || agentStatus == "blocked" }
 }
@@ -33,7 +33,7 @@ public func parseHerdrAgents(_ data: Data) throws(HerdrError) -> [HerdrAgent] {
     func session(_ a: [String: Any]) -> String? {
         (a["agent_session"] as? [String: Any]).flatMap { $0["kind"] as? String == "path" ? ($0["value"] as? String).map(sessionFilePath) : nil }
     }
-    // A sub-agent's parent: the one agent with a session file in the same workspace; none or two leave it unknown.
+    // A subagent's parent: the one agent with a session file in the same workspace; none or two leave it unknown.
     var sessionsByWorkspace: [String: [String]] = [:]
     for a in agents {
         if let workspace = a["workspace_id"] as? String, let s = session(a) { sessionsByWorkspace[workspace, default: []].append(s) }
@@ -63,7 +63,7 @@ public func joiningSessions(_ agents: [HerdrAgent], paneSessions: [String: Strin
 }
 
 /// Agents set the terminal title as "<icon> - <name> - <folder>" (pi: "π - Fix login - repo"); keep the name, else
-/// `agent` (the agent name, or a sub-agent's own name).
+/// `agent` (the agent name, or a subagent's own name).
 func herdrTitle(_ terminalTitle: String, cwd: String, agent: String) -> String {
     var parts = terminalTitle.components(separatedBy: " - ").map { $0.trimmingCharacters(in: .whitespaces) }
     if let first = parts.first, parts.count > 1, first.count <= 2 { parts.removeFirst() }

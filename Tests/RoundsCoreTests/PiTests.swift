@@ -160,9 +160,9 @@ private func delegateRows(running: Set<Int32>, status: SessionState) throws -> [
     let rows = try delegateRows(running: [10, 20], status: .working)
     let child = try #require(rows.first { $0.id == "pi:" + delegatePath })
     #expect(child.isSubAgent && child.parentId == "pi:" + path && child.title == "Review the diff")
-    // The parent waits for its sub-agent; in herdr it goes under the herdr agent that shows the parent.
+    // The parent waits for its subagent; in herdr it goes under the herdr agent that shows the parent.
     let parent = try #require(group(rows, query: "", rule: LastCallRule(), now: at(60)).running.first)
-    #expect(parent.id == "pi:" + path && parent.children.map(\.id) == [child.id] && parent.status.detail == "1 sub-agent")
+    #expect(parent.id == "pi:" + path && parent.children.map(\.id) == [child.id] && parent.status.detail == "1 subagent")
     #expect(child.underHerdr([path]).parentId == "herdr:" + path)
 }
 

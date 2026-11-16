@@ -68,7 +68,7 @@ private func thread(_ id: String, _ state: SessionState, parent: String? = nil) 
                                    parentId: parent), status: SessionStatus(state, since: .distantPast))
 }
 
-/// A sub-agent never alerts: the agent that started it handles its result and asks the user itself. A waiting one keeps
+/// A subagent never alerts: the agent that started it handles its result and asks the user itself. A waiting one keeps
 /// its parent Running, since the parent's work goes on.
 @Test func subAgentNeverAlerts() {
     let rows = [thread("main", .working), thread("a", .needsInput, parent: "main"), thread("b", .ready, parent: "main"),
@@ -76,19 +76,19 @@ private func thread(_ id: String, _ state: SessionState, parent: String? = nil) 
     let g = group(rows, query: "", rule: LastCallRule(), now: Date(timeIntervalSince1970: 2))
     #expect(g.yourTurn.isEmpty && g.lastCallCount == 0)
     #expect(g.running.map(\.id) == ["codex:main"] && g.running[0].children.count == 3)
-    // Count sub-agents (Settings > Filters): they alert like other sessions.
+    // Count subagents (Settings > Filters): they alert like other sessions.
     var rule = LastCallRule()
     rule.subAgents = true
     #expect(group(rows, query: "", rule: rule, now: Date(timeIntervalSince1970: 2)).lastCallCount == 3)
 }
 
-/// A session whose sub-agent still works is not done: it waits for the sub-agent (Background), out of Last Call.
+/// A session whose subagent still works is not done: it waits for the subagent (Background), out of Last Call.
 @Test func subAgentAtWorkKeepsItsParentRunning() {
     let rows = [thread("main", .finished), thread("a", .working, parent: "main"), thread("b", .ready, parent: "main")]
     let g = group(rows, query: "", rule: LastCallRule(), now: Date(timeIntervalSince1970: 2))
     #expect(g.lastCallCount == 0 && g.running.map(\.id) == ["codex:main"])
-    #expect(g.running[0].status.state == .background && g.running[0].status.detail == "1 sub-agent")
-    // When the sub-agents are done, the parent's result is in Last Call again.
+    #expect(g.running[0].status.state == .background && g.running[0].status.detail == "1 subagent")
+    // When the subagents are done, the parent's result is in Last Call again.
     let done = group([thread("main", .finished), thread("a", .ready, parent: "main")], query: "", rule: LastCallRule(), now: Date(timeIntervalSince1970: 2))
     #expect(done.yourTurn.map(\.id) == ["codex:main"] && done.yourTurn[0].status.state == .finished)
 }

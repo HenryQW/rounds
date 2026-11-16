@@ -46,7 +46,7 @@ func herdrStatusMapping(raw: String, state: SessionState) {
     #expect(group([row], query: "", marks: marks).yourTurn.isEmpty)
 }
 
-/// Without a session file there is no conversation (a pi never prompted, or a sub-agent another agent started):
+/// Without a session file there is no conversation (a pi never prompted, or a subagent another agent started):
 /// such an agent shows only while it waits for the user.
 @Test(arguments: [("idle", false, false), ("idle", true, true), ("done", false, false), ("working", false, false), ("blocked", false, true)])
 func herdrAgentListedOnlyWithAConversation(status: String, session: Bool, listed: Bool) throws {
@@ -55,7 +55,7 @@ func herdrAgentListedOnlyWithAConversation(status: String, session: Bool, listed
     #expect(agents[0].isListed == listed)
 }
 
-/// A sub-agent (no session file, a "d-" name) belongs to the one agent in its workspace that has a session file.
+/// A subagent (no session file, a "d-" name) belongs to the one agent in its workspace that has a session file.
 @Test(arguments: [(1, true), (0, false), (2, false)])
 func herdrSubAgentParentIsTheOneSessionInItsWorkspace(sessions: Int, linked: Bool) throws {
     let parents = (0..<sessions).map { i in

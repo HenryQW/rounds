@@ -20,7 +20,7 @@ public struct PiSession: Sendable, Equatable {
         (self.id, self.path, self.cwd, self.parentPath, self.title, self.updatedAt, self.turn, self.ticketRefs) = (id, path, cwd, parentPath, title, updatedAt, turn, ticketRefs)
     }
 
-    /// An acp_delegate run (`isPiDelegate`): a sub-agent, not a session of the user's own.
+    /// An acp_delegate run (`isPiDelegate`): a subagent, not a session of the user's own.
     public var isDelegate: Bool { isPiDelegate(path) }
 
     /// The session with `parent` as the session that started it (an acp_delegate run has no `parentSession`).

@@ -624,12 +624,12 @@ extension Ticket {
 
 extension SessionRow {
     /// "Question · repo" for a Claude session or Codex thread; "Blocked · pi · repo" for a herdr agent. A folded parent
-    /// row adds its child sessions after the state: "Working · Bash · 1 fork · 2 sub-agents · repo".
+    /// row adds its child sessions after the state: "Working · Bash · 1 fork · 2 subagents · repo".
     func subtitle(folded: Bool, label: String) -> String {
         var parts = [label]
         if folded {
             let nouns = children.map(\.childNoun)
-            parts += ["fork", "session", "sub-agent"].compactMap { noun in
+            parts += ["fork", "session", "subagent"].compactMap { noun in
                 let n = nouns.count { $0 == noun }
                 return n == 0 ? nil : "\(n) \(noun)\(n == 1 ? "" : "s")"
             }
@@ -638,12 +638,12 @@ extension SessionRow {
         return (parts + [URL(fileURLWithPath: cwd).lastPathComponent]).joined(separator: " · ")
     }
 
-    /// What a child session is to its parent: a fork the user made, a side session, or a sub-agent.
+    /// What a child session is to its parent: a fork the user made, a side session, or a subagent.
     private var childNoun: String {
         switch source {
         case .claude(let s): s.spawnedFrom?.userFork == true ? "fork" : "session"
-        case .pi(let s): s.isDelegate ? "sub-agent" : "fork"
-        case .codex, .herdr: "sub-agent"
+        case .pi(let s): s.isDelegate ? "subagent" : "fork"
+        case .codex, .herdr: "subagent"
         }
     }
 

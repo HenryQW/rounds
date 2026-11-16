@@ -67,7 +67,7 @@ public struct SessionStatus: Sendable, Equatable {
     /// "Working · Bash", or the state alone.
     public var label: String { detail.isEmpty ? state.title : "\(state.title) · \(detail)" }
     /// Under a status filter the filter names the state, so only the detail shows; Failed and Ready share the Your Turn
-    /// group with Needs input, and a sub-agent's state can be in another group, so these keep their word.
+    /// group with Needs input, and a subagent's state can be in another group, so these keep their word.
     public var shortLabel: String { detail.isEmpty || state == .failed || state == .ready || group != state.group ? label : detail }
 }
 
