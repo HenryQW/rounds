@@ -52,7 +52,8 @@ public enum DesktopSessionError: Error, Equatable {
 /// One Claude desktop Code-tab session, read from `claude-code-sessions/*/*/local_*.json` (spec 2.1).
 public struct DesktopSession: Sendable, Equatable, Identifiable {
     public let id: String
-    public let cliSessionId: String
+    /// The Claude Code session; nil until Claude desktop starts it (a session that ended first never has one).
+    public let cliSessionId: String?
     public let title: String
     public let cwd: String
     public let branch: String?
@@ -86,7 +87,7 @@ public struct DesktopSession: Sendable, Equatable, Identifiable {
         func date(_ v: Any?) -> Date? { (v as? NSNumber).map { Date(timeIntervalSince1970: $0.doubleValue / 1000) } }
 
         id = try required("sessionId", String.self)
-        cliSessionId = try required("cliSessionId", String.self)
+        cliSessionId = d["cliSessionId"] as? String
         cwd = try required("cwd", String.self)
         let rawTitle = try required("title", String.self)
         title = rawTitle.isEmpty ? URL(fileURLWithPath: cwd).lastPathComponent : rawTitle

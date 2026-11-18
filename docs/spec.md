@@ -52,7 +52,7 @@ Path: `~/Library/Application Support/Claude/claude-code-sessions/*/*/local_*.jso
 | `scheduledTaskId` | The scheduled task that started the session: a grey calendar with a clock (`calendar.badge.clock`) before the row title, and the hint "Scheduled: <id>" (5.2; decided 2026-11-09) |
 | `spawnedFrom` `{sessionId, taskId, title, sideSession?, userFork?, btw?}` | Side session or fork: a child session of the session with that `sessionId` (5.2). `userFork` true: a fork the user made |
 
-Required keys: `sessionId`, `cliSessionId`, `cwd`, `title`, `isArchived`, `lastActivityAt`. All other keys are optional.
+Required keys: `sessionId`, `cwd`, `title`, `isArchived`, `lastActivityAt`. All other keys are optional. A session has no `cliSessionId` until Claude desktop starts its Claude Code session (one that ended first never has it; seen 2026-11-16): it has no hook state and no transcript.
 
 ### 2.2 Transcript tail (read only)
 

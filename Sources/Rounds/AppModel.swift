@@ -120,7 +120,7 @@ final class AppModel {
         prunePiStates()
         // Delete state of archived or unknown sessions only when both session lists loaded without failures.
         let reliable = !rows.isEmpty && lastFailures.isEmpty && (!codexInstalled || codexThreads != nil)
-        let claudeIds = rows.compactMap(\.session).filter { !$0.isArchived }.map(\.cliSessionId)
+        let claudeIds = rows.compactMap(\.session).filter { !$0.isArchived }.compactMap(\.cliSessionId)
         pruneStateFiles(dir: stateDir, liveIds: reliable ? Set(claudeIds).union(codexThreads?.map(\.id) ?? []) : nil)
         // Each watcher reads only its own source.
         watchers = [
@@ -197,7 +197,7 @@ final class AppModel {
         let now = Date()
         var inputs: [String: StateInput] = [:]
         rows = sessions.map { s in
-            let hook = states[s.cliSessionId]
+            let hook = s.cliSessionId.flatMap { states[$0] }
             // A wrap-up without `needsUser` can still have asked a question; only the transcript holds it.
             let wrapUpQuestion = s.hasWrapUp && s.wrapUpNeedsUser == nil
             let tail = !s.isArchived && (needsTail(session: s, hook: hook) || wrapUpQuestion) ? cachedTail(s) : nil
@@ -209,7 +209,7 @@ final class AppModel {
     }
 
     private func cachedTail(_ s: DesktopSession) -> LastMessage? {
-        guard let url = transcriptURL(cwd: s.cwd, cliSessionId: s.cliSessionId, projectsRoot: projectsRoot) else { return nil }
+        guard let id = s.cliSessionId, let url = transcriptURL(cwd: s.cwd, cliSessionId: id, projectsRoot: projectsRoot) else { return nil }
         return tailCache.value(at: url, read: { readTail($0) }, decode: LastMessage.parse)
     }
 

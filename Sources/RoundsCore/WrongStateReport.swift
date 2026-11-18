@@ -54,7 +54,7 @@ public struct WrongStateReport: Codable, Sendable {
         /// `DesktopSession`. Free text (the wrap-up question, the summary's step) is only "redacted" or absent.
         public struct Session: Codable, Sendable {
             let sessionId: String
-            let cliSessionId: String
+            let cliSessionId: String?
             /// The folder's last component.
             let cwd: String
             /// Required by the desktop format; always empty.

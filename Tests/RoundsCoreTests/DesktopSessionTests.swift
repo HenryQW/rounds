@@ -30,12 +30,19 @@ import Testing
     #expect(!s.interruptedAwaitingPerson && !s.isRemote)
 }
 
-@Test(arguments: ["sessionId", "cliSessionId", "cwd", "title", "isArchived", "lastActivityAt"])
+@Test(arguments: ["sessionId", "cwd", "title", "isArchived", "lastActivityAt"])
 func missingRequiredKeyNamesIt(key: String) throws {
     var dict = try #require(JSONSerialization.jsonObject(with: fixture("session_minimal.json")) as? [String: Any])
     dict.removeValue(forKey: key)
     let data = try JSONSerialization.data(withJSONObject: dict)
     #expect(throws: DesktopSessionError.missingKey(key)) { try DesktopSession(json: data) }
+}
+
+/// Claude desktop writes no `cliSessionId` for a session that ended before its Claude Code session started.
+@Test func aSessionWithNoCliSessionIdIsRead() throws {
+    var dict = try #require(JSONSerialization.jsonObject(with: fixture("session_minimal.json")) as? [String: Any])
+    dict.removeValue(forKey: "cliSessionId")
+    #expect(try DesktopSession(json: JSONSerialization.data(withJSONObject: dict)).cliSessionId == nil)
 }
 
 @Test func invalidJSONThrows() {

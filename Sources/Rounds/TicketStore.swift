@@ -170,7 +170,7 @@ final class TicketStore {
 
     private func promptFile(_ r: SessionRow) -> PromptFile? {
         switch r.source {
-        case .claude(let s): .claude(cwd: s.cwd, id: s.cliSessionId)
+        case .claude(let s): s.cliSessionId.map { .claude(cwd: s.cwd, id: $0) }
         case .codex(let t): t.rolloutPath.isEmpty ? nil : .codex(t.rolloutPath)
         case .pi, .herdr: nil
         }
