@@ -11,6 +11,8 @@ Rounds tells you when a session goes to Needs input, Failed or Ready. Set it up 
 
 When you click Save, Rounds checks the values with Telegram or the Bark server first, and saves them only when they work. The checks send no message. If a value is wrong, an orange line in the sheet tells you which one.
 
+In Settings > Organizations, add an organization and move each project to it. Click Review Permissions… and allow the destination for that organization. Rounds keeps unknown and conflicting projects local. A new or changed destination needs permission again.
+
 Telegram and Bark get a message only when your Mac has had no key or pointer input for the time in Send remote messages after (2 minutes by default; 0 sends at once). A session that you open, or that changes, before then sends no message. Each event sends once. Send for sets the states that send a remote message. Send Test in the row's menu sends a test message; a failure shows in orange in the row until the next message goes through.
 
-Privacy: Rounds sends the state, the session title, the detail and the folder name to Telegram, or to the Bark server and from there to Apple. Rounds never sends prompt text. The token, chat ID and device key stay in your Keychain.
+Privacy: after the organization and destination checks, Rounds sends the state, the session title, the detail and the folder name to Telegram, or to the Bark server and from there to Apple. Rounds never sends prompt text. The token, chat ID and device key stay in your Keychain.

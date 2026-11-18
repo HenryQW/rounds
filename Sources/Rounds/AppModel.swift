@@ -55,6 +55,10 @@ final class AppModel {
     private let sessionsRoot = URL.applicationSupportDirectory.appending(path: "Claude/claude-code-sessions")
     private let projectsRoot = URL.homeDirectory.appending(path: ".claude/projects")
     private let stateDir = hookStateDirectory()
+    /// Session folders available for the organization settings, including individual worktrees.
+    var organizationDirectories: [String] {
+        Set((rows + codexRows + piRows + herdrRows).map(\.cwd).filter { $0.hasPrefix("/") }).sorted()
+    }
     private var rows: [SessionRow] = []
     /// The last hook event of each session or thread, by id; read again when the state folder changes.
     @ObservationIgnored private var states: [String: HookState] = [:]

@@ -10,4 +10,6 @@ Rounds finds a ticket on the Mac, from three places: the session's branch, the p
 - Linear: in Settings, on the Tickets page, click Connect… in the Linear row and paste a personal API key. Make it in Linear under Settings, Account, Security and access. Read permission is enough; a key for some teams only shows the issues of other teams as not found. The key stays in your Keychain. Without a key, a Linear link in the prompt shows its ID only.
 - GitHub: Rounds uses the [gh](https://cli.github.com) command line tool and its sign-in. Install it with Homebrew and run `gh auth login`.
 
-Privacy: only branch names, pull request links, repository names and ticket IDs leave the Mac, to Linear and to GitHub. Rounds never sends prompt text.
+In Settings > Organizations, add an organization and move each project to it. Click Review Permissions… and allow Linear or GitHub for that organization. Rounds keeps unknown and conflicting projects local. A new or changed destination needs permission again.
+
+Privacy: after these checks, only branch names, pull request links, repository names and ticket IDs leave the Mac, to Linear and to GitHub. Rounds never sends prompt text.

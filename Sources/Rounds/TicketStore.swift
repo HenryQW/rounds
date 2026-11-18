@@ -19,6 +19,26 @@ final class TicketStore {
     /// nil until the first check of `gh` answers. A change regroups, as rows hide their guesses without `gh`.
     private(set) var githubStatus: GitHubStatus? { didSet { if githubStatus != oldValue { changed() } } }
     private(set) var hasLinearKey = false
+    private(set) var linearPermissionError: String?
+
+    var organizationDestinations: [OrganizationDestination] {
+        var result: [OrganizationDestination] = []
+        if let key, !key.isEmpty,
+           let destination = makeOrganizationDestination(service: "ticket-linear", fields: ["endpoint": "https://api.linear.app/graphql", "key": key],
+                                                     title: "Linear", detail: workspace ?? "api.linear.app") {
+            result.append(destination)
+        }
+        if case .signedIn(let login) = githubStatus,
+           let destination = makeOrganizationDestination(service: "ticket-github", fields: ["endpoint": "https://api.github.com", "account": login],
+                                                     title: "GitHub", detail: "github.com · \(login)") {
+            result.append(destination)
+        }
+        return result
+    }
+
+    private func organizationDestination(for service: TicketService) -> OrganizationDestination? {
+        organizationDestinations.first { $0.service == "ticket-\(service.rawValue)" }
+    }
 
     /// Called once after new data or new lookups, so the app regroups (and sets each row's tickets again).
     @ObservationIgnored var onChange: @MainActor () -> Void = {}
@@ -35,10 +55,10 @@ final class TicketStore {
     /// The workspace of the last answer that named one: an answer with null data names none but proves the key works.
     @ObservationIgnored private var workspace: String?
     @ObservationIgnored private var listed: [SessionRow] = []
-    /// First-prompt refs of Claude and Codex rows, by row id; read once per session.
-    @ObservationIgnored private var promptRefs: [String: [TicketRef]] = [:]
-    /// Rows whose prompt file was read since the last full scan without a prompt in it.
-    @ObservationIgnored private var tried: Set<String> = []
+    /// First-prompt refs, bound to the session, folder and transcript used to read them.
+    @ObservationIgnored private var promptRefs: [PromptKey: [TicketRef]] = [:]
+    /// Prompt sources read since the last full scan without a prompt in them.
+    @ObservationIgnored private var tried: Set<PromptKey> = []
     /// The git branches of each session folder, by cwd; read again every 30 s, so pi and herdr rows follow the folder.
     @ObservationIgnored private var folders: [String: GitFolder] = [:]
     @ObservationIgnored private var lastScan = Date.distantPast
@@ -97,6 +117,13 @@ final class TicketStore {
     func list(_ rows: [SessionRow]) {
         guard !Demo.isOn else { return }
         listed = rows
+        prepareOrganizationDestinations()
+        scan()
+        fetch(rows, hover: false)
+    }
+
+    func prepareOrganizationDestinations() {
+        guard !Demo.isOn else { return }
         // At first need, off the main thread, so a Keychain prompt never blocks launch.
         if key == nil && !keyLoading {
             keyLoading = true
@@ -105,14 +132,12 @@ final class TicketStore {
                 DispatchQueue.main.async { MainActor.assumeIsolated { if self.key == nil { self.use(key) } } }
             }
         }
-        scan()
-        fetch(rows, hover: false)
     }
 
     /// A row under the pointer: its tickets are fetched again after 1 minute, not 10.
     func hovered(_ row: SessionRow) {
-        guard !Demo.isOn else { return }
-        fetch([row], hover: true)
+        guard !Demo.isOn, let current = listed.first(where: { $0.id == row.id }) else { return }
+        fetch([current], hover: true)
     }
 
     /// The lookup branch, PR URLs (the row's, then the prompt's) and other prompt refs of a row, from what is known now
@@ -121,7 +146,7 @@ final class TicketStore {
         let folder = folders[r.cwd]
         let branch: String?, refs: [TicketRef]
         switch r.source {
-        case .claude, .codex: (branch, refs) = (r.branch, promptRefs[r.id] ?? [])
+        case .claude, .codex: (branch, refs) = (r.branch, promptKey(r).flatMap { promptRefs[$0] } ?? [])
         case .pi(let s): (branch, refs) = (folder?.branch, s.ticketRefs)
         case .herdr(let a): (branch, refs) = (folder?.branch, a.sessionPath.flatMap { piSessions[$0] }?.ticketRefs ?? [])
         }
@@ -156,16 +181,20 @@ final class TicketStore {
         let now = Date()
         let full = now.timeIntervalSince(lastScan) >= 30
         let cwds = Set(listed.map(\.cwd)).filter { full || folders[$0] == nil }
-        let prompts = listed.compactMap { r in promptRefs[r.id] == nil && (full || !tried.contains(r.id)) ? promptFile(r).map { (r.id, $0) } : nil }
+        let prompts = listed.compactMap { promptKey($0) }.filter { promptRefs[$0] == nil && (full || !tried.contains($0)) }
         guard !cwds.isEmpty || !prompts.isEmpty else { return }
         if full { (lastScan, tried) = (now, []) }
-        tried.formUnion(prompts.map(\.0))
+        tried.formUnion(prompts)
         scanning = true
         let root = projectsRoot
         ticketIO.async {
             let result = readLookups(cwds: Array(cwds), prompts: prompts, projectsRoot: root)
             DispatchQueue.main.async { MainActor.assumeIsolated { self.scanned(result) } }
         }
+    }
+
+    private func promptKey(_ row: SessionRow) -> PromptKey? {
+        promptFile(row).map { PromptKey(id: row.id, cwd: row.cwd, file: $0) }
     }
 
     private func promptFile(_ r: SessionRow) -> PromptFile? {
@@ -176,12 +205,15 @@ final class TicketStore {
         }
     }
 
-    private func scanned(_ result: (folders: [String: GitFolder], refs: [String: [TicketRef]])) {
+    private func scanned(_ result: (folders: [String: GitFolder], refs: [PromptKey: [TicketRef]])) {
         scanning = false
         var new = false
         for (cwd, f) in result.folders where folders[cwd] != f { (folders[cwd], new) = (f, true) }
-        for (id, refs) in result.refs {
-            promptRefs[id] = refs
+        let current = Set(listed.compactMap { promptKey($0) })
+        promptRefs = promptRefs.filter { current.contains($0.key) }
+        tried.formIntersection(current)
+        for (key, refs) in result.refs where current.contains(key) {
+            promptRefs[key] = refs
             new = new || !refs.isEmpty
         }
         if new { changed() }
@@ -194,32 +226,53 @@ final class TicketStore {
     private func fetch(_ rows: [SessionRow], hover: Bool) {
         let now = Date()
         var due: [TicketService: [Lookup]] = [:], seen: [TicketService: Set<Lookup>] = [:]
+        var sources: [TicketService: [Lookup: [SessionRow]]] = [:]
         for r in rows where folders[r.cwd] != nil {
-            for (lookup, service) in lookups(r) where seen[service, default: []].insert(lookup).inserted
-                && cache.due(lookup, service: service, now: now, hover: hover) && retry[service]?[lookup].map({ now >= $0 }) ?? true {
+            for (lookup, service) in lookups(r) {
+                guard let destination = organizationDestination(for: service),
+                      OrganizationSettingsState.shared.allows(row: r, destination: destination) else { continue }
+                sources[service, default: [:]][lookup, default: []].append(r)
+                guard seen[service, default: []].insert(lookup).inserted,
+                      cache.due(lookup, service: service, now: now, hover: hover),
+                      retry[service]?[lookup].map({ now >= $0 }) ?? true else { continue }
                 due[service, default: []].append(lookup)
             }
         }
         if let key, !key.isEmpty, linearStatus != .invalidKey, linear.ready(now) {
-            let batch = Array((due[.linear] ?? []).prefix(20))
-            if !batch.isEmpty {
-                let (body, aliases) = linearRequest(batch)
-                // A lookup the request cannot ask about has no result.
-                let asked = Set(aliases.values.joined())
-                store([:], for: batch.filter { !asked.contains($0) }, .linear)
-                if !aliases.isEmpty { sendLinear(body, aliases: aliases, batch: batch.filter(asked.contains), key: key) }
-            } else if case .connected = linearStatus {} else {
+            var sent = false
+            if let destination = organizationDestination(for: .linear) {
+                _ = try? OrganizationSettingsState.shared.withPolicy { policy in
+                    let batch = Array((due[.linear] ?? []).filter { lookup in
+                        (sources[.linear]?[lookup] ?? []).contains { row in
+                            policy.allowsTransmission(sessionDirectory: row.cwd, gitRemote: .unknown,
+                                                      service: destination.service, destinationIdentity: destination.identity)
+                        }
+                    }.prefix(20))
+                    guard !batch.isEmpty else { return }
+                    let (body, aliases) = linearRequest(batch)
+                    // A lookup the request cannot ask about has no result.
+                    let asked = Set(aliases.values.joined())
+                    store([:], for: batch.filter { !asked.contains($0) }, .linear)
+                    if !aliases.isEmpty {
+                        sent = true
+                        sendLinear(body, aliases: aliases, batch: batch.filter(asked.contains), key: key)
+                    }
+                }
+            }
+            if !sent, case .connected = linearStatus {} else if !sent, OrganizationSettingsState.shared.hasLease {
                 // Nothing due: a small request still shows Settings whether the key works.
                 sendLinear(try! JSONSerialization.data(withJSONObject: ["query": "{ \(linearWorkspaceFields) }"]), aliases: [:], batch: [], key: key)
             }
         }
         if let gh, github.ready(now), let lookups = due[.github] {
             let batch = Array(lookups.prefix(20))
-            let (query, aliases) = githubQuery(batch)
+            let (_, aliases) = githubQuery(batch)
             // A lookup the query cannot ask about (not a github.com PR, or an unsafe name) has no result.
             let asked = Set(aliases.values)
             store([:], for: batch.filter { !asked.contains($0) }, .github)
-            if !aliases.isEmpty { sendGitHub(gh, query: query, aliases: aliases) }
+            if !aliases.isEmpty, let destination = organizationDestination(for: .github), case .signedIn(let login) = githubStatus {
+                sendGitHub(gh, batch: batch.filter(asked.contains), sources: sources[.github] ?? [:], destination: destination, login: login)
+            }
         }
     }
 
@@ -231,7 +284,7 @@ final class TicketStore {
         // Personal API keys have no Bearer prefix.
         request.setValue(key, forHTTPHeaderField: "Authorization")
         linear.busy = true
-        URLSession.shared.dataTask(with: request) { data, response, _ in
+        OutboundSession.noRedirects.dataTask(with: request) { data, response, _ in
             let http = response as? HTTPURLResponse
             let reset = http?.value(forHTTPHeaderField: "X-RateLimit-Requests-Reset")
             DispatchQueue.main.async {
@@ -282,11 +335,64 @@ final class TicketStore {
         fetch(listed, hover: false)
     }
 
-    private func sendGitHub(_ gh: String, query: String, aliases: [String: Lookup]) {
+    private func sendGitHub(_ gh: String, batch: [Lookup], sources: [Lookup: [SessionRow]], destination: OrganizationDestination, login: String) {
         github.busy = true
         DispatchQueue.global(qos: .utility).async {
-            let out = runCommand(gh, ["api", "graphql", "-f", "query=\(query)"])
-            DispatchQueue.main.async { MainActor.assumeIsolated { self.githubDone(out, aliases: aliases) } }
+            // Use one credential for the account check and lookup; do not refresh it in the background.
+            let environment = ProcessInfo.processInfo.environment
+            let inherited = environment["GH_TOKEN"] ?? environment["GITHUB_TOKEN"]
+            let token = inherited ?? runCommand(gh, ["auth", "token", "--hostname", "github.com", "--no-refresh"])
+                .flatMap { $0.status == 0 ? String(decoding: $0.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) : nil }
+            guard let token, !token.isEmpty else {
+                DispatchQueue.main.async { MainActor.assumeIsolated { self.github.busy = false; self.checkGitHub() } }
+                return
+            }
+            var account = URLRequest(url: URL(string: "https://api.github.com/user")!)
+            account.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            account.setValue("Rounds", forHTTPHeaderField: "User-Agent")
+            account.timeoutInterval = 15
+            OutboundSession.noRedirects.dataTask(with: account) { data, response, _ in
+                let currentLogin = (response as? HTTPURLResponse)?.statusCode == 200
+                    ? data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["login"] as? String : nil
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        guard currentLogin == login, self.gh == gh,
+                              self.organizationDestination(for: .github) == destination else {
+                            self.github.busy = false
+                            if currentLogin != login { self.checkGitHub() }
+                            return
+                        }
+                        let started = (try? OrganizationSettingsState.shared.withPolicy { policy in
+                            let allowed = batch.filter { lookup in
+                                (sources[lookup] ?? []).contains { source in
+                                    self.listed.contains { current in
+                                        current.id == source.id && current.cwd == source.cwd &&
+                                            self.lookups(current).contains { $0.0 == lookup && $0.1 == .github } &&
+                                            policy.allowsTransmission(sessionDirectory: current.cwd, gitRemote: .unknown,
+                                                                      service: destination.service, destinationIdentity: destination.identity)
+                                    }
+                                }
+                            }
+                            let (query, aliases) = githubQuery(allowed)
+                            guard !aliases.isEmpty else { return false }
+                            var request = URLRequest(url: URL(string: "https://api.github.com/graphql")!)
+                            request.httpMethod = "POST"
+                            request.httpBody = try JSONSerialization.data(withJSONObject: ["query": query])
+                            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                            request.setValue("Rounds", forHTTPHeaderField: "User-Agent")
+                            request.timeoutInterval = 30
+                            OutboundSession.noRedirects.dataTask(with: request) { data, response, _ in
+                                let status = (response as? HTTPURLResponse)?.statusCode
+                                let out = status.map { CommandOutput(status: $0 == 200 ? 0 : 2, stdout: data ?? Data(), stderr: Data(), timedOut: false) }
+                                DispatchQueue.main.async { MainActor.assumeIsolated { self.githubDone(out, aliases: aliases) } }
+                            }.resume()
+                            return true
+                        }) ?? false
+                        if !started { self.github.busy = false }
+                    }
+                }
+            }.resume()
         }
     }
 
@@ -316,16 +422,25 @@ final class TicketStore {
         gh = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", URL.homeDirectory.appending(path: ".local/bin/gh").path]
             .first { FileManager.default.isExecutableFile(atPath: $0) }
         guard let gh else { return githubStatus = .notFound }
+        guard OrganizationSettingsState.shared.hasLease else { return githubStatus = .offline }
         guard !checkingGitHub else { return }
         checkingGitHub = true
         DispatchQueue.global(qos: .utility).async {
-            let out = runCommand(gh, ["api", "user", "--jq", ".login"])
+            let out = runCommand(gh, ["api", "--hostname", "github.com", "user", "--jq", ".login"])
             if out?.timedOut == true { log.info("tickets: github, timeout") }
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     self.checkingGitHub = false
                     let login = out.flatMap { $0.status == 0 ? String(decoding: $0.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) : nil }
-                    let status: GitHubStatus = login.flatMap { $0.isEmpty ? nil : .signedIn($0) } ?? (self.signInProblem(out) ? .notSignedIn : .offline)
+                    var status: GitHubStatus = login.flatMap { $0.isEmpty ? nil : .signedIn($0) } ?? (self.signInProblem(out) ? .notSignedIn : .offline)
+                    if case .signedIn(let account) = status,
+                       let destination = makeOrganizationDestination(service: "ticket-github", fields: ["endpoint": "https://api.github.com", "account": account], title: "GitHub", detail: "github.com · \(account)"),
+                       !OrganizationSettingsState.shared.reconcilePermissions(service: destination.service, destinationIdentity: destination.identity) {
+                        status = .offline
+                    } else if status == .notSignedIn,
+                              !OrganizationSettingsState.shared.resetPermissions(service: "ticket-github") {
+                        status = .offline
+                    }
                     let was = self.githubStatus
                     self.githubStatus = status
                     if case .signedIn = status, status != was {
@@ -392,16 +507,28 @@ final class TicketStore {
 
     // MARK: Key
 
-    func setLinearKey(_ newKey: String) {
+    @discardableResult
+    func setLinearKey(_ newKey: String) -> Bool {
         let k = newKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        // The same key again keeps the cache and the status.
-        guard !Demo.isOn, !k.isEmpty, k != key else { return }
+        guard !Demo.isOn, !k.isEmpty else { return false }
+        guard k != key else { return true }
+        guard OrganizationSettingsState.shared.resetPermissions(service: "ticket-linear") else {
+            linearPermissionError = "Could not update organization permissions. Open Organizations to resolve the error."
+            return false
+        }
+        linearPermissionError = nil
         keychainIO.async { LinearKey.save(k) }
         changeKey(k)
+        return true
     }
 
     func removeLinearKey() {
         guard !Demo.isOn else { return }
+        guard OrganizationSettingsState.shared.resetPermissions(service: "ticket-linear") else {
+            linearPermissionError = "Could not update organization permissions. Open Organizations to resolve the error."
+            return
+        }
+        linearPermissionError = nil
         keychainIO.async { LinearKey.delete() }
         changeKey("")
     }
@@ -445,9 +572,15 @@ private struct GitFolder: Equatable, Sendable {
     var repository: GitHubRepository?
 }
 
-private enum PromptFile: Sendable {
+private enum PromptFile: Hashable, Sendable {
     case claude(cwd: String, id: String)
     case codex(String)
+}
+
+private struct PromptKey: Hashable, Sendable {
+    let id: String
+    let cwd: String
+    let file: PromptFile
 }
 
 private struct CommandOutput: Sendable {
@@ -465,23 +598,24 @@ private let ticketCacheURL = URL.applicationSupportDirectory.appending(path: "Ro
 
 /// The branches of each cwd's repository (the first folder up that has `.git`), and the refs of each prompt file's
 /// first 64 KB. A file without a prompt in it is read again later, unless its head is full.
-private func readLookups(cwds: [String], prompts: [(String, PromptFile)], projectsRoot: URL) -> (folders: [String: GitFolder], refs: [String: [TicketRef]]) {
-    var folders: [String: GitFolder] = [:], refs: [String: [TicketRef]] = [:]
+private func readLookups(cwds: [String], prompts: [PromptKey], projectsRoot: URL) -> (folders: [String: GitFolder], refs: [PromptKey: [TicketRef]]) {
+    var folders: [String: GitFolder] = [:], refs: [PromptKey: [TicketRef]] = [:]
     for cwd in cwds {
         // An empty cwd (a herdr agent without one) would resolve against the app's own folder.
         let git = cwd.hasPrefix("/") ? gitFolder(above: cwd).map(gitBranch) : nil
         folders[cwd] = GitFolder(branch: git?.branch, defaultBranch: git?.defaultBranch, repository: git?.repository)
     }
-    for (id, file) in prompts {
+    for key in prompts {
+        let file = key.file
         let url: URL? = switch file {
-        case .claude(let cwd, let session): transcriptURL(cwd: cwd, cliSessionId: session, projectsRoot: projectsRoot)
+        case .claude(let cwd, let session): transcriptURL(cwd: cwd, cliSessionId: session, projectsRoot: projectsRoot, allowFallback: false)
         case .codex(let path): URL(fileURLWithPath: path)
         }
         guard let url, let handle = try? FileHandle(forReadingFrom: url) else { continue }
         let data = (try? handle.read(upToCount: 65_536)) ?? Data()
         try? handle.close()
         let prompt = if case .claude = file { firstUserPrompt(claudeTranscript: data) } else { firstUserPrompt(codexRollout: data) }
-        if let prompt { refs[id] = ticketRefs(inPrompt: prompt) } else if data.count == 65_536 { refs[id] = [] }
+        if let prompt { refs[key] = ticketRefs(inPrompt: prompt) } else if data.count == 65_536 { refs[key] = [] }
     }
     return (folders, refs)
 }

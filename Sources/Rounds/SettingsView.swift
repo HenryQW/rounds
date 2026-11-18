@@ -32,7 +32,7 @@ final class SettingsState {
 
 /// The Settings pages in the sidebar (spec 5.4), each with a title and one line on what it is for.
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, pill, filters, agents, tickets, notifications, history, keys
+    case general, pill, filters, agents, organizations, workspace, tickets, notifications, history, keys
     var id: Self { self }
 
     var title: String {
@@ -41,6 +41,8 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .pill: "Pill"
         case .filters: "Filters"
         case .agents: "Agents"
+        case .organizations: "Organizations"
+        case .workspace: "Workspace"
         case .tickets: "Tickets"
         case .notifications: "Notifications"
         case .history: "History"
@@ -54,6 +56,8 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .pill: "sidebar.right"
         case .filters: "line.3.horizontal.decrease.circle"
         case .agents: "sparkles"
+        case .organizations: "person.2"
+        case .workspace: "folder.badge.gearshape"
         case .tickets: "ticket"
         case .notifications: "bell"
         case .history: "chart.bar"
@@ -67,6 +71,8 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .pill: "The pill at the screen edge and the window it opens."
         case .filters: "What Last Call counts, and when a session is Aged."
         case .agents: "Where the live state of each session comes from."
+        case .organizations: "Which organizations may send session information."
+        case .workspace: "Where coordination records and task details stay."
         case .tickets: "Shows the Linear and GitHub issues of each session."
         case .notifications: "Sounds on this Mac, and remote messages when you are away."
         case .history: "When agents waited for you, in the last 90 days."
@@ -82,7 +88,7 @@ struct SettingsView: View {
     @Bindable private var updater = Updater.shared
     @Bindable private var push = PushStore.shared
 
-    /// Eight pages in a sidebar (spec 5.4), each a short grouped form under its title.
+    /// Settings pages in a sidebar (spec 5.4).
     var body: some View {
         NavigationSplitView {
             List(SettingsPage.allCases, selection: $state.page) { Label($0.title, systemImage: $0.symbol) }
@@ -96,6 +102,8 @@ struct SettingsView: View {
             case .pill: page(.pill) { pill }
             case .filters: page(.filters) { filters }
             case .agents: page(.agents) { sources }
+            case .organizations: OrganizationSettingsView(model: model)
+            case .workspace: page(.workspace) { WorkspaceSections(state: WorkspaceSettingsState.shared) }
             case .tickets: page(.tickets) { tickets }
             case .notifications: page(.notifications) { notifications }
             case .history:
@@ -461,6 +469,8 @@ struct SettingsView: View {
                 }
             }
             .help("Rounds runs gh from Homebrew or ~/.local/bin; sign in with gh auth login. It sends GitHub only repository names and PR and issue numbers.")
+        } footer: {
+            footer(store.linearPermissionError)
         }
     }
 
@@ -627,6 +637,7 @@ struct SettingsView: View {
             Text("Make a personal API key in Linear: Settings, Account, Security and access. Read permission is enough. The key stays in your Keychain.")
                 .font(.callout).foregroundStyle(.secondary)
             SecureField("Linear API key", text: $state.linearKey, prompt: Text("Paste the API key")).labelsHidden()
+            if let error = TicketStore.shared.linearPermissionError { Text(error).foregroundStyle(.red) }
             HStack {
                 Spacer()
                 Button("Cancel") { state.linearSheet = false }
@@ -681,9 +692,10 @@ struct SettingsView: View {
                         state.pushChecking = false
                         if let failure {
                             state.pushError = failure
-                        } else {
-                            push.save(channel, values: values)
+                        } else if push.save(channel, values: values) {
                             state.pushSheet = nil
+                        } else {
+                            state.pushError = "Could not update organization permissions. Open Organizations to resolve the error."
                         }
                     }
                 } label: {
@@ -722,7 +734,7 @@ struct SettingsView: View {
     })
 
     private func saveLinearKey() {
-        TicketStore.shared.setLinearKey(state.linearKey)
+        guard TicketStore.shared.setLinearKey(state.linearKey) else { return }
         state.linearKey = ""
         state.linearSheet = false
     }

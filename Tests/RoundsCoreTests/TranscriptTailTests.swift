@@ -67,6 +67,11 @@ private func tail(_ lines: [String]) -> LastMessage { LastMessage.parse(Data((li
     try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     try Data().write(to: dir.appending(path: "abc.jsonl"))
     #expect(transcriptURL(cwd: "/Users/test/my proj_x", cliSessionId: "abc", projectsRoot: root)?.lastPathComponent == "abc.jsonl")
+    #expect(transcriptURL(cwd: "/Users/test/my proj_x", cliSessionId: "abc", projectsRoot: root, allowFallback: false) == nil)
+    let direct = root.appending(path: "-Users-test-my-proj-x")
+    try FileManager.default.createDirectory(at: direct, withIntermediateDirectories: true)
+    try Data().write(to: direct.appending(path: "abc.jsonl"))
+    #expect(transcriptURL(cwd: "/Users/test/my proj_x", cliSessionId: "abc", projectsRoot: root, allowFallback: false) == direct.appending(path: "abc.jsonl"))
     #expect(transcriptURL(cwd: "/Users/test/none", cliSessionId: "zzz", projectsRoot: root) == nil)
 }
 

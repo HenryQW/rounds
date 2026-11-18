@@ -29,7 +29,7 @@ enum Demo {
     }
 
     /// Called once the app has finished launching. Pill scenes need no window: the drawer shows the pill. `settings` opens
-    /// the Settings window; `settings-<page>` opens it at that page (`settings-agents`, `settings-tickets`).
+    /// the Settings window; `settings-<page>` opens it at that page (`settings-agents`, `settings-tickets`, `settings-workspace`).
     @MainActor static func start() {
         guard isOn else { return }
         switch argument("--demo-appearance") {
