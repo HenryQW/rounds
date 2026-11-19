@@ -13,6 +13,8 @@ public enum BouncerError: Error, Equatable {
     case unknownQuestion
     /// Pi did not accept the command; Pi's error text.
     case rejected(String)
+    /// Pi runs but did not answer the command in time.
+    case noAnswer
 }
 
 public enum BouncerTaskState: String, Sendable { case working, needsInput, failed, finished, stopped }

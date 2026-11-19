@@ -38,21 +38,28 @@ private func json(_ data: Data) throws -> [String: Any] {
 @Test func piDialogIsAQuestionNeverAnApproval() {
     let line = #"{"type":"extension_ui_request","id":"u1","method":"select","title":"Approve 4 actions","options":["Approve","Reject","Later"],"timeout":10000}"#
     let record = decodePiRPC(Data(line.utf8))
-    let question = BouncerQuestion(id: "u1", title: "Approve 4 actions", options: ["Approve", "Reject", "Later"])
+    let question = BouncerQuestion(id: "pi-ui-u1", title: "Approve 4 actions", options: ["Approve", "Reject", "Later"])
     #expect(record == .uiRequest(question, timeoutMs: 10000))
-    var thread = BouncerThread()
-    if case .uiRequest(let q, _) = record { thread.apply(.item(.question(q))) }
-    #expect(thread.items == [.question(question)])
-    #expect(!thread.items.contains { if case .approval = $0 { true } else { false } })
+}
+
+@Test func piDialogDoesNotReplaceACardWithTheSameID() throws {
+    let card = ApprovalCard(id: "a1", taskID: "t1", title: "Push", actions: ["git push"], checkedAt: Date(timeIntervalSince1970: 0))
+    var thread = BouncerThread(items: [.approval(card)])
+    let line = #"{"type":"extension_ui_request","id":"a1","method":"select","title":"Pick","options":["A","B"]}"#
+    guard case .uiRequest(let question, _) = decodePiRPC(Data(line.utf8)) else { Issue.record("no question"); return }
+    thread.apply(.item(.question(question)))
+    #expect(thread.items.first == .approval(card) && thread.waitingCount == 2)
+    // The response goes back with Pi's own id.
+    #expect(try json(encodePiRPC(.uiResponse(question, .option(0))))["id"] as? String == "a1")
 }
 
 @Test func dialogKindsBecomeQuestions() {
     #expect(decodePiRPC(Data(#"{"type":"extension_ui_request","id":"c","method":"confirm","title":"Clear?","message":"All lost."}"#.utf8))
-        == .uiRequest(BouncerQuestion(id: "c", title: "Clear?\nAll lost.", options: ["Yes", "No"], confirms: true), timeoutMs: nil))
+        == .uiRequest(BouncerQuestion(id: "pi-ui-c", title: "Clear?\nAll lost.", options: ["Yes", "No"], confirms: true), timeoutMs: nil))
     #expect(decodePiRPC(Data(#"{"type":"extension_ui_request","id":"e","method":"editor","title":"Edit","prefill":"x"}"#.utf8))
-        == .uiRequest(BouncerQuestion(id: "e", title: "Edit", takesText: true), timeoutMs: nil))
+        == .uiRequest(BouncerQuestion(id: "pi-ui-e", title: "Edit", takesText: true), timeoutMs: nil))
     #expect(decodePiRPC(Data(#"{"type":"extension_ui_request","id":"n","method":"notify","message":"Blocked"}"#.utf8))
-        == .event(.item(.note(id: "n", text: "Blocked"))))
+        == .event(.item(.note(id: "pi-ui-n", text: "Blocked"))))
     #expect(decodePiRPC(Data(#"{"type":"extension_ui_request","id":"s","method":"setStatus","statusKey":"k"}"#.utf8))
         == .ignored(type: "extension_ui_request setStatus"))
 }

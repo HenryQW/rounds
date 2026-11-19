@@ -29,6 +29,8 @@ public enum PiRPCRecord: Equatable, Sendable {
     /// A successful `get_messages` response, as thread items with the ids of the live stream.
     case messages(id: String?, [BouncerItem])
     case event(BouncerEvent), uiRequest(BouncerQuestion, timeoutMs: Int?), ignored(type: String), malformed(String)
+    /// `agent_settled` with `aborted: true`: the reply ends because of a stop.
+    case aborted
 }
 
 public func decodePiRPC(_ line: Data) -> PiRPCRecord {
@@ -67,16 +69,20 @@ public func decodePiRPC(_ line: Data) -> PiRPCRecord {
         return .event(.item(note))
     case "tool_execution_start": return .event(.toolStep(record["toolName"] as? String ?? ""))
     case "agent_start": return .event(.replying(true))
-    case "agent_settled": return .event(.replying(false))
+    case "agent_settled": return record["aborted"] as? Bool == true ? .aborted : .event(.replying(false))
     case "extension_ui_request": return decodeUIRequest(record)
     default: return .ignored(type: type)
     }
 }
 
+/// The prefix of a Pi dialog's item id, so a dialog id never matches the id of another item, such as an approval card.
+private let piDialogPrefix = "pi-ui-"
+
 /// A dialog becomes a question card, never an approval card, whatever its title says.
 private func decodeUIRequest(_ record: [String: Any]) -> PiRPCRecord {
     let method = record["method"] as? String ?? ""
-    guard let id = record["id"] as? String else { return .malformed("extension_ui_request without id") }
+    guard let raw = record["id"] as? String else { return .malformed("extension_ui_request without id") }
+    let id = piDialogPrefix + raw
     let title = record["title"] as? String ?? ""
     let timeout = (record["timeout"] as? NSNumber)?.intValue
     switch method {
@@ -94,9 +100,9 @@ private func decodeUIRequest(_ record: [String: Any]) -> PiRPCRecord {
 }
 
 /// The thread items of one Pi message. Ids come from the role and the message timestamp, so a message from the live
-/// stream and the same message from `get_messages` have one id.
+/// stream and the same message from `get_messages` have one id. A message without a timestamp gets a new id.
 private func piItems(_ message: [String: Any]) -> [BouncerItem] {
-    let stamp = (message["timestamp"] as? NSNumber)?.int64Value ?? 0
+    let stamp = (message["timestamp"] as? NSNumber).map { "\($0.int64Value)" } ?? UUID().uuidString
     let blocks = message["content"] as? [[String: Any]] ?? []
     let text = (message["content"] as? String)
         ?? blocks.filter { $0["type"] as? String == "text" }.compactMap { $0["text"] as? String }.joined()
@@ -114,7 +120,8 @@ private func piItems(_ message: [String: Any]) -> [BouncerItem] {
 public enum PiRPCCommand: Sendable {
     case prompt(id: String, message: String), abort(id: String), getState(id: String), getMessages(id: String)
     case setModel(id: String, provider: String, model: String), availableModels(id: String)
-    /// The answer to a dialog: the question gives the request id, the option texts and the dialog kind.
+    /// The answer to a dialog: the question gives the request id (its id without `pi-ui-`), the option texts and the
+    /// dialog kind.
     case uiResponse(BouncerQuestion, BouncerAnswer)
 }
 
@@ -127,7 +134,9 @@ public func encodePiRPC(_ command: PiRPCCommand) -> Data {
     case .getMessages(let id): ["id": id, "type": "get_messages"]
     case .setModel(let id, let provider, let model): ["id": id, "type": "set_model", "provider": provider, "modelId": model]
     case .availableModels(let id): ["id": id, "type": "get_available_models"]
-    case .uiResponse(let question, let answer): ["type": "extension_ui_response", "id": question.id].merging(uiValue(question, answer)) { a, _ in a }
+    case .uiResponse(let question, let answer):
+        ["type": "extension_ui_response", "id": question.id.hasPrefix(piDialogPrefix) ? String(question.id.dropFirst(piDialogPrefix.count)) : question.id]
+            .merging(uiValue(question, answer)) { a, _ in a }
     }
     // Only strings and booleans: serialization cannot fail.
     var data = (try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys, .withoutEscapingSlashes])) ?? Data("{}".utf8)

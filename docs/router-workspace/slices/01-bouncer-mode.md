@@ -79,7 +79,7 @@ Each sub-step merges alone. 01a adds code that nothing calls yet, as `TaskGraph`
 
 ```swift
 // RoundsCore/Bouncer.swift
-public enum BouncerError: Error, Equatable { case reasonRequired, notAvailable, notRunning, unknownQuestion, rejected(String) }
+public enum BouncerError: Error, Equatable { case reasonRequired, notAvailable, notRunning, unknownQuestion, rejected(String), noAnswer }
 public enum BouncerTaskState: String, Sendable { case working, needsInput, failed, finished, stopped }
 public struct BouncerTask: Identifiable, Equatable, Sendable {
     public let id: String; public var title: String; public var repository: String?; public var organization: String?
@@ -125,6 +125,7 @@ public enum PiRPCRecord: Equatable, Sendable {
     case response(id: String?, command: String, success: Bool, error: String?)
     case state(id: String?, sessionFile: String?, model: String?), messages(id: String?, [BouncerItem])  // get_state, get_messages data
     case event(BouncerEvent), uiRequest(BouncerQuestion, timeoutMs: Int?), ignored(type: String), malformed(String)
+    case aborted  // agent_settled with aborted: true
 }
 public func decodePiRPC(_ line: Data) -> PiRPCRecord
 public func encodePiRPC(_ command: PiRPCCommand) -> Data  // one JSON object + LF
@@ -146,10 +147,10 @@ public protocol BouncerAdapter: Sendable {
     func setModel(_ id: String?) async throws
     func shutdown() async
 }
-public actor PiRPCBouncer: BouncerAdapter { public init(executable: URL, arguments: [String], folder: URL) }
+public actor PiRPCBouncer: BouncerAdapter { public init(executable: URL, folder: URL, sessionFile: String?, sessionDir: String) }  // arguments: bouncerArguments
 ```
 
-Changes made in 01a, each for Pi's real messages: `confirms`, because option 2's text and `confirmed: true` need the dialog kind; `uiResponse` takes the question, because the encoder needs the option text; `.state` and `.messages`, because the adapter needs `sessionFile`, the start model and the history; `BouncerError` and the thread `init`, because the contract used them without a definition. Message items take the id `pi-<role>-<timestamp>`, so `get_messages` after a restart replaces the live items and does not repeat them.
+Changes made in 01a, each for Pi's real messages: `confirms`, because option 2's text and `confirmed: true` need the dialog kind; `uiResponse` takes the question, because the encoder needs the option text; `.state` and `.messages`, because the adapter needs `sessionFile`, the start model and the history; `BouncerError` and the thread `init`, because the contract used them without a definition; `noAnswer`, because each command has a 10 s limit; `.aborted`, because the "stopped" item comes from Pi's `agent_settled`, not from the `abort` response, which Pi also sends when idle; the `PiRPCBouncer` init takes the session, not arguments, because the adapter always builds `bouncerArguments`, so Pi cannot start with tools. Message items take the id `pi-<role>-<timestamp>`, so `get_messages` after a restart replaces the live items and does not repeat them; a message without a timestamp gets a new id. A dialog takes the id `pi-ui-<id>`, so it cannot replace another item with the same id; the response sends Pi's own id.
 
 App side: `BouncerModel.shared` holds `thread: BouncerThread`, `adapter: any BouncerAdapter`, `setupSteps`, `otherWaits` and `selection: String?` (nil is the Bouncer row). `pillWaiting` is `thread.waitingCount`; the pill reads only that, so other changes do not redraw it.
 
@@ -158,10 +159,10 @@ App side: `BouncerModel.shared` holds `thread: BouncerThread`, `adapter: any Bou
 - Mode: `bouncerMode` off keeps today's app. On, `BouncerModel.start()` makes the adapter; Off calls `shutdown()` and closes the window.
 - Pill (`EdgePill`): in Bouncer mode it shows the Bouncer state only. `pillWaiting` 0: the empty clear glass tab of today, still, no number. More than 0: orange (`systemOrange`, ink #2B1A00) with the number; `RingingTab` peeks every 2 s with the ring. Reduce Motion: orange and still. `EdgeDrawer.observe` tracks `pillWaiting` and `bouncerMode` as it tracks `ringing`, for the larger panel size.
 - Click: `EdgeDrawer.open(display:)` calls `BouncerWindowController.shared.show()` in Bouncer mode. The focus goes to the title of the first undecided approval card, else option 1 of the first open question, else the prompt box.
-- Pi adapter: `pi --mode rpc` plus `bouncerArguments`, which always adds the no-tools flags (see Decided). A recorded session file that exists adds `--session <file>`; a missing file starts a new session and a note "New conversation. The earlier Bouncer session file is missing." Any other launch error shows in the banner and keeps the thread (CONTEXT.md, Bouncer Session). After start: `get_state` gives `sessionFile`, saved as `bouncerSessionFile`; `get_messages` fills the thread.
-- Stream: assistant `message_update` text deltas grow the current reply; `tool_execution_start` adds a tool step to it; only `agent_settled` sets `replying` to false (`agent_end` can be followed by a retry). While a reply runs, the send button is a stop button that sends `abort`; the window sends no prompt then, because Pi rejects a `prompt` during a run without `streamingBehavior`.
+- Pi adapter: `pi --mode rpc` plus `bouncerArguments`, which always adds the no-tools flags (see Decided). The adapter builds the arguments itself. A command without a response in 10 s fails with `noAnswer`. A recorded session file that exists adds `--session <file>`; a missing file starts a new session and a note "New conversation. The earlier Bouncer session file is missing." Any other launch error shows in the banner and keeps the thread (CONTEXT.md, Bouncer Session). After start: `get_state` gives `sessionFile`, saved as `bouncerSessionFile`; `get_messages` fills the thread.
+- Stream: assistant `message_update` text deltas grow the current reply; `tool_execution_start` adds a tool step to it; only `agent_settled` sets `replying` to false (`agent_end` can be followed by a retry). While a reply runs, the send button is a stop button that sends `abort`; `agent_settled` with `aborted: true` adds the "stopped" item; the window sends no prompt then, because Pi rejects a `prompt` during a run without `streamingBehavior`.
 - Dialogs: `extension_ui_request` `select` gives a question with its options in order; `confirm` gives Yes and No; `input` and `editor` give a question with a text field. The answer goes back as `extension_ui_response` with the same `id` (`value`, `confirmed` or `cancelled: true`). A request with `timeout`: when Pi resolves it, the card shows "Pi closed this question." and stops counting. `notify` gives a note; `setStatus`, `setWidget`, `setTitle` and `set_editor_text` are ignored.
-- Exit: Rounds closes stdin at quit or Off, then sends SIGTERM after 5 s. An unexpected exit shows the last stderr lines in the banner with Start Again.
+- Exit: Rounds closes stdin at quit or Off, then sends SIGTERM after 5 s and SIGKILL after 5 s more, because Pi ignores a single signal during its shutdown. An unexpected exit shows the last stderr lines in the banner with Start Again.
 - Set Up row: `bouncerSetupSteps` from `WorkspaceSettingsState` and the `pi` path; it shows above the tasks only when a step is missing. A click opens Settings on the Workspace or Agents page (`SettingsState.page`). The adapter starts only with no step missing.
 - Host note: `otherWaits(AppModel.shared.allGroups.sessions, ...)` gives the sessions that need input or failed, without the Bouncer's own session. 0 hides the button. The popover lists title and state word, "Shown by Rounds; the Bouncer does not see these." and Open Session List (`PanelController.shared.show(.yourTurn)`).
 - Demo: `--demo` makes `DemoBouncer`, which plays the mockup thread: one undecided approval, one open three-option question, so the pill shows 2.
@@ -188,18 +189,23 @@ In `Tests/RoundsCoreTests`, run with `scripts/test.sh`. The window has no test t
 | CRLF | A record that ends with CR LF | Decodes; no CR in the text |
 | Unicode separator | U+2028 inside a JSON string | One record, not two |
 | Malformed line | `{"type":` | `.malformed`, the next line still decodes |
-| No approval from Pi | `extension_ui_request` `select` titled "Approve 4 actions" | `.uiRequest` question; the thread has no approval |
+| No approval from Pi | `extension_ui_request` `select` titled "Approve 4 actions" | `.uiRequest` question with id `pi-ui-<id>` |
+| Dialog id | A dialog with the id of an approval card in the thread | The card stays; the response has Pi's id |
 | Answer encoding | option 2 of a `select`; `confirm` yes; dismiss | `value` is option 2's text; `confirmed: true`; `cancelled: true`; `id` kept |
 | Waiting count | Empty; one open question; plus one approval; answer the question; Pi opens and then closes a second question; approve | 0, 1, 2, 1, 1, 0 |
 | Reject reason | Reject with "" and with spaces | `reasonRequired`; card still undecided |
 | Run end | `agent_end` then nothing; then `agent_settled` | Still replying; then not |
 | Tool steps | Two `tool_execution_start` in one reply | The reply has 2 steps |
-| Archive rule | Each `BouncerTaskState` | Only finished and stopped can archive |
 | Reopen | Recorded file exists; missing; nil | `--session <file>`, not new; no `--session`, new; new |
 | No tools | Any case above | The arguments always hold `--no-tools`, `--no-extensions`, `--no-mcp`, `--no-skills` and `--no-prompt-templates` |
 | Setup steps | No workspace; remotes not confirmed; no `pi`; all set | One step each; empty |
 | Other waits | Bouncer's own session needs input; one other does | Only the other |
-| Child process | `PiRPCBouncer` on `/bin/sh -c` that prints one response and exits 1 with stderr | A `.started`, then `.exited` with the stderr text |
+| Child process | `PiRPCBouncer` on a script that prints one response and exits 1 with stderr | A `.started`, then `.exited` with the stderr text |
+| Launch arguments | A script that records its arguments | The five no-tools flags |
+| Stubborn child | A script that ignores stdin EOF and SIGTERM | `shutdown()` ends it in the limit; `events` finishes |
+| Exit during a command | The script exits while `send()` waits | `notRunning` |
+| No response | The script reads and never answers | `noAnswer` |
+| Dialog timeout | A question with a 100 ms timeout | `.closed`; a later `answer()` throws `unknownQuestion` |
 | No executable | A path that does not exist | `start()` throws; no event |
 
 ## Numbers
@@ -212,4 +218,4 @@ In `Tests/RoundsCoreTests`, run with `scripts/test.sh`. The window has no test t
 | Memory | `footprint <pid>`, window open with demo data, against mode off | 30 MB more or less |
 | Reply redraws | Count thread changes per second during a long reply | 30 or fewer (deltas are joined) |
 | Pi start | Launch to `get_state` response | 3 s or less |
-| Quit | stdin closed to child exit | 5 s or less, else SIGTERM |
+| Quit | stdin closed to child exit | 5 s or less, else SIGTERM, then SIGKILL after 5 s more |

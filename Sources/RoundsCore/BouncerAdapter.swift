@@ -20,7 +20,12 @@ public protocol BouncerAdapter: Sendable {
 public actor PiRPCBouncer: BouncerAdapter {
     public nonisolated let events: AsyncStream<BouncerEvent>
     private let output: AsyncStream<BouncerEvent>.Continuation
-    private let executable: URL, arguments: [String], folder: URL
+    private let executable: URL, folder: URL, sessionDir: String
+    /// The session to reopen: the recorded file first, then the file that Pi reports.
+    private var sessionFile: String?
+    private var isNew = true
+    /// The wait for each step of `shutdown()`, and for the response to each command.
+    private let exitWait: Duration, requestWait: Duration
     private var process: Process?
     private var input: FileHandle?
     private var framer = PiRPCFramer()
@@ -32,9 +37,16 @@ public actor PiRPCBouncer: BouncerAdapter {
     private var timeouts: [String: Task<Void, Never>] = [:]
     private var startModel: String?
 
-    public init(executable: URL, arguments: [String], folder: URL) {
+    /// Pi always starts with `bouncerArguments`, so it never has tools. `sessionFile`: the recorded Bouncer session.
+    public init(executable: URL, folder: URL, sessionFile: String?, sessionDir: String) {
+        self.init(executable: executable, folder: folder, sessionFile: sessionFile, sessionDir: sessionDir,
+                  exitWait: .seconds(5), requestWait: .seconds(10))
+    }
+
+    init(executable: URL, folder: URL, sessionFile: String?, sessionDir: String, exitWait: Duration, requestWait: Duration) {
         (events, output) = AsyncStream.makeStream(of: BouncerEvent.self)
-        (self.executable, self.arguments, self.folder) = (executable, arguments, folder)
+        (self.executable, self.folder, self.sessionFile, self.sessionDir) = (executable, folder, sessionFile, sessionDir)
+        (self.exitWait, self.requestWait) = (exitWait, requestWait)
     }
 
     /// Starts Pi, then asks for its state (`.started`) and its messages. Throws only when Pi does not start; a later
@@ -43,7 +55,10 @@ public actor PiRPCBouncer: BouncerAdapter {
         guard !running, !shuttingDown else { return }
         let process = Process(), stdin = Pipe(), stdout = Pipe(), stderr = Pipe()
         process.executableURL = executable
-        process.arguments = arguments
+        let launch = bouncerArguments(sessionFile: sessionFile,
+                                      fileExists: sessionFile.map { FileManager.default.fileExists(atPath: $0) } ?? false,
+                                      sessionDir: sessionDir)
+        (process.arguments, isNew) = (launch.arguments, launch.isNew)
         process.currentDirectoryURL = folder
         (process.standardInput, process.standardOutput, process.standardError) = (stdin, stdout, stderr)
         // A write after Pi exits gets EPIPE, not a SIGPIPE that stops Rounds.
@@ -74,11 +89,10 @@ public actor PiRPCBouncer: BouncerAdapter {
         try check(await request(.prompt(id: id, message: text), id: id))
     }
 
-    /// Pi answers `abort` when the session is idle.
+    /// The "stopped" item comes from `agent_settled` with `aborted`, because Pi also accepts `abort` when idle.
     public func stop() async {
         let id = nextID()
-        guard let record = try? await request(.abort(id: id), id: id), case .response(_, _, true, _) = record else { return }
-        output.yield(.item(.stopped(id: "stopped-\(id)")))
+        _ = try? await request(.abort(id: id), id: id)
     }
 
     public func answer(_ questionID: String, _ answer: BouncerAnswer) async throws {
@@ -99,20 +113,22 @@ public actor PiRPCBouncer: BouncerAdapter {
                                                 model: String(model[model.index(after: slash)...])), id: request))
     }
 
-    /// Closes stdin, then sends SIGTERM if Pi still runs after 5 s.
+    /// Closes stdin, then sends SIGTERM if Pi still runs after 5 s, then SIGKILL after 5 s more. Pi ignores a single
+    /// signal during its shutdown (rpc.md, Shutdown), so SIGTERM alone can leave it running.
     public func shutdown() async {
         shuttingDown = true
         try? input?.close()
         input = nil
-        if !(await waitForExit(seconds: 5)) {
-            process?.terminate()
-            _ = await waitForExit(seconds: 5)
+        for signal in [SIGTERM, SIGKILL] {
+            if await waitForExit(exitWait) { break }
+            if let pid = process?.processIdentifier { kill(pid, signal) }
         }
+        _ = await waitForExit(exitWait)
         output.finish()
     }
 
-    private func waitForExit(seconds: Double) async -> Bool {
-        let deadline = ContinuousClock.now + .seconds(seconds)
+    private func waitForExit(_ wait: Duration) async -> Bool {
+        let deadline = ContinuousClock.now + wait
         while running, ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
         return !running
     }
@@ -127,11 +143,16 @@ public actor PiRPCBouncer: BouncerAdapter {
         do { try input.write(contentsOf: encodePiRPC(command)) } catch { throw BouncerError.notRunning }
     }
 
+    /// The response to `command`; `BouncerError.noAnswer` when Pi does not answer in `requestWait`.
     private func request(_ command: PiRPCCommand, id: String) async throws -> PiRPCRecord {
         try await withCheckedThrowingContinuation { continuation in
             do {
                 try write(command)
                 pending[id] = continuation
+                Task { [requestWait] in
+                    try? await Task.sleep(for: requestWait)
+                    self.pending.removeValue(forKey: id)?.resume(throwing: BouncerError.noAnswer)
+                }
             } catch { continuation.resume(throwing: error) }
         }
     }
@@ -151,10 +172,14 @@ public actor PiRPCBouncer: BouncerAdapter {
             else if !success, id == stateID || id == messagesID { output.yield(.failed(error ?? "Pi did not answer.")) }
         case .state(let id, let file, let model) where id != nil && id == stateID:
             startModel = model
-            output.yield(.started(sessionFile: file, isNew: !arguments.contains("--session")))
+            if let file { sessionFile = file }
+            output.yield(.started(sessionFile: file, isNew: isNew))
         case .messages(let id, let items) where id != nil && id == messagesID:
             for item in items { output.yield(.item(item)) }
         case .event(let event): output.yield(event)
+        case .aborted:
+            output.yield(.replying(false))
+            output.yield(.item(.stopped(id: "stopped-\(nextID())")))
         case .uiRequest(let question, let timeout):
             questions[question.id] = question
             output.yield(.item(.question(question)))
