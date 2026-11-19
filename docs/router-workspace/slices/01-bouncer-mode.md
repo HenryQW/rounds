@@ -6,7 +6,7 @@ Rounds gets a Bouncer mode. The pill is the Bouncer, and a click on it opens the
 
 ## State
 
-Brief, 2026-11-19. Open decision: the user picks one of the mockups.
+Brief, 2026-11-19. Layout picked: mockup C, task sidebar. Open decision: the approval form (see Open).
 
 ## Depends
 
@@ -23,10 +23,13 @@ None. Organization rules and workspace setup are built ([overview](../overview.m
 ## Decided
 
 - Decision "Bouncer mode in Rounds" ([decisions.md](../decisions.md)).
+- Decision "Bouncer Window has a task sidebar" ([decisions.md](../decisions.md)). Patterns to take from the Claude desktop app Code tab ([its docs](https://code.claude.com/docs/en/desktop)): **+ New** at the top of the sidebar; group and sort on hover; archive from a hover menu; a details panel of cards beside the chat; Normal and Verbose views; a control row under the prompt box; a stop button; Cmd+N and Ctrl+Tab; reports from other agents labeled with their task and a link back.
 - Rounds still watches all sessions. The session list stays on the global shortcut.
 - *Default* (agent, 2026-11-19, reversible): the Bouncer agent sees nothing of the sessions that it does not manage. On user request it reads metadata only (title, state, project, organization), never transcript text, and never sends them input. Organization rules decide what goes to the model.
 
 ## Open
+
+- Approval form: a native sheet (current rule) or a host-drawn card in the conversation, as the Claude desktop app shows permission cards. Both come from host code, not model text. No "Always allow": each approval binds one exact action.
 
 - Design the native task, approval, error and accessibility states from the [attention review](../archive/attention-review.md), which the user approved on 2026-11-19, as Bouncer mode changed it. Earlier mockups were removed as outdated.
 - Decide how the shared theme applies to native Rounds controls without a change to the meaning of the existing state colours. The shared theme draft is a separate local file and is not in the published package.
