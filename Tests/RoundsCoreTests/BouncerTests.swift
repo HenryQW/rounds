@@ -128,7 +128,7 @@ private func waitUntil(seconds: Double = 5, _ ok: () -> Bool) async -> Bool {
     let adapter = bouncer(pi)
     try await adapter.start()
     let seen = await events(adapter)
-    #expect(seen == [.started(sessionFile: "/s/a.jsonl", isNew: true), .exited("pi: no model")])
+    #expect(seen == [.started(sessionFile: "/s/a.jsonl", isNew: true, model: nil), .exited("pi: no model")])
     await adapter.shutdown()
 }
 
@@ -200,4 +200,25 @@ private func waitUntil(seconds: Double = 5, _ ok: () -> Bool) async -> Bool {
     #expect(await waitUntil { recorder.events.contains(.closed(questionID: "pi-ui-q")) })
     await #expect(throws: BouncerError.unknownQuestion) { try await adapter.answer("pi-ui-q", .option(0)) }
     await adapter.shutdown()
+}
+
+@Test func sessionFileIsRecordedOnlyOnceItExists() {
+    // Exists: the reported file replaces the recorded one.
+    #expect(bouncerSessionToRecord(reported: "/s/b.jsonl", recorded: "/s/a.jsonl", exists: { _ in true }) == "/s/b.jsonl")
+    // Unused: Pi has not written the file yet, so the recorded file stays.
+    #expect(bouncerSessionToRecord(reported: "/s/b.jsonl", recorded: "/s/a.jsonl", exists: { _ in false }) == "/s/a.jsonl")
+}
+
+@Test func missingNoteNamesOnlyARecordedFileThatPiDidNotReopen() {
+    // Missing: Pi started new, so the recorded file is gone.
+    #expect(missingBouncerSession(recorded: "/s/a.jsonl", reported: "/s/b.jsonl", isNew: true) == "/s/a.jsonl")
+    // Exists: Pi reopened the recorded file.
+    #expect(missingBouncerSession(recorded: "/s/a.jsonl", reported: "/s/a.jsonl", isNew: false) == nil)
+}
+
+@Test func restartOfAnUnusedSessionGivesNoMissingNote() {
+    // First start: Pi reports a file that it writes only after the first reply; nothing is recorded.
+    let recorded = bouncerSessionToRecord(reported: "/s/a.jsonl", recorded: nil, exists: { _ in false })
+    // Restart: the unused file does not exist, so Pi starts new; nothing was lost.
+    #expect(missingBouncerSession(recorded: recorded, reported: "/s/b.jsonl", isNew: true) == nil)
 }

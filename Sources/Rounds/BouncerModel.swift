@@ -65,21 +65,29 @@ final class BouncerModel {
         guard setupSteps.isEmpty, let made = makeAdapter() else { return watchSetup() }
         adapter = made
         listener = Task { [weak self] in
-            for await event in made.events { self?.apply(event) }
+            // `stop()` cancels this task on the main actor, so no event of an old adapter reaches the next thread.
+            for await event in made.events where !Task.isCancelled { self?.apply(event) }
         }
         launch()
     }
 
     /// Mode off: the adapter closes Pi (stdin, then signals), and the window closes.
-    func stop() {
+    func stop() { shutDown() }
+
+    /// Quit: Pi stops as at mode off, and the mode stays on for the next launch. Returns once Pi has exited.
+    func quit() async { await shutDown()?.value }
+
+    @discardableResult
+    private func shutDown() -> Task<Void, Never>? {
         BouncerWindowController.shared.close()
-        guard let adapter else { return }
+        guard let adapter else { return nil }
         self.adapter = nil
         running = false
+        listener?.cancel()
         listener = nil
-        // Shutdown ends the event stream, so the listener ends too.
-        Task { await adapter.shutdown() }
+        reportedFile = nil
         (thread, models, model) = (BouncerThread(), [], nil)
+        return Task { await adapter.shutdown() }
     }
 
     /// Start Again in the exit banner.
@@ -88,9 +96,9 @@ final class BouncerModel {
         Task {
             do {
                 try await adapter.start()
-                running = true
+                if self.adapter === adapter { running = true }
             } catch {
-                thread.apply(.failed("Pi did not start: \(error.localizedDescription)"))
+                fail("Pi did not start: \(error.localizedDescription)", from: adapter)
             }
         }
     }
@@ -101,7 +109,7 @@ final class BouncerModel {
         guard let adapter, !text.isEmpty, !thread.replying else { return }
         draft = ""
         Task {
-            do { try await adapter.send(text) } catch { thread.apply(.failed(message(error))) }
+            do { try await adapter.send(text) } catch { fail(message(error), from: adapter) }
         }
     }
 
@@ -114,7 +122,7 @@ final class BouncerModel {
         guard let adapter else { return }
         thread.answer(questionID, answer)
         Task {
-            do { try await adapter.answer(questionID, answer) } catch { thread.apply(.failed(message(error))) }
+            do { try await adapter.answer(questionID, answer) } catch { fail(message(error), from: adapter) }
         }
     }
 
@@ -124,6 +132,7 @@ final class BouncerModel {
         model = id
         Task {
             do { try await adapter.setModel(id) } catch {
+                guard self.adapter === adapter else { return }
                 model = previous
                 thread.apply(.failed(message(error)))
             }
@@ -139,12 +148,13 @@ final class BouncerModel {
 
     private func apply(_ event: BouncerEvent) {
         switch event {
-        case .started(let file, let isNew):
-            // Only a file that exists is recorded, so a recorded file that is gone was removed: say so once.
-            if isNew, let old = sessionFile, old != file {
+        case .started(let file, let isNew, let current):
+            if let old = missingBouncerSession(recorded: sessionFile, reported: file, isNew: isNew) {
                 thread.apply(.item(.note(id: "missing-\(old)", text: "New conversation. The earlier Bouncer session file is missing.")))
             }
             reportedFile = file
+            // A reopened session keeps its own model, so the menu shows Pi's model, not Default.
+            model = current
             recordSessionFile()
         case .replying(false): recordSessionFile()
         case .models(let list): models = list
@@ -154,10 +164,14 @@ final class BouncerModel {
         thread.apply(event)
     }
 
-    /// Pi writes a new session file after the first reply, not at start: recording it before would call an unused
-    /// session missing at the next start.
     private func recordSessionFile() {
-        if let file = reportedFile, file != sessionFile, FileManager.default.fileExists(atPath: file) { sessionFile = file }
+        sessionFile = bouncerSessionToRecord(reported: reportedFile, recorded: sessionFile,
+                                             exists: { FileManager.default.fileExists(atPath: $0) })
+    }
+
+    /// An error of an adapter that `stop()` replaced does not reach the current thread.
+    private func fail(_ text: String, from adapter: any BouncerAdapter) {
+        if self.adapter === adapter { thread.apply(.failed(text)) }
     }
 
     private func makeAdapter() -> (any BouncerAdapter)? {

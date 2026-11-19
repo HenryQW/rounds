@@ -4,6 +4,7 @@ import SwiftUI
 @main
 struct RoundsApp: App {
     private let model = AppModel.shared
+    @NSApplicationDelegateAdaptor private var delegate: AppDelegate
 
     init() {
         // Hover hints (`.help`) show after 0.5 s: the system default (key not set) felt slower than 1 s.
@@ -26,5 +27,27 @@ struct RoundsApp: App {
             SettingsView(model: model, state: SettingsState.shared)
         }
         .windowResizability(.contentMinSize)
+    }
+}
+
+/// Quit waits until Pi has exited (spec 5.9): `terminateLater` keeps the main thread free, so the shutdown can run.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var replied = false
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        Task { @MainActor in
+            // `shutdown()` takes at most 15 s (stdin, SIGTERM, SIGKILL, 5 s each); the limit keeps quit from hanging.
+            let limit = Task { try? await Task.sleep(for: .seconds(20)); self.reply() }
+            await BouncerModel.shared.quit()
+            limit.cancel()
+            self.reply()
+        }
+        return .terminateLater
+    }
+
+    @MainActor private func reply() {
+        guard !replied else { return }
+        replied = true
+        NSApp.reply(toApplicationShouldTerminate: true)
     }
 }

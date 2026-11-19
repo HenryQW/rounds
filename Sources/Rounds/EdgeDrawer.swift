@@ -199,6 +199,8 @@ final class EdgeDrawer {
             settings.pillPosition = position
         } else {
             pill.setFrameOrigin(NSPoint(x: pill.frame.minX, y: Self.pillY(position, height: pill.frame.height, in: visible)))
+            // `apply` compares with the frame it last set, so a drag that ends where it started still puts the pill back.
+            pillFrames[display] = pill.frame
         }
     }
 

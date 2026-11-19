@@ -2,7 +2,7 @@ import Darwin
 import Foundation
 
 /// The one way the Bouncer Window talks to the Bouncer: Pi RPC now, pi-durable later, demo data with `--demo`.
-public protocol BouncerAdapter: Sendable {
+public protocol BouncerAdapter: AnyObject, Sendable {
     var events: AsyncStream<BouncerEvent> { get }
     func start() async throws
     func send(_ text: String) async throws
@@ -174,7 +174,7 @@ public actor PiRPCBouncer: BouncerAdapter {
         case .state(let id, let file, let model) where id != nil && id == stateID:
             startModel = model
             if let file { sessionFile = file }
-            output.yield(.started(sessionFile: file, isNew: isNew))
+            output.yield(.started(sessionFile: file, isNew: isNew, model: model))
         case .messages(let id, let items) where id != nil && id == messagesID:
             for item in items { output.yield(.item(item)) }
         case .event(let event): output.yield(event)

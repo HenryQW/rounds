@@ -176,7 +176,7 @@ App side: `BouncerModel.shared` holds `thread: BouncerThread`, `adapter: any Bou
 | Esc | Closes, in this order: a menu, the popover, the reply (stop), a sidebar or details overlay below 700 pt |
 | ⌘W | Closes the window; the adapter keeps running |
 
-Accessibility: the pill label is "Bouncer", its value "N waiting for you" or "Nothing waiting", and its hint "Opens the Bouncer Window". Each state dot has its state word in its label. The approval card is one group with a heading; its actions are a list in order. Every control is reachable with Tab and shows the grey hover fill. Reduce Motion stops the pill and the typing dots.
+Accessibility: the pill label is "Bouncer", its value "N waiting for you" or "Nothing waiting", and its hint "Opens the Bouncer Window". Each state dot has its state word in its label. The approval card is one group with a heading; its actions are a list in order. In 01b the card shows only the count of its actions; the ordered action list comes in 01c with `BouncerCards.swift`. Every control is reachable with Tab and shows the grey hover fill. Reduce Motion stops the pill and the typing dots.
 
 Docs in the same commit: 01b changes spec 4 (new components), 5.1 (the pill's menu), 5.4 (General toggle, Keys rows), 5.7 (the pill in Bouncer mode), 2.7 (the Bouncer session folder is not read), 7.1 (the `--demo-scene bouncer` scene), and adds 5.9 Bouncer Window. GLOSSARY.md: the Pill entry, and Bouncer and Bouncer Window under Window. CONTEXT.md: the new names (host note, fact banner, Set Up row) before the code uses them. 01c adds the task, card and details parts to 5.9.
 

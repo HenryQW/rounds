@@ -72,7 +72,8 @@ final class BouncerWindowController: NSObject, NSWindowDelegate {
     /// adds a line); Esc closes the popover, then stops the reply, then closes the sidebar overlay; ⌘W closes the window.
     private func handle(_ event: NSEvent) -> Bool {
         let model = BouncerModel.shared
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        // Keypad Enter (76) also has `.numericPad` and `.function`; they are not modifiers the user holds.
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
         let editor = window?.firstResponder as? NSTextView
         // While an input method composes text, its keys belong to it.
         if editor?.hasMarkedText() == true { return false }

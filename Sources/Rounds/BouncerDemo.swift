@@ -14,7 +14,7 @@ actor DemoBouncer: BouncerAdapter {
     }
 
     func start() async throws {
-        output.yield(.started(sessionFile: nil, isNew: false))
+        output.yield(.started(sessionFile: nil, isNew: false, model: nil))
         output.yield(.models(["example/small-model", "example/large-model"]))
         for item in Self.thread { output.yield(.item(item)) }
     }
