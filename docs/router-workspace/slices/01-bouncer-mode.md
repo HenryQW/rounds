@@ -6,7 +6,7 @@ Rounds gets a Bouncer mode. The pill is the Bouncer, and a click on it opens the
 
 ## State
 
-Details, 2026-11-19. No open owner decision. Next step: build sub-step 01a.
+Details, 2026-11-19. No open owner decision. Sub-step 01a is built (RoundsCore only). Next step: build sub-step 01b.
 
 ## Depends
 
@@ -79,6 +79,7 @@ Each sub-step merges alone. 01a adds code that nothing calls yet, as `TaskGraph`
 
 ```swift
 // RoundsCore/Bouncer.swift
+public enum BouncerError: Error, Equatable { case reasonRequired, notAvailable, notRunning, unknownQuestion, rejected(String) }
 public enum BouncerTaskState: String, Sendable { case working, needsInput, failed, finished, stopped }
 public struct BouncerTask: Identifiable, Equatable, Sendable {
     public let id: String; public var title: String; public var repository: String?; public var organization: String?
@@ -88,7 +89,8 @@ public struct BouncerTask: Identifiable, Equatable, Sendable {
 public enum BouncerAnswer: Equatable, Sendable { case option(Int), text(String), confirmed(Bool), dismissed }
 public struct BouncerQuestion: Identifiable, Equatable, Sendable {
     public let id: String; public let taskID: String?; public let title: String; public let options: [String]
-    public let recommended: Int?; public let takesText: Bool; public var answer: BouncerAnswer?; public var closedByPi: Bool
+    public let recommended: Int?; public let takesText: Bool; public let confirms: Bool  // a Pi confirm: Pi wants `confirmed`, not option text
+    public var answer: BouncerAnswer?; public var closedByPi: Bool
 }
 public enum ApprovalDecision: Equatable, Sendable { case approved, rejected(reason: String) }
 public struct ApprovalCard: Identifiable, Equatable, Sendable {
@@ -107,6 +109,7 @@ public enum BouncerEvent: Equatable, Sendable {
 public struct BouncerThread: Equatable, Sendable {
     public private(set) var items: [BouncerItem]; public private(set) var tasks: [BouncerTask]
     public private(set) var banner: String?; public private(set) var replying: Bool
+    public init(items: [BouncerItem] = [], tasks: [BouncerTask] = [])
     public mutating func apply(_ event: BouncerEvent)
     public mutating func answer(_ questionID: String, _ answer: BouncerAnswer)
     public mutating func decide(_ approvalID: String, _ decision: ApprovalDecision) throws  // empty reason: BouncerError.reasonRequired
@@ -120,13 +123,14 @@ public func otherWaits(_ sessions: [SessionRow], bouncerSessionFile: String?) ->
 public struct PiRPCFramer { public mutating func feed(_ data: Data) -> [Data] }  // splits on LF only, drops one CR before it
 public enum PiRPCRecord: Equatable, Sendable {
     case response(id: String?, command: String, success: Bool, error: String?)
+    case state(id: String?, sessionFile: String?, model: String?), messages(id: String?, [BouncerItem])  // get_state, get_messages data
     case event(BouncerEvent), uiRequest(BouncerQuestion, timeoutMs: Int?), ignored(type: String), malformed(String)
 }
 public func decodePiRPC(_ line: Data) -> PiRPCRecord
 public func encodePiRPC(_ command: PiRPCCommand) -> Data  // one JSON object + LF
 public enum PiRPCCommand: Sendable {
     case prompt(id: String, message: String), abort(id: String), getState(id: String), getMessages(id: String)
-    case setModel(id: String, provider: String, model: String), availableModels(id: String), uiResponse(requestID: String, BouncerAnswer)
+    case setModel(id: String, provider: String, model: String), availableModels(id: String), uiResponse(BouncerQuestion, BouncerAnswer)
 }
 public func bouncerArguments(sessionFile: String?, fileExists: Bool, sessionDir: String) -> (arguments: [String], isNew: Bool)
 
@@ -144,6 +148,8 @@ public protocol BouncerAdapter: Sendable {
 }
 public actor PiRPCBouncer: BouncerAdapter { public init(executable: URL, arguments: [String], folder: URL) }
 ```
+
+Changes made in 01a, each for Pi's real messages: `confirms`, because option 2's text and `confirmed: true` need the dialog kind; `uiResponse` takes the question, because the encoder needs the option text; `.state` and `.messages`, because the adapter needs `sessionFile`, the start model and the history; `BouncerError` and the thread `init`, because the contract used them without a definition. Message items take the id `pi-<role>-<timestamp>`, so `get_messages` after a restart replaces the live items and does not repeat them.
 
 App side: `BouncerModel.shared` holds `thread: BouncerThread`, `adapter: any BouncerAdapter`, `setupSteps`, `otherWaits` and `selection: String?` (nil is the Bouncer row). `pillWaiting` is `thread.waitingCount`; the pill reads only that, so other changes do not redraw it.
 
