@@ -23,7 +23,7 @@ None. Organization rules and workspace setup are built ([overview](../overview.m
 ## Decided
 
 - Decision "Bouncer mode in Rounds" ([decisions.md](../decisions.md)).
-- Decision "Bouncer Window has a task sidebar" ([decisions.md](../decisions.md)). Patterns to take from the Claude desktop app Code tab ([its docs](https://code.claude.com/docs/en/desktop)): **+ New** at the top of the sidebar; group and sort on hover; archive from a hover menu; a details panel of cards beside the chat; Normal and Verbose views; a control row under the prompt box; a stop button; Cmd+N and Ctrl+Tab; reports from other agents labeled with their task and a link back.
+- Decision "Bouncer Window has a task sidebar" ([decisions.md](../decisions.md)). Patterns to take from the Claude desktop app Code tab ([its docs](https://code.claude.com/docs/en/desktop)): **+ New** at the top of the sidebar; group and sort on hover; archive from a hover menu; a details panel of cards beside the chat; one view only (owner, 2026-11-19), where each agent report shows its tool steps collapsed and a click opens them; a control row under the prompt box; a stop button; Cmd+N and Ctrl+Tab; reports from other agents labeled with their task and a link back.
 - Rounds still watches all sessions. The session list stays on the global shortcut.
 - *Default* (agent, 2026-11-19, reversible): the Bouncer agent sees nothing of the sessions that it does not manage. On user request it reads metadata only (title, state, project, organization), never transcript text, and never sends them input. Organization rules decide what goes to the model.
 
