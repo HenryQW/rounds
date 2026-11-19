@@ -1,0 +1,935 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:">
+<title>Rounds: Bouncer window, task sidebar (C revised)</title>
+<style>
+/* Mockup only. Fictional data. System fonts, no external requests. */
+:root {
+  color-scheme: light;
+  --page: #eef0f3; --desk: #d5d9df; --win: #f6f6f7; --content: #ffffff; --bar: #f0f0f2; --material: #ececef;
+  --text: #1d1d1f; --secondary: #5c5c61; --hairline: rgba(0,0,0,.15); --hairline-strong: rgba(0,0,0,.3);
+  --hover: rgba(0,0,0,.06); --tile: rgba(0,0,0,.03);
+  --accent: #0A6BDB; --accent-ink: #ffffff;
+  --orange: #FF9500; --orange-ink: #2B1A00; --orange-text: #A64B00;
+  --blue: #0A84FF; --blue-text: #0A6BDB; --green: #34C759; --green-text: #1A7F37;
+  --red: #FF3B30; --red-text: #C4271C; --grey: #8E8E93;
+  --sheet: #fbfbfc; --scrim: rgba(0,0,0,.18); --focus: #0A6BDB;
+  --pill-glass: rgba(255,255,255,.55);
+  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, monospace;
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #18191b; --desk: #2b2e34; --win: #232325; --content: #1c1c1e; --bar: #2a2a2d; --material: #2f2f33;
+  --text: #f2f2f7; --secondary: #a9a9b0; --hairline: rgba(255,255,255,.16); --hairline-strong: rgba(255,255,255,.34);
+  --hover: rgba(255,255,255,.08); --tile: rgba(255,255,255,.04);
+  --orange-text: #FFB15C; --blue-text: #7DB7FF; --green-text: #5BD27F; --red-text: #FF7A70;
+  --sheet: #2c2c2f; --scrim: rgba(0,0,0,.4); --focus: #7DB7FF;
+  --pill-glass: rgba(60,60,64,.6);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--page); color: var(--text); font: 13px/1.4 var(--font); }
+button, input, textarea, select { font: inherit; color: inherit; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; border-radius: 6px; }
+.vh { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+code, .mono { font-family: var(--mono); font-size: 12px; }
+.spacer { flex: 1; }
+
+/* Review header (not part of the design) */
+.review { padding: 16px 24px 12px; border-bottom: 1px solid var(--hairline); }
+.review h1 { margin: 0 0 4px; font-size: 20px; font-weight: 600; letter-spacing: -.4px; }
+.review p { margin: 0 0 12px; color: var(--secondary); max-width: 900px; }
+.controls { display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: flex-end; }
+fieldset { border: 0; margin: 0; padding: 0; }
+legend { font-size: 11px; font-weight: 600; letter-spacing: .4px; color: var(--secondary); text-transform: uppercase; margin-bottom: 4px; padding: 0; }
+.seg { display: inline-flex; border: .5px solid var(--hairline-strong); border-radius: 8px; overflow: hidden; background: var(--content); }
+.seg label { position: relative; padding: 4px 12px; cursor: pointer; border-left: .5px solid var(--hairline); }
+.seg label:first-of-type { border-left: 0; }
+.seg label:hover { background: var(--hover); }
+.seg input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.seg label:has(input:checked) { background: var(--accent); color: var(--accent-ink); }
+.seg label:has(input:focus-visible) { outline: 3px solid var(--focus); outline-offset: -3px; }
+.btn { border: .5px solid var(--hairline-strong); background: var(--content); border-radius: 6px; padding: 3px 12px; cursor: pointer; min-height: 24px; }
+.btn:hover { background: color-mix(in srgb, var(--content), var(--text) 7%); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: rgba(0,0,0,.2); }
+.btn.primary:hover { background: #0960c4; }
+.btn.small { padding: 1px 8px; min-height: 22px; font-size: 12px; }
+.trade { margin-top: 12px; padding: 8px 12px; border: .5px solid var(--hairline); border-radius: 8px; background: var(--content); max-width: 900px; }
+.trade p { margin: 0 0 4px; color: var(--text); }
+.trade p:last-child { margin: 0; }
+.badge-rec { display: inline-block; font-size: 11px; font-weight: 600; color: var(--green-text); border: .5px solid currentColor; border-radius: 4px; padding: 0 4px; margin-left: 4px; }
+
+/* Stage: a fake screen with the pill at its right edge */
+.stage { display: flex; gap: 24px; padding: 24px; align-items: flex-start; flex-wrap: wrap; }
+.desk { position: relative; height: 700px; background: var(--desk); border-radius: 10px; padding: 24px 56px 24px 24px; flex: none; }
+.desk-note { position: absolute; left: 24px; bottom: 8px; font-size: 11px; color: var(--secondary); }
+.closed-note { width: 100%; height: 100%; display: grid; place-items: center; color: var(--secondary); text-align: center; }
+
+/* Pill */
+.pill { position: absolute; right: 0; top: 300px; width: 28px; height: 100px; padding: 0; border: 1px solid var(--hairline-strong); border-right: 0;
+  border-radius: 12px 0 0 12px; background: var(--pill-glass); backdrop-filter: blur(12px); cursor: pointer; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 6px; color: var(--text); }
+.pill:hover { background: color-mix(in srgb, var(--pill-glass), var(--text) 10%); }
+.pill svg { width: 14px; height: 16px; }
+.pill .count { font-size: 14px; font-weight: 600; letter-spacing: -.2px; font-variant-numeric: tabular-nums; }
+.pill.waiting { background: var(--orange); color: var(--orange-ink); border: .5px solid rgba(0,0,0,.3); border-right: 0; animation: bounce 2s infinite; }
+.pill.waiting::before { content: ""; position: absolute; inset: -1px 0 -1px -1px; border-radius: 12px 0 0 12px; border: 3px solid var(--orange); border-right: 0; animation: ring 2s infinite; pointer-events: none; }
+@keyframes bounce { 0% { transform: translateX(0); } 10% { transform: translateX(-15px); } 14% { transform: translateX(-10px); } 17.5% { transform: translateX(-12px); } 32.5% { transform: translateX(-12px); } 55% { transform: translateX(0); } 100% { transform: translateX(0); } }
+@keyframes ring { 0% { transform: scale(1); opacity: .9; transform-origin: right center; } 60% { transform: scale(1.7); opacity: 0; transform-origin: right center; } 100% { opacity: 0; } }
+.legend { width: 260px; padding: 12px; border: .5px solid var(--hairline); border-radius: 8px; background: var(--content); }
+.legend h2 { margin: 0 0 8px; font-size: 11px; font-weight: 600; letter-spacing: .4px; color: var(--secondary); text-transform: uppercase; }
+.legend h2.second { margin-top: 16px; }
+.legend .pair { display: flex; gap: 16px; }
+.legend .ex { position: relative; width: 100px; height: 160px; background: var(--desk); border-radius: 6px; }
+.legend .ex .pill { top: 8px; cursor: default; }
+.legend .ex .cap { position: absolute; left: 6px; top: 114px; right: 6px; font-size: 11px; line-height: 1.25; }
+.legend p { font-size: 12px; color: var(--secondary); margin: 8px 0 0; }
+.keys { list-style: none; margin: 0; padding: 0; font-size: 12px; }
+.keys li { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; }
+kbd { font: 11px var(--font); padding: 1px 6px; min-width: 20px; text-align: center; border-radius: 4px; border: .5px solid var(--hairline-strong); white-space: nowrap; }
+
+/* Window */
+.win { position: relative; height: 652px; background: var(--win); border-radius: 12px; border: .5px solid var(--hairline-strong); box-shadow: 0 18px 50px rgba(0,0,0,.28); display: flex; flex-direction: column; overflow: hidden; }
+.toolbar { height: 52px; flex: none; display: flex; align-items: center; gap: 6px; padding: 0 10px 0 16px; border-bottom: .5px solid var(--hairline); background: var(--bar); }
+.lights { display: flex; gap: 8px; margin-right: 8px; }
+.light { width: 12px; height: 12px; border-radius: 50%; border: .5px solid rgba(0,0,0,.2); padding: 0; }
+.light.close { background: #ff5f57; cursor: pointer; } .light.min { background: #febc2e; } .light.zoom { background: #28c840; }
+.win-title { font-weight: 600; font-size: 13px; }
+.win-sub { color: var(--secondary); font-size: 12px; }
+.icon-btn { width: 28px; height: 28px; border: 0; background: transparent; border-radius: 6px; cursor: pointer; display: grid; place-items: center; color: var(--secondary); flex: none; padding: 0; }
+.icon-btn:hover, .icon-btn[aria-expanded="true"] { background: var(--hover); }
+.icon-btn[aria-pressed="true"] { color: var(--accent); }
+:root[data-theme="dark"] .icon-btn[aria-pressed="true"] { color: var(--blue-text); }
+.icon-btn svg { width: 16px; height: 16px; }
+.icon-btn.sm { width: 22px; height: 22px; }
+.icon-btn.sm svg { width: 14px; height: 14px; }
+.host-note { display: inline-flex; align-items: center; gap: 6px; border: .5px solid var(--hairline-strong); border-radius: 999px; padding: 2px 10px; background: transparent; cursor: pointer; font-size: 12px; white-space: nowrap; }
+.host-note:hover { background: var(--hover); }
+.body { flex: 1; display: flex; min-height: 0; position: relative; }
+
+/* Status marks */
+.dot { width: 8px; height: 8px; border-radius: 50%; flex: none; display: inline-block; }
+.dot.input { background: var(--orange); } .dot.working { background: var(--blue); animation: pulse 1.6s infinite; }
+.dot.finished { background: var(--green); } .dot.failed { background: var(--red); } .dot.unknown { background: transparent; border: 1.5px dashed var(--grey); } .dot.stopped, .dot.idle { background: var(--grey); }
+@keyframes pulse { 50% { opacity: .35; } }
+.st { font-size: 12px; font-weight: 500; }
+.dot + .st { margin-left: 6px; }
+.st.input { color: var(--orange-text); } .st.working { color: var(--blue-text); } .st.finished { color: var(--green-text); } .st.failed { color: var(--red-text); } .st.unknown, .st.stopped, .st.idle { color: var(--secondary); }
+
+/* Sidebar */
+.sidebar { width: 210px; flex: none; border-right: .5px solid var(--hairline); background: var(--win); display: flex; flex-direction: column; min-height: 0; }
+.side-scroll { flex: 1; overflow-y: auto; padding: 8px; }
+.new-btn { display: flex; align-items: center; gap: 8px; width: 100%; border: .5px solid var(--hairline-strong); background: var(--content); border-radius: 8px; padding: 5px 8px; cursor: pointer; font-weight: 500; margin-bottom: 8px; }
+.new-btn:hover { background: color-mix(in srgb, var(--content), var(--text) 7%); }
+.new-btn svg { width: 14px; height: 14px; }
+.new-btn kbd { margin-left: auto; color: var(--secondary); }
+.side-head { display: flex; align-items: center; gap: 4px; margin: 12px 0 2px 8px; min-height: 22px; }
+.side-h { font-size: 11px; font-weight: 600; letter-spacing: .4px; color: var(--secondary); text-transform: uppercase; }
+.hover-ctl { opacity: 0; }
+.side-head:hover .hover-ctl, .side-head:focus-within .hover-ctl, .hover-ctl[aria-expanded="true"] { opacity: 1; }
+.grp-h { font-size: 11px; color: var(--secondary); margin: 8px 8px 2px; font-weight: 500; }
+.row { position: relative; }
+.nav { width: 100%; text-align: left; border: 0; background: transparent; border-radius: 6px; padding: 5px 28px 5px 8px; cursor: pointer; display: grid; grid-template-columns: 10px 1fr; gap: 1px 8px; align-items: center; }
+.nav:hover { background: var(--hover); }
+.nav[aria-current="true"] { background: var(--accent); color: #fff; }
+.nav[aria-current="true"] .sub, .nav[aria-current="true"] .st { color: #fff; }
+.nav .t { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav .sub { grid-column: 2; font-size: 11px; color: var(--secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nav.pinned { padding-right: 8px; }
+.nav .pin svg { width: 10px; height: 12px; display: block; }
+.row .more { position: absolute; right: 4px; top: 6px; opacity: 0; }
+.row:hover .more, .row:focus-within .more, .row .more[aria-expanded="true"] { opacity: 1; }
+.row:has(.nav[aria-current="true"]) .more { color: #fff; }
+.row:has(.nav[aria-current="true"]) .more:hover { background: rgba(255,255,255,.2); }
+.side-foot { border-top: .5px solid var(--hairline); padding: 6px 8px; }
+.foot-btn { width: 100%; display: flex; align-items: center; gap: 8px; border: 0; background: transparent; border-radius: 6px; padding: 4px 8px; cursor: pointer; color: var(--secondary); font-size: 12px; text-align: left; }
+.foot-btn:hover { background: var(--hover); }
+.foot-btn svg { width: 14px; height: 14px; }
+.empty-side { color: var(--secondary); font-size: 12px; padding: 8px; }
+
+/* Menus (native NSMenu look) */
+.menu { position: absolute; z-index: 20; min-width: 190px; background: var(--sheet); border: .5px solid var(--hairline-strong); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.25); padding: 4px; }
+.menu .mh { font-size: 11px; color: var(--secondary); font-weight: 600; padding: 4px 8px 2px; }
+.menu hr { border: 0; border-top: .5px solid var(--hairline); margin: 4px 6px; }
+.mi { display: flex; width: 100%; align-items: center; gap: 6px; border: 0; background: transparent; border-radius: 5px; padding: 3px 8px; cursor: pointer; text-align: left; }
+.mi:hover, .mi:focus-visible { background: var(--accent); color: #fff; outline: none; }
+.mi .chk { width: 12px; flex: none; }
+.mi[aria-disabled="true"] { cursor: default; color: var(--secondary); }
+.mi[aria-disabled="true"]:hover { background: transparent; color: var(--secondary); }
+.mi[aria-disabled="true"]:focus-visible { background: var(--hover); color: var(--text); }
+.menu .note { font-size: 11px; color: var(--secondary); padding: 0 8px 4px 26px; max-width: 220px; }
+
+/* Conversation */
+.convo { flex: 1; display: flex; flex-direction: column; min-width: 0; background: var(--content); }
+.convo-head { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: .5px solid var(--hairline); }
+.convo-head .ttl { min-width: 0; flex: 1; }
+.convo-head h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.convo-head p { margin: 1px 0 0; color: var(--secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seg2 { display: inline-flex; border: .5px solid var(--hairline-strong); border-radius: 7px; overflow: hidden; flex: none; }
+.seg2 button { border: 0; background: transparent; padding: 2px 10px; cursor: pointer; font-size: 12px; }
+.seg2 button + button { border-left: .5px solid var(--hairline); }
+.seg2 button:hover { background: var(--hover); }
+.seg2 button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+.seg2 button:focus-visible { outline-offset: -3px; }
+.scroll { flex: 1; overflow-y: auto; padding: 16px 24px 8px; }
+.column { max-width: 600px; margin: 0 auto; }
+.msg { margin: 0 0 16px; }
+.msg .who { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+.msg .who time, .meta { font-family: var(--mono); font-size: 11px; color: var(--secondary); font-weight: 400; }
+.msg p { margin: 0 0 4px; }
+.msg.user { margin-left: auto; max-width: 460px; width: fit-content; background: var(--tile); border: .5px solid var(--hairline); border-radius: 12px; padding: 8px 12px; }
+.msg.user .who { justify-content: flex-end; }
+.avatar { width: 18px; height: 18px; border-radius: 5px; background: var(--accent); color: #fff; display: grid; place-items: center; flex: none; }
+.avatar svg { width: 11px; height: 12px; }
+.card { border: .5px solid var(--hairline-strong); border-radius: 8px; padding: 12px; margin-top: 6px; }
+.card h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; }
+.label { font-size: 11px; font-weight: 600; letter-spacing: .4px; color: var(--secondary); text-transform: uppercase; margin: 10px 0 4px; }
+.options { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.opt { text-align: left; border: .5px solid var(--hairline-strong); background: transparent; border-radius: 8px; padding: 6px 10px; cursor: pointer; display: flex; gap: 8px; align-items: baseline; }
+.opt:hover { background: var(--hover); }
+.opt .n { font-family: var(--mono); font-size: 12px; color: var(--secondary); }
+.opt .d { font-size: 12px; color: var(--secondary); }
+.opt .rec { font-size: 11px; font-weight: 600; color: var(--green-text); margin-left: auto; white-space: nowrap; }
+.answered { margin-top: 8px; color: var(--secondary); font-size: 12px; }
+table.checks { border-collapse: collapse; width: 100%; font-size: 12px; }
+table.checks th, table.checks td { text-align: left; padding: 4px 8px 4px 0; border-bottom: .5px solid var(--hairline); vertical-align: top; }
+table.checks th { font-weight: 600; color: var(--secondary); }
+ul.risks { margin: 0; padding-left: 18px; }
+.typing { color: var(--secondary); font-size: 12px; margin: 0 0 16px; display: flex; align-items: center; gap: 6px; }
+.typing i { width: 5px; height: 5px; border-radius: 50%; background: var(--grey); animation: pulse 1s infinite; }
+.typing i:nth-child(3) { animation-delay: .2s; } .typing i:nth-child(4) { animation-delay: .4s; }
+.empty-new { color: var(--secondary); text-align: center; margin-top: 120px; }
+
+/* Agent reports: labeled cards, not chat bubbles */
+.report { border: .5px solid var(--hairline-strong); border-radius: 8px; margin: 0 0 16px; overflow: hidden; }
+.report header { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: .5px solid var(--hairline); background: var(--tile); font-size: 12px; flex-wrap: wrap; }
+.role-tag { font-size: 11px; font-weight: 600; letter-spacing: .4px; text-transform: uppercase; color: var(--secondary); }
+.report .body-r { padding: 8px 12px; }
+.report .body-r p { margin: 0 0 4px; }
+.link { border: 0; background: transparent; padding: 1px 4px; border-radius: 4px; cursor: pointer; color: var(--blue-text); font-size: 12px; font-weight: 500; }
+.link:hover { background: var(--hover); }
+.steps-sum { font-size: 12px; color: var(--secondary); margin: 4px 0 0; cursor: pointer; }
+.steps-box summary:focus-visible { outline: 2px solid var(--accent, Highlight); outline-offset: 2px; border-radius: 3px; }
+ol.steps { list-style: none; margin: 6px 0 0; padding: 6px 0 0; border-top: .5px solid var(--hairline); font-size: 12px; }
+ol.steps li { display: flex; gap: 8px; padding: 2px 0; align-items: baseline; }
+ol.steps .verb { width: 52px; flex: none; color: var(--secondary); }
+ol.steps code { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+
+/* Host-drawn rows: Rounds draws them, no model involved */
+.host { display: flex; align-items: center; gap: 10px; padding: 8px 12px; margin: 0 0 16px; border-top: .5px solid var(--hairline); border-bottom: .5px solid var(--hairline); font-size: 12px; }
+.host .src { font-size: 11px; color: var(--secondary); }
+.host .grow { flex: 1; }
+.host svg { width: 16px; height: 16px; flex: none; }
+.banner { display: flex; align-items: center; gap: 10px; padding: 8px 16px; border-bottom: .5px solid var(--hairline); background: var(--win); font-size: 12px; }
+.banner .grow { flex: 1; }
+.banner svg { width: 16px; height: 16px; flex: none; color: var(--secondary); }
+.banner .src { color: var(--secondary); }
+
+/* Inline approval card: host-drawn, system material, unlike any chat message */
+.approval-card { background: var(--material); border: 1px solid var(--hairline-strong); border-radius: 10px; margin: 0 0 16px; padding: 0 0 12px; }
+.approval-card .ac-head { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border-bottom: .5px solid var(--hairline); }
+.approval-card .ac-icon { width: 28px; height: 28px; border-radius: 7px; background: var(--accent); color: #fff; display: grid; place-items: center; flex: none; }
+.approval-card .ac-icon svg { width: 15px; height: 15px; }
+.approval-card h3 { margin: 0; font-size: 13px; font-weight: 600; }
+.approval-card h3:focus-visible { outline-offset: 4px; }
+.approval-card .from { margin: 2px 0 0; font-size: 12px; color: var(--secondary); }
+.approval-card .from strong { color: var(--text); font-weight: 600; }
+.approval-card .ac-body { padding: 0 12px; }
+.approval-card ol, .sheet ol { margin: 10px 0; padding-left: 22px; }
+.approval-card ol li, .sheet ol li { margin-bottom: 6px; }
+.approval-card ol li code, .sheet ol li code { overflow-wrap: anywhere; }
+.approval-card .checked { font-size: 12px; color: var(--secondary); margin: 0 0 8px; }
+.field label { display: block; font-weight: 500; margin-bottom: 4px; }
+.field input { width: 100%; border: .5px solid var(--hairline-strong); border-radius: 6px; padding: 4px 8px; background: var(--content); }
+.field input[aria-invalid="true"] { border: 1px solid var(--red-text); }
+.err { color: var(--red-text); font-size: 12px; margin: 4px 0 0; min-height: 16px; }
+.buttons { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+.buttons .left { margin-right: auto; }
+
+/* Composer: rounded prompt box with a control row under the text */
+.composer { padding: 8px 24px 10px; background: var(--content); }
+.prompt { border: .5px solid var(--hairline-strong); border-radius: 14px; background: var(--content); padding: 8px 8px 6px 12px; }
+.prompt:focus-within { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
+.prompt textarea { display: block; width: 100%; resize: none; height: 40px; border: 0; padding: 0; background: transparent; outline: none; }
+.ctl-row { display: flex; align-items: center; gap: 2px; margin-top: 4px; }
+.chip { position: relative; display: inline-flex; align-items: center; }
+.chip select { appearance: none; -webkit-appearance: none; border: 0; background: transparent; border-radius: 6px; padding: 2px 18px 2px 6px; font-size: 12px; color: var(--secondary); cursor: pointer; max-width: 150px; text-overflow: ellipsis; field-sizing: content; }
+.chip select:hover:not(:disabled) { background: var(--hover); }
+.chip select:disabled { cursor: default; }
+.chip::after { content: ""; position: absolute; right: 7px; top: 50%; width: 5px; height: 5px; margin-top: -4px; border: solid var(--secondary); border-width: 0 1.2px 1.2px 0; transform: rotate(45deg); pointer-events: none; }
+.chip:has(select:disabled)::after { display: none; }
+.chip select:disabled { padding-right: 6px; }
+.round-btn { width: 26px; height: 26px; border-radius: 50%; border: 0; display: grid; place-items: center; cursor: pointer; flex: none; padding: 0; }
+.round-btn svg { width: 14px; height: 14px; }
+.round-btn.send { background: var(--accent); color: #fff; }
+.round-btn.send:hover { background: #0960c4; }
+.round-btn.stop { background: var(--text); color: var(--content); }
+.round-btn.stop:hover { opacity: .85; }
+.round-btn.plus { background: transparent; color: var(--secondary); border: .5px solid var(--hairline-strong); }
+.round-btn.plus:hover { background: var(--hover); }
+.composer .hint { font-size: 11px; color: var(--secondary); margin: 4px 0 0 12px; }
+
+/* Details panel: collapsible cards for the selected task */
+.details { width: 250px; flex: none; border-left: .5px solid var(--hairline); background: var(--win); overflow-y: auto; padding: 10px; }
+.overlay { position: absolute; top: 0; bottom: 0; z-index: 5; box-shadow: 0 0 24px rgba(0,0,0,.2); }
+.details.overlay { right: 0; } .sidebar.overlay { left: 0; }
+.dcard { border: .5px solid var(--hairline); border-radius: 8px; background: var(--content); margin-bottom: 8px; }
+.dcard summary { list-style: none; cursor: pointer; padding: 6px 10px; display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; border-radius: 8px; }
+.dcard summary::-webkit-details-marker { display: none; }
+.dcard summary:hover { background: var(--hover); }
+.dcard summary .chev { width: 6px; height: 6px; border: solid var(--secondary); border-width: 0 1.2px 1.2px 0; transform: rotate(-45deg); margin-right: 2px; }
+.dcard[open] summary .chev { transform: rotate(45deg); }
+.dcard summary .meta { margin-left: auto; }
+.dcard .dbody { padding: 2px 10px 8px; font-size: 12px; }
+.dcard .repo { font-weight: 600; margin: 6px 0 2px; font-family: var(--mono); font-size: 11px; }
+.files { list-style: none; margin: 0; padding: 0; }
+.files li { display: flex; gap: 6px; padding: 1px 0; }
+.files code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.add { color: var(--green-text); font-family: var(--mono); font-size: 11px; } .del { color: var(--red-text); font-family: var(--mono); font-size: 11px; }
+.agents { list-style: none; margin: 0; padding: 0; }
+.agents li { display: grid; grid-template-columns: 8px 1fr; gap: 0 6px; padding: 3px 0; align-items: center; }
+.agents li.child { padding-left: 14px; }
+.agents li .what { overflow: hidden; text-overflow: ellipsis; }
+.agents li .stl { grid-column: 2; }
+.role { color: var(--secondary); }
+.kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; margin: 0; }
+.kv dt { color: var(--secondary); } .kv dd { margin: 0; overflow-wrap: anywhere; }
+.details .note { color: var(--secondary); font-size: 12px; padding: 4px; }
+
+/* Native sheet */
+.scrim { position: absolute; inset: 52px 0 0 0; background: var(--scrim); z-index: 10; }
+.sheet { position: absolute; top: 52px; left: 50%; transform: translateX(-50%); width: min(500px, calc(100% - 40px)); max-height: calc(100% - 64px); overflow-y: auto; z-index: 11;
+  background: var(--sheet); border: .5px solid var(--hairline-strong); border-top: 0; border-radius: 0 0 12px 12px; box-shadow: 0 16px 40px rgba(0,0,0,.35); padding: 20px; animation: drop .25s ease-out; }
+@keyframes drop { from { transform: translate(-50%, -24px); opacity: 0; } }
+.sheet .head { display: flex; gap: 12px; align-items: flex-start; }
+.sheet .appicon { width: 40px; height: 40px; border-radius: 9px; background: #0A6BDB; display: grid; place-items: center; flex: none; color: #fff; }
+.sheet .appicon svg { width: 18px; height: 22px; }
+.sheet h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; letter-spacing: -.2px; }
+.sheet .from { font-size: 12px; color: var(--secondary); margin: 0; }
+.popover { position: absolute; top: 46px; right: 12px; width: 300px; z-index: 12; background: var(--sheet); border: .5px solid var(--hairline-strong); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.25); padding: 8px; }
+.popover .prow { display: grid; grid-template-columns: 10px 1fr auto; gap: 2px 8px; align-items: center; padding: 6px 8px; border-radius: 6px; }
+.popover .prow .sub { grid-column: 2 / 4; font-size: 11px; color: var(--secondary); }
+.popover .foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; border-top: .5px solid var(--hairline); padding: 8px 4px 0; margin-top: 4px; font-size: 11px; color: var(--secondary); }
+
+@media (prefers-reduced-motion: reduce) {
+  .pill.waiting, .pill.waiting::before, .dot.working, .sheet, .typing i { animation: none !important; }
+  .pill.waiting::before { display: none; }
+}
+</style>
+</head>
+<body>
+<header class="review">
+  <h1>Bouncer window: task sidebar (C, revised)</h1>
+  <p>Mockup for review. Fictional data only. Approve, Reject, answers, messages and keys are simulated in this page. The layout follows the Claude desktop app Code tab where it does not conflict with an earlier decision.</p>
+  <div class="controls">
+    <fieldset>
+      <legend>Appearance</legend>
+      <div class="seg">
+        <label><input type="radio" name="theme" value="system" checked>System</label>
+        <label><input type="radio" name="theme" value="light">Light</label>
+        <label><input type="radio" name="theme" value="dark">Dark</label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>Window width</legend>
+      <div class="seg">
+        <label><input type="radio" name="width" value="900" checked>900 px</label>
+        <label><input type="radio" name="width" value="600">600 px</label>
+      </div>
+    </fieldset>
+    <button type="button" class="btn" id="reset">Reset Demo</button>
+  </div>
+  <div class="trade" id="trade" aria-live="polite"></div>
+</header>
+
+<main class="stage">
+  <div class="desk" id="desk" aria-label="Screen with the Bouncer pill at its right edge">
+    <div id="winslot"></div>
+    <button type="button" class="pill" id="pill"></button>
+    <span class="desk-note">Screen edge →</span>
+  </div>
+  <aside class="legend" aria-labelledby="legend-h">
+    <h2 id="legend-h">Pill in Bouncer mode</h2>
+    <div class="pair">
+      <div class="ex"><div class="pill" aria-hidden="true" id="lg-still"></div><span class="cap">Still: nothing waits</span></div>
+      <div class="ex"><div class="pill waiting" aria-hidden="true" id="lg-wait"></div><span class="cap">Bounces: the Bouncer waits for you</span></div>
+    </div>
+    <p>28 by 100 pt, at the screen edge. It bounces only while an approval or an answer waits; the count says how many. A click opens the Bouncer window. With Reduce Motion it is orange and still.</p>
+    <h2 class="second" id="keys-h">Keys in the window</h2>
+    <ul class="keys" aria-labelledby="keys-h">
+      <li><span>New task</span><kbd>⌘N</kbd></li>
+      <li><span>Next task</span><kbd>⌃Tab</kbd></li>
+      <li><span>Previous task</span><kbd>⌃⇧Tab</kbd></li>
+      <li><span>Send</span><kbd>Return</kbd></li>
+      <li><span>New line</span><kbd>⇧Return</kbd></li>
+    </ul>
+    <p>A browser can take ⌘N and ⌃Tab before this page does. The app takes them.</p>
+  </aside>
+</main>
+<div id="live" class="vh" aria-live="polite"></div>
+
+<script>
+"use strict";
+const ICON = {
+  // Velvet rope and two posts: the Bouncer's mark
+  bouncer: '<svg viewBox="0 0 14 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><circle cx="2" cy="2.6" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="2.6" r="1.6" fill="currentColor" stroke="none"/><path d="M2 4.5v10M12 4.5v10M.5 15h3M10.5 15h3"/><path d="M2 5.5C3.5 11.5 10.5 11.5 12 5.5" stroke-width="1.8"/></svg>',
+  shield: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M8 1.5 2.5 3.5v4c0 3.4 2.3 5.9 5.5 7 3.2-1.1 5.5-3.6 5.5-7v-4z"/><path d="M5.5 8l1.8 1.8L10.7 6"/></svg>',
+  lock: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="3" y="7" width="10" height="7.5" rx="1.5"/><path d="M5.2 7V5a2.8 2.8 0 0 1 5.6 0v2"/></svg>',
+  unknown: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="6.5" stroke-dasharray="2 2"/><path d="M8 4.5v4.5"/><circle cx="8" cy="11.3" r=".7" fill="currentColor"/></svg>',
+  details: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M10 2.5v11"/></svg>',
+  sidebar: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="11" rx="2"/><path d="M6 2.5v11"/></svg>',
+  record: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="3" y="1.5" width="10" height="13" rx="1.5"/><path d="M5.5 5h5M5.5 8h5M5.5 11h3"/></svg>',
+  plus: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M8 3v10M3 8h10"/></svg>',
+  more: '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3"/><circle cx="8" cy="8" r="1.3"/><circle cx="12.5" cy="8" r="1.3"/></svg>',
+  sort: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3"/></svg>',
+  up: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"/></svg>',
+  stop: '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><rect x="4" y="4" width="8" height="8" rx="1.5"/></svg>',
+  archive: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="1.5" y="2.5" width="13" height="3" rx="1"/><path d="M2.5 5.5v7a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-7M6.5 8.5h3"/></svg>',
+  back: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3 5 8l5 5"/></svg>'
+};
+
+const params = new URLSearchParams(location.search);
+const fresh = () => ({
+  approval: "pending", reason: "", question: "pending", answer: null, fact: "unproven",
+  extra: [], created: [], draft: "", sel: "all", sheet: false, popover: false, windowOpen: true,
+  sidebar: null, details: null, group: "state", sort: "recent", archived: ["t5"], view: "tasks",
+  menu: null, replying: null, repo: "auto", org: "Acme", model: "default",
+  cards: { changes: true, checks: true, agents: true, env: true }
+});
+const S = Object.assign(fresh(), {
+  theme: ["light","dark","system"].includes(params.get("theme")) ? params.get("theme") : "system",
+  width: params.get("w") === "600" ? 600 : 900,
+  form: "inline"
+});
+
+const OPTIONS = [
+  { t: "Shorten the heading to the new name only", d: "Fits one line at every width.", rec: true },
+  { t: "Keep the full heading and allow two lines", d: "The form moves down 20 pt on small screens." },
+  { t: "Keep the old name on the login page for now", d: "The Bartender stops; the copy stays as it is." }
+];
+const ACTIONS = [
+  'Push branch <code>rounds/rate-limit-headers</code> to <code>https://github.com/acme/api.git</code> at revision <code>4f1c2a9e</code>.',
+  'Open a draft pull request in <code>acme/api</code> from <code>rounds/rate-limit-headers</code> into <code>main</code>.',
+  'Push branch <code>rounds/rate-limit-headers</code> to <code>https://github.com/acme/web.git</code> at revision <code>b83e0171</code>.',
+  'Open a draft pull request in <code>acme/web</code> from <code>rounds/rate-limit-headers</code> into <code>main</code>.'
+];
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const say = t => { const l = document.getElementById("live"); l.textContent = ""; setTimeout(() => l.textContent = t, 30); };
+const ST = { input: "Needs input", working: "Working", finished: "Finished", stopped: "Stopped", unknown: "Not confirmed", idle: "Not run", failed: "Failed" };
+const stLabel = (cls, word) => `<span class="dot ${cls}" aria-hidden="true"></span><span class="st ${cls}">${esc(word || ST[cls])}</span>`;
+
+/* Tasks. State comes from the demo state, as Rounds derives it from the records. */
+const BASE = [
+  { id: "t1", title: "Add rate limit headers", repos: ["acme/api", "acme/web"], org: "Acme", last: 761 },
+  { id: "t2", title: "Update the login page copy", repos: ["acme/web"], org: "Acme", last: 665 },
+  { id: "t3", title: "Upgrade the logger", repos: ["acme/api"], org: "Acme", last: 710 },
+  { id: "t4", title: "Tidy the shell aliases", repos: ["me/dotfiles"], org: "Personal", last: 571 },
+  { id: "t5", title: "Bump the test runner", repos: ["acme/web"], org: "Acme", last: -1 }
+];
+function stateOf(id) {
+  if (id === "t1") return S.approval === "pending" ? "input" : S.approval === "approved" ? "finished" : "stopped";
+  if (id === "t2") return S.question === "pending" ? "input" : "working";
+  if (id === "t3") return "working";
+  if (id === "t4" || id === "t5") return "finished";
+  return "working";
+}
+const allTasks = () => BASE.concat(S.created).map(t => Object.assign({}, t, { state: stateOf(t.id), last: t.id === "t2" && S.question !== "pending" ? 765 : t.last }));
+const taskById = id => allTasks().find(t => t.id === id);
+const activeTasks = () => allTasks().filter(t => !S.archived.includes(t.id));
+const waits = () => (S.approval === "pending" ? 1 : 0) + (S.question === "pending" ? 1 : 0);
+
+const GROUPS = {
+  state: { name: "State", key: t => t.state, order: ["input", "working", "unknown", "finished", "stopped"], label: k => ST[k] },
+  repo: { name: "Repository", key: t => t.repos.join(", "), label: k => k },
+  org: { name: "Organization", key: t => t.org, label: k => k }
+};
+const SORTS = { recent: "Last activity", name: "Title" };
+function grouped(list) {
+  const g = GROUPS[S.group];
+  const sorted = list.slice().sort(S.sort === "name" ? (a, b) => a.title.localeCompare(b.title) : (a, b) => b.last - a.last);
+  const keys = [];
+  for (const t of sorted) { const k = g.key(t); if (!keys.includes(k)) keys.push(k); }
+  if (g.order) keys.sort((a, b) => g.order.indexOf(a) - g.order.indexOf(b)); else keys.sort();
+  return keys.map(k => ({ key: k, label: g.label(k), tasks: sorted.filter(t => g.key(t) === k) }));
+}
+const sidebarOrder = () => ["all"].concat(grouped(activeTasks()).flatMap(g => g.tasks.map(t => t.id)));
+
+/* Details per task: Changes, Checks, Agents (Bartender then Barbacks), Environment. */
+function detailsOf(id) {
+  const s = stateOf(id);
+  const D = {
+    t1: {
+      changes: [["acme/api", [["src/middleware/rateLimit.ts", 38, 4], ["src/middleware/rateLimit.test.ts", 61, 0]]], ["acme/web", [["src/status/RemainingCount.tsx", 22, 0], ["src/status/api.ts", 6, 1]]]],
+      checks: [["acme/api", "Unit tests (212)", "finished", "Passed"], ["acme/api", "Lint", "finished", "Passed"], ["acme/web", "Unit tests (88)", "finished", "Passed"], ["acme/web", "Browser tests", "idle", "Not run"]],
+      agents: [["Bartender", "acme/api", s], ["Barback", "Run unit tests", "finished", true], ["Bartender", "acme/web", s], ["Barback", "Update the status page", "finished", true]],
+      env: [["acme/api", "brave-otter", "4f1c2a9e"], ["acme/web", "calm-heron", "b83e0171"]] },
+    t2: {
+      changes: [["acme/web", [["src/pages/Login.tsx", 3, 3], ["src/i18n/en.json", 11, 11]]]],
+      checks: [["acme/web", "Unit tests", "idle", "Not run"]],
+      agents: [["Bartender", "acme/web", s], ["Barback", "Find copy strings", "finished", true]],
+      env: [["acme/web", "quiet-lynx", "9a0d33c1"]] },
+    t3: {
+      changes: [["acme/api", [["package.json", 1, 1], ["src/log/ (18 files)", 140, 122]]]],
+      checks: [["acme/api", "Unit tests", "working", "Running"]],
+      agents: [["Bartender", "acme/api", "working"], ["Barback", "Update call sites", S.fact === "resolved" ? "stopped" : "unknown", true], ["Barback", "Run tests", "working", true]],
+      env: [["acme/api", "swift-marten", "1c77e042"]] },
+    t4: {
+      changes: [["me/dotfiles", [["zsh/aliases.zsh", 4, 19]]]],
+      checks: [["me/dotfiles", "Shell check", "finished", "Passed"]],
+      agents: [["Bartender", "me/dotfiles", "finished"]],
+      env: [["me/dotfiles", "keen-wren", "e51b0a7d"]] },
+    t5: {
+      changes: [["acme/web", [["package.json", 1, 1], ["package-lock.json", 40, 38]]]],
+      checks: [["acme/web", "Unit tests (88)", "finished", "Passed"]],
+      agents: [["Bartender", "acme/web", "finished"]],
+      env: [["acme/web", "bold-finch", "70c2fe18"]] }
+  };
+  return D[id] || { changes: [], checks: [], agents: [["Bartender", taskById(id).repos[0], "working"]], env: [] };
+}
+
+/* Conversation items, in time order. task "b" is the Bouncer's own thread. */
+const STEPS = {
+  api: [["Read", "src/middleware/rateLimit.ts"], ["Edited", "src/middleware/rateLimit.ts", "+38 -4"], ["Wrote", "src/middleware/rateLimit.test.ts", "+61"], ["Ran", "npm test", "212 passed"], ["Ran", "npm run lint", "passed"]],
+  web: [["Read", "src/status/StatusPage.tsx"], ["Wrote", "src/status/RemainingCount.tsx", "+22"], ["Ran", "npm test", "88 passed"], ["Ran", "npx playwright test", "no browser in the container"]],
+  calls: [["Ran", "rg -l \"logger.child(\" src", "24 files"], ["Edited", "18 files in src/log", "+140 -122"], ["Ran", "npx tsc --noEmit", "6 errors"]],
+  dot: [["Read", "zsh/aliases.zsh"], ["Ran", "count alias use in 90 days of history", "4 of 19 used"], ["Edited", "zsh/aliases.zsh", "+4 -19"], ["Ran", "shellcheck zsh/aliases.zsh", "passed"]]
+};
+function items() {
+  const L = [
+    { task: "t5", kind: "user", time: "Mon", text: "Bump the test runner in acme/web to the latest minor version." },
+    { task: "t5", kind: "bouncer", time: "Mon", text: "Finished: Bump the test runner. 88 tests pass. The change waits on container-use/bold-finch." },
+    { task: "t4", kind: "user", time: "09:10", text: "In me/dotfiles, remove the shell aliases that I no longer use." },
+    { task: "t4", kind: "report", role: "Bartender", repo: "me/dotfiles", time: "09:30", text: "Removed 15 unused aliases and kept the 4 that your history uses. The shell check passes. Nothing is pushed.", steps: STEPS.dot },
+    { task: "t4", kind: "bouncer", time: "09:31", text: "Finished: Tidy the shell aliases. The change waits on container-use/keen-wren. Ask me if you want a push." },
+    { task: "t1", kind: "user", time: "10:02", text: "Add rate limit headers to the acme/api responses, and show the remaining count on the acme/web status page." },
+    { task: "t1", kind: "bouncer", time: "10:03", text: "I split this into two repository tasks: one Bartender for acme/api and one for acme/web. I will ask you before any push or pull request." },
+    { task: "t2", kind: "user", time: "10:20", text: "Also change the login page copy in acme/web to the new product name." },
+    { task: "t3", kind: "user", time: "10:31", text: "Upgrade the logger in acme/api to version 4." },
+    { task: "t3", kind: "bouncer", time: "10:32", text: "Started in a second acme/api worktree. Two Barbacks update the call sites and run the tests." },
+    { task: "t2", kind: "question", time: "11:05" },
+    { task: "t3", kind: "report", role: "Barback", repo: "acme/api", parent: "Bartender acme/api", time: "11:50", text: "Updated 18 of 24 call sites to the version 4 API. Six sites use a removed option; I sent them to the Bartender to decide.", steps: STEPS.calls },
+    { task: "t1", kind: "report", role: "Bartender", repo: "acme/api", time: "12:30", text: "Responses now carry RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset. Unit tests and lint pass.", steps: STEPS.api },
+    { task: "t1", kind: "report", role: "Bartender", repo: "acme/web", time: "12:38", text: "The status page shows the remaining count. Unit tests pass. Browser tests did not run: the container has no browser.", steps: STEPS.web },
+    { task: "t1", kind: "result", time: "12:41" },
+    { task: "t1", kind: "approval", time: "12:41" }
+  ];
+  return L.concat(S.extra);
+}
+function visibleItems() {
+  const L = items();
+  if (S.sel === "all") return L.filter(it => !S.archived.includes(it.task));
+  if (S.sel === "new") return [];
+  return L.filter(it => it.task === S.sel);
+}
+const bouncerWho = time => `<div class="who"><span class="avatar">${ICON.bouncer}</span>Bouncer <time>${esc(time)}</time></div>`;
+function renderItem(it) {
+  switch (it.kind) {
+    case "user": return `<div class="msg user"><div class="who">You <time>${esc(it.time)}</time></div><p>${esc(it.text)}</p></div>`;
+    case "bouncer": return `<div class="msg">${bouncerWho(it.time)}<p>${esc(it.text)}</p></div>`;
+    case "report": return reportHTML(it);
+    case "question": return questionHTML(it);
+    case "result": return resultHTML(it);
+    case "approval": return S.approval !== "pending" ? "" : S.form === "inline" ? approvalCardHTML() : approvalRowHTML();
+    case "record": return `<div class="host" role="note"><span aria-hidden="true">${ICON.record}</span><div class="grow"><strong>${esc(it.title)}</strong><div>${esc(it.text)}</div></div><span class="src">Decision Record · Rounds · <span class="mono">${esc(it.time)}</span></span></div>`;
+    case "stopped": return `<p class="steps-sum" style="margin:0 0 16px">You stopped the reply.</p>`;
+  }
+  return "";
+}
+function reportHTML(it) {
+  const T = taskById(it.task);
+  const link = S.sel === "all" ? `<button type="button" class="link" data-sel="${T.id}" aria-label="Open task ${esc(T.title)}">${esc(T.title)} ›</button>` : `<span>${esc(T.title)}</span>`;
+  const steps = `<details class="steps-box"><summary class="steps-sum">${it.steps.length} tool steps</summary><ol class="steps" aria-label="Tool steps">${it.steps.map(s => `<li class="tool-step"><span class="verb">${esc(s[0])}</span><code>${esc(s[1])}</code>${s[2] ? `<span class="meta">${esc(s[2])}</span>` : ""}</li>`).join("")}</ol></details>`;
+  return `<section class="report" aria-label="${it.role} report, ${esc(it.repo)}, task ${esc(T.title)}"><header><span class="role-tag">${it.role}</span><span class="mono">${esc(it.repo)}</span>${it.parent ? `<span class="role">for ${esc(it.parent)}</span>` : ""}<span class="spacer"></span>${link}<time class="meta">${esc(it.time)}</time></header><div class="body-r"><p>${esc(it.text)}</p>${steps}</div></section>`;
+}
+function questionHTML(it) {
+  const head = `<div class="who"><span class="avatar">${ICON.bouncer}</span>Bouncer <time>${it.time}</time>${S.question === "pending" ? ' <span class="st input">Needs input</span>' : ""}</div>`;
+  const body = `<p>Update the login page copy (acme/web): the new name is longer and the heading wraps on small screens. Which do you want? I recommend 1.</p>`;
+  const tail = S.question === "pending"
+    ? `<div class="options" role="group" aria-label="Answer the Bouncer">${OPTIONS.map((o, i) => `<button type="button" class="opt" id="opt-${i + 1}" data-opt="${i}"><span class="n">${i + 1}</span><span><span>${esc(o.t)}</span><br><span class="d">${esc(o.d)}</span></span>${o.rec ? '<span class="rec">Recommended</span>' : ""}</button>`).join("")}</div>`
+    : `<p class="answered">You chose ${S.answer + 1}: ${esc(OPTIONS[S.answer].t)}.</p>`;
+  return `<div class="msg" id="question">${head}<div class="card">${body}${tail}</div></div>`;
+}
+function resultHTML(it) {
+  const D = detailsOf("t1");
+  return `<div class="msg">${bouncerWho(it.time)}<section class="card" aria-label="Result: Add rate limit headers">
+    <h3>Result: Add rate limit headers</h3>
+    <p>Both repositories have the change. API responses now carry <code>RateLimit-Limit</code>, <code>RateLimit-Remaining</code> and <code>RateLimit-Reset</code>, and the status page shows the remaining count.</p>
+    <div class="label">Checks</div>
+    <table class="checks"><thead><tr><th scope="col">Repository</th><th scope="col">Check</th><th scope="col">State</th></tr></thead><tbody>
+      ${D.checks.map(c => `<tr><td><code>${c[0]}</code></td><td>${c[1]}</td><td>${stLabel(c[2], c[3])}${c[2] === "idle" ? ' <span class="meta">no browser in the container</span>' : ""}</td></tr>`).join("")}
+    </tbody></table>
+    <div class="label">Risks</div>
+    <ul class="risks"><li>Clients that read the old <code>X-RateLimit-*</code> names get nothing; no client in acme/web does.</li><li>The status page shows a placeholder until the acme/api change is deployed.</li></ul>
+  </section></div>`;
+}
+function approvalRowHTML() {
+  return `<div class="host" role="note"><span style="color:var(--orange-text)">${ICON.shield}</span><div class="grow"><strong>Approval request: 4 actions</strong><div>Add rate limit headers · acme/api, acme/web</div></div><span class="src">Rounds</span><button type="button" class="btn primary small" id="review-approval">Review…</button></div>`;
+}
+const reasonField = () => `<div class="field"><label for="reason">Reason, needed to reject</label><input id="reason" type="text" autocomplete="off" aria-describedby="reason-err" value="${esc(S.reason)}"><p class="err" id="reason-err" aria-live="assertive"></p></div>`;
+function approvalCardHTML() {
+  return `<section class="approval-card" id="approval-card" aria-labelledby="approval-title" aria-describedby="approval-from">
+    <div class="ac-head"><span class="ac-icon">${ICON.lock}</span><div class="spacer"><h3 id="approval-title" tabindex="-1">Approve 4 actions for “Add rate limit headers”?</h3>
+      <p class="from" id="approval-from"><strong>From Rounds, not the agent.</strong> Requested by the Bartenders for acme/api and acme/web, reviewed by the Bouncer.</p></div>${stLabel("input")}</div>
+    <div class="ac-body"><ol>${ACTIONS.map(a => `<li>${a}</li>`).join("")}</ol>
+      <p class="checked">Rounds checked each revision and remote URL at 12:41 and checks them again before each action.</p>
+      ${reasonField()}
+      <div class="buttons"><button type="button" class="btn" id="reject">Reject</button><button type="button" class="btn primary" id="approve">Approve</button></div></div>
+  </section>`;
+}
+function factBanner() {
+  if (S.fact === "resolved") return "";
+  const checking = S.fact === "checking";
+  return `<div class="banner" role="status">${ICON.unknown}<div class="grow"><strong>Not confirmed:</strong> the Barback “Update call sites” (Upgrade the logger) stopped. Docker did not answer in 5 s. <span class="src">· Rounds</span></div><button type="button" class="btn small" id="check-again" ${checking ? 'aria-disabled="true"' : ""}>${checking ? "Checking…" : "Check Again"}</button></div>`;
+}
+
+/* Sidebar */
+function rowHTML(T) {
+  const sub = S.group === "state" ? esc(T.repos.join(", ")) : `<span class="st ${T.state}">${ST[T.state]}</span> · ${esc(S.group === "repo" ? T.org : T.repos.join(", "))}`;
+  const open = S.menu && S.menu.kind === "row" && S.menu.id === T.id;
+  return `<div class="row"><button type="button" class="nav" data-sel="${T.id}" aria-current="${S.sel === T.id}"><span class="dot ${T.state}" aria-hidden="true"></span><span class="t">${esc(T.title)}</span><span class="sub">${sub}</span></button><button type="button" class="icon-btn sm more" id="more-${T.id}" data-more="${T.id}" aria-haspopup="menu" aria-expanded="${open}" aria-label="More for ${esc(T.title)}">${ICON.more}</button></div>`;
+}
+function sidebarHTML(overlay) {
+  let list;
+  if (S.view === "archived") {
+    const A = allTasks().filter(t => S.archived.includes(t.id));
+    list = `<div class="side-head"><span class="side-h" id="tasks-h">Archived</span></div>${A.length ? A.map(rowHTML).join("") : '<p class="empty-side">No archived tasks.</p>'}`;
+  } else {
+    const open = S.menu && S.menu.kind === "group";
+    const pin = `<div class="row"><button type="button" class="nav pinned" data-sel="all" aria-current="${S.sel === "all"}"><span class="pin" aria-hidden="true">${ICON.bouncer}</span><span class="t">Bouncer</span><span class="sub">Whole thread · ${waits() ? waits() + " waiting" : "nothing waits"}</span></button></div>`;
+    const groups = grouped(activeTasks()).map(g => `<div role="group" aria-label="${esc(g.label)}"><div class="grp-h" aria-hidden="true">${esc(g.label)}</div>${g.tasks.map(rowHTML).join("")}</div>`).join("");
+    list = `<button type="button" class="new-btn" id="new-task">${ICON.plus}New Task<kbd aria-hidden="true">⌘N</kbd></button>${pin}
+      <div class="side-head"><span class="side-h" id="tasks-h">Tasks</span><button type="button" class="icon-btn sm hover-ctl" id="group-btn" aria-haspopup="menu" aria-expanded="${!!open}" aria-label="Group and sort tasks. Now: group by ${GROUPS[S.group].name}, sort by ${SORTS[S.sort]}">${ICON.sort}</button></div>${groups}`;
+  }
+  const n = S.archived.length;
+  const foot = S.view === "archived"
+    ? `<button type="button" class="foot-btn" id="show-archived">${ICON.back}Back to Tasks</button>`
+    : `<button type="button" class="foot-btn" id="show-archived">${ICON.archive}Archived<span class="spacer"></span><span class="meta">${n}</span></button>`;
+  return `<nav class="sidebar${overlay ? " overlay" : ""}" id="sidebar" aria-label="Tasks"><div class="side-scroll">${list}</div><div class="side-foot">${foot}</div></nav>`;
+}
+function menuHTML() {
+  if (!S.menu) return "";
+  if (S.menu.kind === "group") {
+    const item = (grp, k, name, on) => `<button type="button" role="menuitemradio" class="mi" id="m-${grp}-${k}" data-${grp}="${k}" aria-checked="${on}"><span class="chk" aria-hidden="true">${on ? "✓" : ""}</span>${name}</button>`;
+    return `<div class="menu" id="menu" role="menu" aria-label="Group and sort tasks"><div class="mh" aria-hidden="true">Group by</div>${Object.entries(GROUPS).map(([k, g]) => item("group", k, g.name, S.group === k)).join("")}<hr><div class="mh" aria-hidden="true">Sort by</div>${Object.entries(SORTS).map(([k, n]) => item("sort", k, n, S.sort === k)).join("")}</div>`;
+  }
+  const T = taskById(S.menu.id);
+  if (S.archived.includes(T.id)) return `<div class="menu" id="menu" role="menu" aria-label="${esc(T.title)}"><button type="button" role="menuitem" class="mi" id="m-unarchive" data-unarchive="${T.id}"><span class="chk"></span>Unarchive</button></div>`;
+  const can = T.state === "finished" || T.state === "stopped";
+  return `<div class="menu" id="menu" role="menu" aria-label="${esc(T.title)}"><button type="button" role="menuitem" class="mi" id="m-archive" data-archive="${T.id}" aria-disabled="${!can}" ${can ? "" : 'aria-describedby="m-archive-note"'}><span class="chk"></span>Archive</button>${can ? "" : '<p class="note" id="m-archive-note">Agents still work or wait. Stop the task first.</p>'}</div>`;
+}
+
+/* Details panel */
+function detailsHTML(overlay) {
+  const cls = `details${overlay ? " overlay" : ""}`;
+  if (S.sel === "all" || S.sel === "new") return `<aside class="${cls}" id="details" aria-label="Task details"><p class="note">Select a task to see its changes, checks, agents and environment.</p></aside>`;
+  const D = detailsOf(S.sel);
+  const card = (k, name, meta, body) => `<details class="dcard" data-card="${k}" ${S.cards[k] ? "open" : ""}><summary><span class="chev" aria-hidden="true"></span>${name}${meta ? `<span class="meta">${meta}</span>` : ""}</summary><div class="dbody">${body}</div></details>`;
+  const files = D.changes.reduce((n, r) => n + r[1].length, 0);
+  const changes = D.changes.length ? D.changes.map(r => `<div class="repo">${esc(r[0])}</div><ul class="files">${r[1].map(f => `<li><code title="${esc(f[0])}">${esc(f[0])}</code><span class="add">+${f[1]}</span><span class="del">-${f[2]}</span></li>`).join("")}</ul>`).join("") : '<p class="note">No changes yet.</p>';
+  const checks = D.checks.length ? `<ul class="agents">${D.checks.map(c => `<li><span class="dot ${c[2]}" aria-hidden="true"></span><span class="what">${esc(c[1])} <span class="role">${esc(c[0])}</span></span><span class="stl st ${c[2]}">${esc(c[3])}</span></li>`).join("")}</ul>` : '<p class="note">No checks yet.</p>';
+  const agents = `<ul class="agents">${D.agents.map(a => `<li class="${a[3] ? "child" : ""}"><span class="dot ${a[2]}" aria-hidden="true"></span><span class="what"><span class="role">${a[0]}</span> ${esc(a[1])}</span><span class="stl st ${a[2]}">${ST[a[2]]}</span></li>`).join("")}</ul>`;
+  const env = D.env.length ? D.env.map(e => `<div class="repo">${esc(e[0])}</div><dl class="kv"><dt>Branch</dt><dd><code>container-use/${e[1]}</code></dd><dt>Revision</dt><dd><code>${e[2]}</code></dd><dt>Engine</dt><dd>Shared Dagger engine</dd><dt>Network</dt><dd>Egress proxy only</dd></dl>`).join("") : '<p class="note">Rounds makes the container when the Bartender starts.</p>';
+  return `<aside class="${cls}" id="details" aria-label="Task details">
+    ${card("changes", "Changes", files ? files + " files" : "", changes)}
+    ${card("checks", "Checks", "", checks)}
+    ${card("agents", "Agents", "", agents)}
+    ${card("env", "Environment", "", env)}</aside>`;
+}
+
+/* Conversation */
+function convoHeadHTML() {
+  let t, p;
+  if (S.sel === "all") { t = "Bouncer"; p = "The whole thread, with reports from every task"; }
+  else if (S.sel === "new") { t = "New task"; p = "Describe the work. The Bouncer picks the repository unless you set one."; }
+  else { const T = taskById(S.sel); t = T.title; p = `${stLabel(T.state)} · ${esc(T.repos.join(", "))} · ${esc(T.org)}${S.archived.includes(T.id) ? " · Archived" : ""}`; }
+  return `<div class="convo-head"><div class="ttl"><h2 id="thread-title">${esc(t)}</h2><p>${p}</p></div></div>`;
+}
+function composerHTML() {
+  const T = S.sel !== "all" && S.sel !== "new" ? taskById(S.sel) : null;
+  const sel = (id, label, opts, val, dis) => `<span class="chip"><label class="vh" for="${id}">${label}</label><select id="${id}" ${dis ? "disabled" : ""}>${opts.map(o => `<option value="${esc(o[0])}" ${o[0] === val ? "selected" : ""}>${esc(o[1])}</option>`).join("")}</select></span>`;
+  const repo = T ? sel("c-repo", "Target repository", [["t", T.repos.join(", ")]], "t", true)
+    : sel("c-repo", "Target repository", [["auto", "Any repository"], ["acme/api", "acme/api"], ["acme/web", "acme/web"], ["me/dotfiles", "me/dotfiles"]], S.repo);
+  const org = T ? sel("c-org", "Organization", [["t", T.org]], "t", true) : sel("c-org", "Organization", [["Acme", "Acme"], ["Personal", "Personal"]], S.org);
+  const model = sel("c-model", "Model", [["default", "Default model"], ["fast", "Fast model"], ["deep", "Deep model"]], S.model);
+  const act = S.replying
+    ? `<button type="button" class="round-btn stop" id="stop" aria-label="Stop the reply">${ICON.stop}</button>`
+    : `<button type="submit" class="round-btn send" id="send" aria-label="Send">${ICON.up}</button>`;
+  const ph = S.sel === "new" ? "Describe a new task" : T ? `Message the Bouncer about ${T.title}` : "Message the Bouncer";
+  return `<form class="composer" id="composer"><div class="column"><div class="prompt"><label class="vh" for="draft">Message to the Bouncer</label><textarea id="draft" placeholder="${esc(ph)}" aria-describedby="draft-hint">${esc(S.draft)}</textarea>
+    <div class="ctl-row"><button type="button" class="round-btn plus" id="attach" aria-label="Add files or context">${ICON.plus}</button>${repo}${org}${model}<span class="spacer"></span>${act}</div></div>
+    <p class="hint" id="draft-hint">Return sends · Shift-Return adds a line</p></div></form>`;
+}
+function convoHTML() {
+  const list = visibleItems();
+  const inner = S.sel === "new" ? `<p class="empty-new">A new task starts when you send the first message.</p>` : list.map(renderItem).join("") + (S.replying ? `<div class="typing" role="status"><span>Bouncer is replying</span><i></i><i></i><i></i></div>` : "");
+  return `<section class="convo" aria-labelledby="thread-title">${convoHeadHTML()}<div class="scroll" id="scroll" tabindex="0" aria-label="Messages"><div class="column">${inner}</div></div>${composerHTML()}</section>`;
+}
+
+const narrow = () => S.width < 700;
+const sidebarShown = () => S.sidebar == null ? !narrow() : S.sidebar;
+// Auto: the panel shows for a selected task at full width; the Bouncer thread has no task details.
+const detailsShown = () => S.details == null ? !narrow() && S.sel !== "all" && S.sel !== "new" : S.details;
+function renderWindow() {
+  const slot = document.getElementById("winslot");
+  if (!S.windowOpen) {
+    slot.innerHTML = `<div class="closed-note" style="width:${S.width}px;height:652px"><p>The Bouncer window is closed.<br>Click the pill to open it.</p></div>`;
+    return;
+  }
+  const n = narrow();
+  const keep = captureFocus();
+  const scrollTop = document.getElementById("scroll")?.scrollTop;
+  const active = activeTasks().length;
+  slot.innerHTML = `<div class="win" id="win" role="region" aria-label="Bouncer window" style="width:${S.width}px">
+    <div class="toolbar" id="toolbar">
+      <div class="lights"><button type="button" class="light close" id="close-win" aria-label="Close window"></button><span class="light min" aria-hidden="true"></span><span class="light zoom" aria-hidden="true"></span></div>
+      <button type="button" class="icon-btn" id="toggle-sidebar" aria-label="Show task sidebar" aria-pressed="${sidebarShown()}">${ICON.sidebar}</button>
+      <div><div class="win-title">Bouncer</div><div class="win-sub">${waits() ? waits() + " waiting" : "Nothing waits"} · ${active} tasks</div></div><span class="spacer"></span>
+      <button type="button" class="host-note" id="host-note" aria-haspopup="dialog" aria-expanded="${S.popover}"><span class="dot input" aria-hidden="true"></span>${n ? "2 sessions need you" : "2 other sessions need you"}</button>
+      <button type="button" class="icon-btn" id="toggle-details" aria-label="Show task details" aria-pressed="${detailsShown()}">${ICON.details}</button>
+    </div>
+    ${factBanner()}
+    <div class="body" id="wbody">${sidebarShown() ? sidebarHTML(n) : ""}${convoHTML()}${detailsShown() ? detailsHTML(n) : ""}</div>
+    ${S.popover ? popoverHTML() : ""}${menuHTML()}
+  </div>`;
+  placeMenu();
+  if (scrollTop != null && document.getElementById("scroll")) document.getElementById("scroll").scrollTop = scrollTop;
+  restoreFocus(keep);
+  if (S.sheet) attachSheet();
+}
+function placeMenu() {
+  const m = document.getElementById("menu"); if (!m) return;
+  const trig = document.getElementById(S.menu.kind === "group" ? "group-btn" : "more-" + S.menu.id);
+  if (!trig) { S.menu = null; m.remove(); return; }
+  const w = document.getElementById("win").getBoundingClientRect(), r = trig.getBoundingClientRect();
+  m.style.left = Math.max(4, r.left - w.left) + "px";
+  m.style.top = (r.bottom - w.top + 4) + "px";
+}
+function popoverHTML() {
+  return `<div class="popover" role="dialog" aria-label="Other sessions that need you" id="popover">
+    <div class="prow"><span class="dot input" aria-hidden="true"></span><strong>Fix broken links</strong><span class="st input">Needs input</span><span class="sub">acme/docs · Claude · 4 min</span></div>
+    <div class="prow"><span class="dot failed" aria-hidden="true"></span><strong>Rotate test keys</strong><span class="st failed">Failed</span><span class="sub">acme/infra · Codex · 12 min</span></div>
+    <div class="foot"><span>Shown by Rounds; the Bouncer does not see these.</span><button type="button" class="btn small" id="open-sessions">Open Session List</button></div></div>`;
+}
+function captureFocus() { const a = document.activeElement; return a && a.id ? a.id : null; }
+function restoreFocus(id) { if (id) { const e = document.getElementById(id); if (e) e.focus({ preventScroll: true }); } }
+
+function renderPill() {
+  const p = document.getElementById("pill");
+  const n = waits();
+  p.className = "pill" + (n ? " waiting" : "");
+  p.innerHTML = ICON.bouncer + (n ? `<span class="count">${n}</span>` : "");
+  p.setAttribute("aria-label", n ? `Bouncer: ${n} waiting for you. Open the Bouncer window.` : "Bouncer: nothing waits. Open the Bouncer window.");
+  document.getElementById("lg-still").innerHTML = ICON.bouncer;
+  document.getElementById("lg-wait").innerHTML = ICON.bouncer + '<span class="count">2</span>';
+}
+function renderChrome() {
+  const root = document.documentElement;
+  const dark = S.theme === "dark" || (S.theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
+  root.dataset.theme = dark ? "dark" : "light";
+  document.getElementById("trade").innerHTML = `<p><strong>Approval:</strong> Rounds draws a card in the conversation, under the result, as the Claude desktop app shows permission cards (owner, 2026-11-19). It uses the window material, a lock and “From Rounds, not the agent”, so it never looks like a message. It lists each exact action and needs a reason to reject. It has no “Always allow”: each approval binds one exact action.</p>`;
+  for (const [n, v] of [["theme", S.theme], ["width", String(S.width)]]) document.querySelector(`input[name=${n}][value="${v}"]`).checked = true;
+}
+function render() { renderChrome(); renderWindow(); renderPill(); }
+
+/* Sheet: host code draws it from the request record, never from model text. */
+let sheetOpener = null;
+function openSheet(opener) {
+  if (S.approval !== "pending" || !S.windowOpen) return;
+  sheetOpener = opener || null;
+  S.sheet = true; S.popover = false; S.menu = null; renderWindow();
+  document.getElementById("approve").focus();
+}
+function attachSheet() {
+  const win = document.getElementById("win");
+  for (const id of ["toolbar", "wbody"]) document.getElementById(id).inert = true;
+  win.querySelector(".banner")?.setAttribute("inert", "");
+  win.insertAdjacentHTML("beforeend", `<div class="scrim" id="scrim"></div>
+  <div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheet-title" aria-describedby="sheet-from">
+    <div class="head"><div class="appicon" aria-hidden="true">${ICON.bouncer}</div><div>
+      <h2 id="sheet-title">Approve 4 actions for “Add rate limit headers”?</h2>
+      <p class="from" id="sheet-from">From Rounds, not the agent. Requested by the Bartenders for acme/api and acme/web, reviewed by the Bouncer. Rounds checked each revision and remote URL at 12:41 and checks them again before each action.</p></div></div>
+    <ol>${ACTIONS.map(a => `<li>${a}</li>`).join("")}</ol>
+    ${reasonField()}
+    <div class="buttons"><button type="button" class="btn left" id="later">Decide Later</button><button type="button" class="btn" id="reject">Reject</button><button type="button" class="btn primary" id="approve">Approve</button></div>
+  </div>`);
+}
+function closeSheet() {
+  S.sheet = false;
+  const keepOpener = sheetOpener;
+  renderWindow(); renderPill();
+  const target = keepOpener && document.getElementById(keepOpener) ? document.getElementById(keepOpener) : document.getElementById("draft");
+  target?.focus();
+}
+function afterDecision() {
+  if (S.sheet) closeSheet();
+  else { renderWindow(); renderPill(); document.getElementById("draft")?.focus(); }
+}
+function addRecord(title, text) { S.extra.push({ task: "t1", kind: "record", time: "12:44", title, text }); }
+function approve() {
+  S.approval = "approved"; addRecord("You approved 4 actions", "Rounds pushes the two branches and opens two draft pull requests. Simulated in this mockup.");
+  say("Approved. Rounds pushes and opens draft pull requests."); afterDecision();
+}
+function reject() {
+  const input = document.getElementById("reason");
+  const r = input.value.trim();
+  if (!r) {
+    input.setAttribute("aria-invalid", "true");
+    document.getElementById("reason-err").textContent = "Give a reason to reject. Rounds sends it to the Bartenders.";
+    input.focus(); return;
+  }
+  S.approval = "rejected"; S.reason = r; addRecord("You rejected 4 actions", `Reason: ${r}`);
+  say("Rejected. The reason goes to the Bartenders."); afterDecision();
+}
+function answer(i) {
+  S.question = "answered"; S.answer = i;
+  S.extra.push({ task: "t2", kind: "user", time: "12:45", text: `${i + 1}. ${OPTIONS[i].t}` });
+  say(`You chose ${OPTIONS[i].t}.`); renderWindow(); renderPill();
+  document.getElementById("draft")?.focus();
+}
+function select(id, focusDraft = true) {
+  S.sel = id; S.menu = null;
+  if (narrow()) S.sidebar = false;
+  renderWindow();
+  say(id === "all" ? "Bouncer thread" : id === "new" ? "New task" : taskById(id).title);
+  if (focusDraft) document.getElementById("draft")?.focus();
+}
+function newTask() { S.view = "tasks"; S.draft = ""; select("new"); }
+function cycle(dir) {
+  const order = sidebarOrder();
+  let i = order.indexOf(S.sel);
+  i = i < 0 ? (dir > 0 ? 0 : order.length - 1) : (i + dir + order.length) % order.length;
+  S.view = "tasks"; select(order[i], false);
+  document.getElementById("scroll")?.focus();
+}
+function send() {
+  const t = S.draft.trim(); if (!t || S.replying) return;
+  let task = S.sel === "all" ? "b" : S.sel;
+  if (S.sel === "new") {
+    const id = "n" + (S.created.length + 1);
+    S.created.push({ id, title: t.length > 40 ? t.slice(0, 38).trim() + "…" : t, repos: [S.repo === "auto" ? "acme/api" : S.repo], org: S.org, last: 770 + S.created.length });
+    task = id; S.sel = id;
+  }
+  S.extra.push({ task, kind: "user", time: "12:46", text: t });
+  S.draft = "";
+  const timer = setTimeout(() => {
+    S.replying = null;
+    S.extra.push({ task, kind: "bouncer", time: "12:46", text: task.startsWith("n") ? "I started a Bartender for this task. I will report here." : "Simulated reply. The Bouncer answers here." });
+    const f = captureFocus(); renderWindow(); restoreFocus(f); scrollEnd(); say("The Bouncer replied.");
+  }, 1500);
+  S.replying = { timer, task };
+  renderWindow(); scrollEnd();
+  document.getElementById("draft").focus(); say("Message sent.");
+}
+function stopReply() {
+  if (!S.replying) return;
+  clearTimeout(S.replying.timer);
+  S.extra.push({ task: S.replying.task, kind: "stopped" });
+  S.replying = null; renderWindow(); scrollEnd();
+  document.getElementById("draft")?.focus(); say("You stopped the reply.");
+}
+function scrollEnd() { const sc = document.getElementById("scroll"); if (sc) sc.scrollTop = sc.scrollHeight; }
+function openMenu(m) { S.menu = m; renderWindow(); document.querySelector("#menu .mi")?.focus(); }
+function closeMenu(returnFocus) {
+  if (!S.menu) return;
+  const trig = S.menu.kind === "group" ? "group-btn" : "more-" + S.menu.id;
+  S.menu = null; renderWindow();
+  if (returnFocus) document.getElementById(trig)?.focus();
+}
+
+document.addEventListener("click", e => {
+  const b = e.target.closest("button");
+  if (S.menu && !e.target.closest("#menu") && !(b && (b.id === "group-btn" || b.dataset.more))) closeMenu(false);
+  if (!b) return;
+  if (b.id === "pill") {
+    S.windowOpen = true; renderWindow();
+    if (S.approval === "pending") {
+      if (S.form === "sheet") return openSheet("pill");
+      if (S.sel !== "t1") select("all", false);
+      const h = document.getElementById("approval-title"); h.scrollIntoView({ block: "center" }); h.focus(); return;
+    }
+    if (S.question === "pending") { if (S.sel !== "t2") select("all", false); document.getElementById("question")?.scrollIntoView({ block: "center" }); document.getElementById("opt-1")?.focus(); }
+    else document.getElementById("draft")?.focus();
+    return;
+  }
+  if (b.id === "close-win") { S.windowOpen = false; S.popover = false; S.menu = null; renderWindow(); document.getElementById("pill").focus(); return; }
+  if (b.id === "review-approval") return openSheet("review-approval");
+  if (b.id === "approve") return approve();
+  if (b.id === "reject") return reject();
+  if (b.id === "later") { S.reason = document.getElementById("reason").value; return closeSheet(); }
+  if (b.dataset.opt) return answer(+b.dataset.opt);
+  if (b.id === "check-again") {
+    if (S.fact !== "unproven") return;
+    S.fact = "checking"; renderWindow(); document.getElementById("check-again")?.focus();
+    setTimeout(() => { S.fact = "resolved"; const f = captureFocus(); renderWindow(); restoreFocus(f); say("Docker answered. The Barback Update call sites stopped at 12:39."); }, 700);
+    return;
+  }
+  if (b.id === "host-note") { S.popover = !S.popover; renderWindow(); if (S.popover) document.getElementById("open-sessions").focus(); return; }
+  if (b.id === "open-sessions") { S.popover = false; renderWindow(); document.getElementById("host-note").focus(); say("Simulated: the session list opens, as with the global shortcut."); return; }
+  if (b.id === "toggle-sidebar") { S.sidebar = !sidebarShown(); if (narrow() && S.sidebar) S.details = false; renderWindow(); return; }
+  if (b.id === "toggle-details") { S.details = !detailsShown(); if (narrow() && S.details) S.sidebar = false; renderWindow(); return; }
+  if (b.id === "new-task") return newTask();
+  if (b.id === "group-btn") return S.menu?.kind === "group" ? closeMenu(true) : openMenu({ kind: "group" });
+  if (b.dataset.more) return S.menu?.id === b.dataset.more ? closeMenu(true) : openMenu({ kind: "row", id: b.dataset.more });
+  if (b.dataset.group) { S.group = b.dataset.group; closeMenu(true); say(`Grouped by ${GROUPS[S.group].name}.`); return; }
+  if (b.dataset.sort) { S.sort = b.dataset.sort; closeMenu(true); say(`Sorted by ${SORTS[S.sort]}.`); return; }
+  if (b.dataset.archive) {
+    if (b.getAttribute("aria-disabled") === "true") return;
+    const id = b.dataset.archive; S.archived.push(id); if (S.sel === id) S.sel = "all";
+    S.menu = null; renderWindow(); document.getElementById("show-archived")?.focus(); say(`Archived ${taskById(id).title}.`); return;
+  }
+  if (b.dataset.unarchive) {
+    const id = b.dataset.unarchive; S.archived = S.archived.filter(x => x !== id);
+    S.menu = null; renderWindow(); document.getElementById("show-archived")?.focus(); say(`Moved ${taskById(id).title} back to Tasks.`); return;
+  }
+  if (b.id === "show-archived") { S.view = S.view === "archived" ? "tasks" : "archived"; renderWindow(); document.getElementById("show-archived").focus(); return; }
+  if (b.id === "stop") return stopReply();
+  if (b.id === "attach") { say("Simulated: choose files or a task record to add."); return; }
+  if (b.dataset.sel) return select(b.dataset.sel);
+  if (b.id === "reset") { if (S.replying) clearTimeout(S.replying.timer); Object.assign(S, fresh()); render(); say("Demo reset."); }
+});
+document.addEventListener("submit", e => { if (e.target.id === "composer") { e.preventDefault(); send(); } });
+document.addEventListener("input", e => { if (e.target.id === "draft") S.draft = e.target.value; if (e.target.id === "reason") S.reason = e.target.value; });
+document.addEventListener("toggle", e => { const k = e.target.dataset?.card; if (k) S.cards[k] = e.target.open; }, true);
+document.addEventListener("keydown", e => {
+  if (e.target.id === "draft" && e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); return; }
+  if (e.target.id === "reason" && e.key === "Enter" && !S.sheet) { e.preventDefault(); reject(); return; }
+  if (S.menu && document.getElementById("menu")?.contains(e.target) && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    e.preventDefault();
+    const f = [...document.querySelectorAll("#menu .mi")]; const i = f.indexOf(document.activeElement);
+    f[(i + (e.key === "ArrowDown" ? 1 : -1) + f.length) % f.length].focus(); return;
+  }
+  if (e.key === "Escape") {
+    if (S.sheet) { S.reason = document.getElementById("reason").value; closeSheet(); }
+    else if (S.menu) closeMenu(true);
+    else if (S.popover) { S.popover = false; renderWindow(); document.getElementById("host-note").focus(); }
+    else if (S.replying) stopReply();
+    else if (narrow() && (S.sidebar || S.details)) { const t = S.sidebar ? "toggle-sidebar" : "toggle-details"; S.sidebar = S.details = false; renderWindow(); document.getElementById(t).focus(); }
+    return;
+  }
+  if (e.key === "Tab" && S.sheet) {
+    const f = [...document.querySelectorAll("#sheet button, #sheet input")];
+    const i = f.indexOf(document.activeElement);
+    if (e.shiftKey && i <= 0) { e.preventDefault(); f[f.length - 1].focus(); }
+    else if (!e.shiftKey && i === f.length - 1) { e.preventDefault(); f[0].focus(); }
+    return;
+  }
+  if (S.sheet || !S.windowOpen) return;
+  if (e.metaKey && !e.ctrlKey && e.key.toLowerCase() === "n") { e.preventDefault(); newTask(); return; }
+  if (e.ctrlKey && e.key === "Tab") { e.preventDefault(); cycle(e.shiftKey ? -1 : 1); return; }
+});
+document.addEventListener("change", e => {
+  const t = e.target;
+  if (t.name === "theme") { S.theme = t.value; renderChrome(); }
+  if (t.name === "width") { S.width = +t.value; S.sheet = false; S.menu = null; S.sidebar = null; S.details = null; render(); }
+  if (t.id === "c-repo" && !t.disabled) S.repo = t.value;
+  if (t.id === "c-org" && !t.disabled) S.org = t.value;
+  if (t.id === "c-model") S.model = t.value;
+});
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderChrome);
+render();
+</script>
+</body>
+</html>
