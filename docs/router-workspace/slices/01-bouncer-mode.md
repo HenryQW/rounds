@@ -17,7 +17,7 @@ None. Organization rules and workspace setup are built ([overview](../overview.m
 - The mode switch.
 - The pill as the Bouncer: it stays still while nothing waits, and bounces only when the Bouncer asks for an approval or an answer.
 - The Bouncer Window: the conversation, results and decisions. Approvals show as inline cards that host code draws, never as model text.
-- The window drives Pi with `pi --mode rpc` through one adapter. Demo data until dispatch exists ([slice 03](03-dispatch-and-results.md)).
+- The window talks to the Bouncer through one adapter. Demo data until dispatch exists ([slice 03](03-dispatch-and-results.md)). The `pi --mode rpc` adapter is temporary: [slice 02](02-node-harness-host.md) replaces it (decision "Bouncer on pi-durable").
 
 ## Decided
 
