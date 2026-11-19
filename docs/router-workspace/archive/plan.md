@@ -56,7 +56,7 @@ flowchart TD
 - Add a trusted checkout registry before supporting Git remote rules in Settings. A matching Git remote is not proof of checkout ownership. Keep unknown remotes and unmatched sessions local, and recheck permission before each outbound request.
 - Validate delegate compatibility, agent termination, checkout ownership, recovery proof, and the complete approval guard before using them for protected actions. Check agent transcripts, output, logs, and temporary files against organization storage rules before dispatch.
 - Define repository enrollment and explicit instruction loading.
-- Workspace setup is built (Settings > Workspace, [spec 2.7.2](../spec.md)). Nothing calls `mayStoreTaskDetails(for:)` until task dispatch exists. Setup decisions for version one:
+- Workspace setup is built (Settings > Workspace, [spec 2.7.2](../../spec.md)). Nothing calls `mayStoreTaskDetails(for:)` until task dispatch exists. Setup decisions for version one:
   - Rounds does not ask a Git host for remote visibility, because the query sends the remote address off the machine. Every remote is unverified and needs the may-be-public acknowledgement. The acknowledgement applies to the exact set of remote URLs; a changed set needs a new acknowledgement.
   - For a folder outside a Git repository, Rounds asks whether to create one. On yes, it initializes the repository in that folder and records the entered name as the workspace name. It does not add a remote, commit, or push.
   - The repository holds only `rounds-workspace.json` with a format version and the workspace name. Rounds does not commit it automatically.
