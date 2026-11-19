@@ -72,11 +72,11 @@ _Avoid_: detail store (alone), cache
 These roles describe the planned Router Workspace. They do not describe current Rounds behavior. A task can outlive a session or span several sessions.
 
 **Bouncer**:
-The user-facing agent that assigns repository tasks to Bartenders and coordinates their results. It makes routine decisions, decides which results need the user's attention, and obtains the user's required approvals.
+The user-facing agent that assigns repository tasks to Bartenders and coordinates their results. It makes routine decisions and decides which results need the user's attention. Rounds host code, not the Bouncer, shows each approval request to the user.
 _Avoid_: router agent
 
 **Bartender**:
-An agent that carries out a repository task in an assigned checkout or worktree and reports to the Bouncer. One repository can have multiple Bartenders in separate worktrees. A Bartender can delegate bounded work to Barbacks.
+An agent that carries out a repository task in its own container environment on its own branch and reports to the Bouncer. One repository can have multiple Bartenders in separate worktrees. A Bartender can delegate bounded work to Barbacks.
 _Avoid_: repository agent, network server
 
 **Barback**:
