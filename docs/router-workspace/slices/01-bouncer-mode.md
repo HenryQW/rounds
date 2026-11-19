@@ -38,6 +38,7 @@ None. Organization rules and workspace setup are built ([overview](../overview.m
 - *Default* (agent, 2026-11-19, reversible): the control row in slice 01 has the Model menu and the send or stop button. The menu lists Default and the models that `get_available_models` returns; the mockup's Fast and Deep are placeholders. The attach button and the Target repository and Organization menus come with dispatch ([slice 03](03-dispatch-and-results.md)), where they have an effect.
 - *Default* (agent, 2026-11-19, reversible): New Task (Cmd+N) selects the Bouncer row and puts the focus in an empty prompt box until dispatch exists.
 - *Default* (agent, 2026-11-19, reversible): slice 01 sends to Pi only the text that the user types. It gives the Bouncer no tool that reads other sessions.
+- *Default* (reviewer, 2026-11-19, reversible): the Bouncer Session starts with no tools: `--no-tools --no-extensions --no-mcp --no-skills --no-prompt-templates`. A plain `pi --mode rpc` gets shell and edit tools and every installed extension, which breaks "It does not edit repositories" ([overview](../overview.md)) and decision "Option 3: container-use for all agent work". Context files stay on, so the workspace `AGENTS.md` loads. Slice 03 adds the dispatch and result tools with explicit `-e` paths.
 - *Default* (agent, 2026-11-19, reversible): the slice merges in three sub-steps (see Files). One pull request would mix a process protocol, a new window and demo cards, which need different reviews.
 
 ## Open
@@ -151,7 +152,7 @@ App side: `BouncerModel.shared` holds `thread: BouncerThread`, `adapter: any Bou
 - Mode: `bouncerMode` off keeps today's app. On, `BouncerModel.start()` makes the adapter; Off calls `shutdown()` and closes the window.
 - Pill (`EdgePill`): in Bouncer mode it shows the Bouncer state only. `pillWaiting` 0: the empty clear glass tab of today, still, no number. More than 0: orange (`systemOrange`, ink #2B1A00) with the number; `RingingTab` peeks every 2 s with the ring. Reduce Motion: orange and still. `EdgeDrawer.observe` tracks `pillWaiting` and `bouncerMode` as it tracks `ringing`, for the larger panel size.
 - Click: `EdgeDrawer.open(display:)` calls `BouncerWindowController.shared.show()` in Bouncer mode. The focus goes to the title of the first undecided approval card, else option 1 of the first open question, else the prompt box.
-- Pi adapter: `pi --mode rpc` plus `bouncerArguments`. A recorded session file that exists adds `--session <file>`; a missing file starts a new session and a note "New conversation. The earlier Bouncer session file is missing." Any other launch error shows in the banner and keeps the thread (CONTEXT.md, Bouncer Session). After start: `get_state` gives `sessionFile`, saved as `bouncerSessionFile`; `get_messages` fills the thread.
+- Pi adapter: `pi --mode rpc` plus `bouncerArguments`, which always adds the no-tools flags (see Decided). A recorded session file that exists adds `--session <file>`; a missing file starts a new session and a note "New conversation. The earlier Bouncer session file is missing." Any other launch error shows in the banner and keeps the thread (CONTEXT.md, Bouncer Session). After start: `get_state` gives `sessionFile`, saved as `bouncerSessionFile`; `get_messages` fills the thread.
 - Stream: assistant `message_update` text deltas grow the current reply; `tool_execution_start` adds a tool step to it; only `agent_settled` sets `replying` to false (`agent_end` can be followed by a retry). While a reply runs, the send button is a stop button that sends `abort`; the window sends no prompt then, because Pi rejects a `prompt` during a run without `streamingBehavior`.
 - Dialogs: `extension_ui_request` `select` gives a question with its options in order; `confirm` gives Yes and No; `input` and `editor` give a question with a text field. The answer goes back as `extension_ui_response` with the same `id` (`value`, `confirmed` or `cancelled: true`). A request with `timeout`: when Pi resolves it, the card shows "Pi closed this question." and stops counting. `notify` gives a note; `setStatus`, `setWidget`, `setTitle` and `set_editor_text` are ignored.
 - Exit: Rounds closes stdin at quit or Off, then sends SIGTERM after 5 s. An unexpected exit shows the last stderr lines in the banner with Start Again.
@@ -167,7 +168,7 @@ App side: `BouncerModel.shared` holds `thread: BouncerThread`, `adapter: any Bou
 | Esc | Closes, in this order: a menu, the popover, the reply (stop), a sidebar or details overlay below 700 pt |
 | ⌘W | Closes the window; the adapter keeps running |
 
-Accessibility: the pill label is "Bouncer", its value "N waiting for you" or "Nothing waiting", and its hint "Opens the Bouncer Window". Each state dot has its state word in its label. The approval card is one group with a heading; its actions are a list in order. Every control is reachable with Tab and shows the grey hover fill. Reduce Motion stops the pill, the typing dots and the sheet slide.
+Accessibility: the pill label is "Bouncer", its value "N waiting for you" or "Nothing waiting", and its hint "Opens the Bouncer Window". Each state dot has its state word in its label. The approval card is one group with a heading; its actions are a list in order. Every control is reachable with Tab and shows the grey hover fill. Reduce Motion stops the pill and the typing dots.
 
 Docs in the same commit: 01b changes spec 4 (new components), 5.1 (the pill's menu), 5.4 (General toggle, Keys rows), 5.7 (the pill in Bouncer mode), 2.7 (the Bouncer session folder is not read), 7.1 (the `--demo-scene bouncer` scene), and adds 5.9 Bouncer Window. GLOSSARY.md: the Pill entry, and Bouncer and Bouncer Window under Window. CONTEXT.md: the new names (host note, fact banner, Set Up row) before the code uses them. 01c adds the task, card and details parts to 5.9.
 
@@ -183,12 +184,13 @@ In `Tests/RoundsCoreTests`, run with `scripts/test.sh`. The window has no test t
 | Malformed line | `{"type":` | `.malformed`, the next line still decodes |
 | No approval from Pi | `extension_ui_request` `select` titled "Approve 4 actions" | `.uiRequest` question; the thread has no approval |
 | Answer encoding | option 2 of a `select`; `confirm` yes; dismiss | `value` is option 2's text; `confirmed: true`; `cancelled: true`; `id` kept |
-| Waiting count | Empty; one open question; plus one approval; answer the question; Pi closes a question; approve | 0, 1, 2, 1, 0, 0 |
+| Waiting count | Empty; one open question; plus one approval; answer the question; Pi opens and then closes a second question; approve | 0, 1, 2, 1, 1, 0 |
 | Reject reason | Reject with "" and with spaces | `reasonRequired`; card still undecided |
 | Run end | `agent_end` then nothing; then `agent_settled` | Still replying; then not |
 | Tool steps | Two `tool_execution_start` in one reply | The reply has 2 steps |
 | Archive rule | Each `BouncerTaskState` | Only finished and stopped can archive |
 | Reopen | Recorded file exists; missing; nil | `--session <file>`, not new; no `--session`, new; new |
+| No tools | Any case above | The arguments always hold `--no-tools`, `--no-extensions`, `--no-mcp`, `--no-skills` and `--no-prompt-templates` |
 | Setup steps | No workspace; remotes not confirmed; no `pi`; all set | One step each; empty |
 | Other waits | Bouncer's own session needs input; one other does | Only the other |
 | Child process | `PiRPCBouncer` on `/bin/sh -c` that prints one response and exits 1 with stderr | A `.started`, then `.exited` with the stderr text |
