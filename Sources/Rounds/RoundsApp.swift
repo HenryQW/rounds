@@ -15,6 +15,7 @@ struct RoundsApp: App {
         DispatchQueue.main.async {
             EdgeDrawer.shared.start()
             PanelController.shared.prepare()
+            BouncerModel.shared.start()
             Demo.start()
             Updater.shared.start()
         }
