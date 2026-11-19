@@ -105,6 +105,7 @@ public enum BouncerItem: Identifiable, Equatable, Sendable {
 public enum BouncerEvent: Equatable, Sendable {
     case started(sessionFile: String?, isNew: Bool), item(BouncerItem), textDelta(String), toolStep(String)
     case replying(Bool), closed(questionID: String), tasks([BouncerTask]), banner(String?), failed(String), exited(String)
+    case models([String])  // get_available_models, each "provider/id", for the Model menu; the thread ignores it
 }
 public struct BouncerThread: Equatable, Sendable {
     public private(set) var items: [BouncerItem]; public private(set) var tasks: [BouncerTask]

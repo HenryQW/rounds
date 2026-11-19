@@ -49,7 +49,7 @@ public actor PiRPCBouncer: BouncerAdapter {
         (self.exitWait, self.requestWait) = (exitWait, requestWait)
     }
 
-    /// Starts Pi, then asks for its state (`.started`) and its messages. Throws only when Pi does not start; a later
+    /// Starts Pi, then asks for its state (`.started`), its messages and its models (`.models`). Throws only when Pi does not start; a later
     /// exit is an `.exited` event. After an exit, a new call starts Pi again.
     public func start() async throws {
         guard !running, !shuttingDown else { return }
@@ -81,6 +81,7 @@ public actor PiRPCBouncer: BouncerAdapter {
         (stateID, messagesID) = (state, messages)
         try? write(.getState(id: state))
         try? write(.getMessages(id: messages))
+        try? write(.availableModels(id: nextID()))
     }
 
     /// Pi rejects a prompt while a reply runs; the window sends none then (`BouncerThread.replying`).

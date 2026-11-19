@@ -95,6 +95,8 @@ public enum BouncerItem: Identifiable, Equatable, Sendable {
 public enum BouncerEvent: Equatable, Sendable {
     case started(sessionFile: String?, isNew: Bool), item(BouncerItem), textDelta(String), toolStep(String)
     case replying(Bool), closed(questionID: String), tasks([BouncerTask]), banner(String?), failed(String), exited(String)
+    /// The models for the Model menu, each "provider/id", from `get_available_models`.
+    case models([String])
 }
 
 /// The Bouncer conversation: what the window shows and what the pill counts.
@@ -125,6 +127,8 @@ public struct BouncerThread: Equatable, Sendable {
         case .exited(let text):
             (banner, replying) = (text, false)
             closeQuestions { _ in true }
+        // The window keeps the model list; the thread does not show it.
+        case .models: break
         }
     }
 
