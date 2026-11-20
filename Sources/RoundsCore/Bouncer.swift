@@ -184,10 +184,12 @@ public enum BouncerSetupStep: Equatable, Sendable { case chooseWorkspace, confir
 
 /// The steps that the Set Up row shows, in order; empty when the Bouncer can start.
 /// `isWorkspace`: the recorded folder is the workspace repository now (`WorkspaceSettings.workspaceProblem`).
-public func bouncerSetupSteps(workspace: WorkspaceSettings, isWorkspace: Bool, remotes: [WorkspaceRemote], piPath: String?) -> [BouncerSetupStep] {
+/// `remotes`: nil until a check of the folder finds a repository, so no remote is confirmed before the check ends.
+public func bouncerSetupSteps(workspace: WorkspaceSettings, isWorkspace: Bool, remotes: [WorkspaceRemote]?, piPath: String?) -> [BouncerSetupStep] {
     var steps: [BouncerSetupStep] = []
     if workspace.workspace == nil || !isWorkspace { steps.append(.chooseWorkspace) }
-    else if !workspace.acknowledges(remotes) { steps.append(.confirmRemotes) }
+    else if let remotes { if !workspace.acknowledges(remotes) { steps.append(.confirmRemotes) } }
+    else { steps.append(.chooseWorkspace) }
     if piPath?.isEmpty ?? true { steps.append(.installPi) }
     return steps
 }

@@ -33,6 +33,8 @@ final class BouncerModel {
     private(set) var running = false
     @ObservationIgnored private var adapter: (any BouncerAdapter)?
     @ObservationIgnored private var listener: Task<Void, Never>?
+    /// Shutdowns that have not ended, from each Off and quit, so quit waits for a Pi that an earlier Off stops.
+    @ObservationIgnored private var shutdowns: [UUID: Task<Void, Never>] = [:]
     /// The session file that Pi reported at start; `sessionFile` once it exists.
     @ObservationIgnored private var reportedFile: String?
 
@@ -53,7 +55,10 @@ final class BouncerModel {
     var setupSteps: [BouncerSetupStep] {
         let workspace = WorkspaceSettingsState.shared
         if Demo.isOn { return Demo.bouncerSetup ? [.installPi] : [] }
-        return bouncerSetupSteps(workspace: workspace.settings, isWorkspace: workspace.isWorkspace, remotes: workspace.remotes, piPath: piPath)
+        // At launch the check of the recorded folder runs off the main thread; Pi waits for its remotes.
+        var remotes: [WorkspaceRemote]?
+        if case .repository(_, let found) = workspace.inspection { remotes = found }
+        return bouncerSetupSteps(workspace: workspace.settings, isWorkspace: workspace.isWorkspace, remotes: remotes, piPath: piPath)
     }
 
     /// Sessions that need input or failed, without the Bouncer's own: the host note.
@@ -74,20 +79,26 @@ final class BouncerModel {
     /// Mode off: the adapter closes Pi (stdin, then signals), and the window closes.
     func stop() { shutDown() }
 
-    /// Quit: Pi stops as at mode off, and the mode stays on for the next launch. Returns once Pi has exited.
-    func quit() async { await shutDown()?.value }
+    /// Quit: Pi stops as at mode off, and the mode stays on for the next launch. Returns once every Pi has exited.
+    func quit() async {
+        shutDown()
+        for task in shutdowns.values { await task.value }
+    }
 
-    @discardableResult
-    private func shutDown() -> Task<Void, Never>? {
+    private func shutDown() {
         BouncerWindowController.shared.close()
-        guard let adapter else { return nil }
+        guard let adapter else { return }
         self.adapter = nil
         running = false
         listener?.cancel()
         listener = nil
         reportedFile = nil
         (thread, models, model) = (BouncerThread(), [], nil)
-        return Task { await adapter.shutdown() }
+        let id = UUID()
+        shutdowns[id] = Task {
+            await adapter.shutdown()
+            shutdowns[id] = nil
+        }
     }
 
     /// Start Again in the exit banner.
@@ -103,13 +114,17 @@ final class BouncerModel {
         }
     }
 
-    /// Sends the draft. No send while a reply runs: Pi rejects a prompt then.
+    /// Sends the draft. No send while Pi is stopped or a reply runs: Pi rejects a prompt then. A failed send puts the
+    /// text back in an empty prompt box.
     func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let adapter, !text.isEmpty, !thread.replying else { return }
+        guard let adapter, running, !text.isEmpty, !thread.replying else { return }
         draft = ""
         Task {
-            do { try await adapter.send(text) } catch { fail(message(error), from: adapter) }
+            do { try await adapter.send(text) } catch {
+                if self.adapter === adapter, draft.isEmpty { draft = text }
+                fail(message(error), from: adapter)
+            }
         }
     }
 

@@ -40,6 +40,8 @@ private let now = Date(timeIntervalSince1970: 1_800_000_000)
     var settings = WorkspaceSettings()
     #expect(bouncerSetupSteps(workspace: settings, isWorkspace: false, remotes: [], piPath: "/bin/pi") == [.chooseWorkspace])
     try settings.setWorkspace(folder.path)
+    // The folder check has not ended (or failed): no remote list, so Pi must not start.
+    #expect(bouncerSetupSteps(workspace: settings, isWorkspace: true, remotes: nil, piPath: "/bin/pi") == [.chooseWorkspace])
     #expect(bouncerSetupSteps(workspace: settings, isWorkspace: true, remotes: remotes, piPath: "/bin/pi") == [.confirmRemotes])
     try settings.acknowledgeRemotes(remotes)
     #expect(bouncerSetupSteps(workspace: settings, isWorkspace: true, remotes: remotes, piPath: nil) == [.installPi])

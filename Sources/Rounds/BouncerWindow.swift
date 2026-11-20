@@ -55,6 +55,8 @@ final class BouncerWindowController: NSObject, NSWindowDelegate {
         window.contentView = NSHostingView(rootView: BouncerView(model: BouncerModel.shared, state: state))
         // Demo mode neither reads nor saves the frame.
         if Demo.isOn || !window.setFrameUsingName("RoundsBouncerWindow") { window.center() }
+        // `self.window` is not set yet, so `windowDidResize` cannot read the restored width.
+        state.width = window.frame.width
         if !Demo.isOn { window.setFrameAutosaveName("RoundsBouncerWindow") }
         observeSubtitle(window)
         return window
