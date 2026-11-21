@@ -260,6 +260,12 @@ private struct SettingsDocument: Codable {
     let detailFolders: [String: Folder]
 }
 
+private struct WorkspaceSnapshot: Equatable {
+    let data: Data
+    let device: dev_t
+    let inode: ino_t
+}
+
 /// Atomic local storage for `WorkspaceSettings`. A missing file starts empty; a corrupt file throws and is not replaced.
 public struct WorkspaceSettingsStore: Sendable {
     public let url: URL
@@ -267,16 +273,17 @@ public struct WorkspaceSettingsStore: Sendable {
     public init(url: URL) { self.url = url }
 
     public func load() throws -> WorkspaceSettings {
-        try withLock { try decode(readData()) }
+        try withLock { try decode(readSnapshot()?.data) }
     }
 
-    /// The closure edits a fresh copy. A thrown closure leaves the file unchanged.
+    /// The closure edits a fresh copy outside the lock. A concurrent change rejects the update.
     @discardableResult
     public func update(_ edit: (inout WorkspaceSettings) throws -> Void) throws -> WorkspaceSettings {
-        try withLock {
-            let original = try readData()
-            var settings = try decode(original)
-            try edit(&settings)
+        let original = try withLock { try readSnapshot() }
+        var settings = try decode(original?.data)
+        try edit(&settings)
+        return try withLock {
+            guard try readSnapshot() == original else { throw WorkspaceError.changedOnDisk }
             try replace(with: encode(settings))
             return settings
         }
@@ -298,7 +305,7 @@ public struct WorkspaceSettingsStore: Sendable {
     func withTaskDetailApproval<T>(for scope: WorkspaceScope, wait: Bool = true,
                                    _ body: (FolderIdentity) throws -> T) throws -> T {
         try withLock(wait: wait) {
-            let settings = try decode(readData())
+            let settings = try decode(readSnapshot()?.data)
             guard let workspace = settings.workspace,
                   let inspection = try? inspectWorkspaceFolder(workspace.path),
                   settings.taskDetailFolder(for: scope, inspection: inspection) != nil,
@@ -354,7 +361,7 @@ public struct WorkspaceSettingsStore: Sendable {
         return try body()
     }
 
-    private func readData() throws -> Data? {
+    private func readSnapshot() throws -> WorkspaceSnapshot? {
         let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         if fd < 0 {
             if errno == ENOENT { return nil }
@@ -363,7 +370,7 @@ public struct WorkspaceSettingsStore: Sendable {
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         var info = stat()
         guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_nlink == 1 else { throw WorkspaceError.invalidFile }
-        return try handle.readToEnd() ?? Data()
+        return WorkspaceSnapshot(data: try handle.readToEnd() ?? Data(), device: info.st_dev, inode: info.st_ino)
     }
 
     /// Writes a private temporary file, syncs it, and renames it over the settings file.

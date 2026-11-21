@@ -143,6 +143,117 @@ import Testing
         }
     }
 
+    @Test func graphAuthorizationCanReadGraphAndSettings() throws {
+        let f = try Fixture()
+        let graph = f.graph
+        let settings = f.settings
+        let access = f.access(allowsGraph: { _, _ in
+            let completed = DispatchSemaphore(value: 0)
+            DispatchQueue.global().async {
+                if (try? graph.load()) != nil, (try? settings.load()) != nil { completed.signal() }
+            }
+            return completed.wait(timeout: .now() + 2) == .success
+        })
+        #expect(try f.interface.updateGraph(using: access) { _ = try $0.createTask() } == .saved)
+    }
+
+    @Test func settingsCallbackCanUpdateGraph() throws {
+        let f = try Fixture()
+        let interface = f.interface
+        let graph = f.graph.directory
+        let details = f.details.directory
+        let organizationID = f.organizationID
+        let completed = DispatchSemaphore(value: 0)
+        var completedWhileEditing = false
+        try f.settings.update { _ in
+            DispatchQueue.global().async {
+                let access = TaskStorageAuthorization(organizationID: organizationID, graphDirectory: graph,
+                                                      detailDirectory: details, allowsGraph: { _, _ in true },
+                                                      allowsDetails: { _, _, _ in true })
+                if (try? interface.updateGraph(using: access) { _ = try $0.createTask() }) == .saved {
+                    completed.signal()
+                }
+            }
+            completedWhileEditing = completed.wait(timeout: .now() + 2) == .success
+        }
+        if !completedWhileEditing { _ = completed.wait(timeout: .now() + 5) }
+        #expect(completedWhileEditing)
+    }
+
+    @Test func concurrentGraphEditRejectsAuthorizedStaleSnapshot() throws {
+        let f = try Fixture()
+        let record = try f.create(values)
+        let graph = f.graph
+        var authorizationCalls = 0
+        let access = f.access(allowsGraph: { _, _ in
+            authorizationCalls += 1
+            let completed = DispatchSemaphore(value: 0)
+            DispatchQueue.global().async {
+                if (try? graph.update { try $0.setState(.completed, for: record.task.id) }) == .saved { completed.signal() }
+            }
+            return completed.wait(timeout: .now() + 2) == .success
+        })
+        #expect(throws: TaskGraphError.changedOnDisk) {
+            try f.interface.updateGraph(using: access) { try $0.setState(.running, for: record.task.id) }
+        }
+        #expect(authorizationCalls == 1)
+        #expect(try f.graph.load().tasks.first?.state == .completed)
+    }
+
+    @Test func concurrentSettingsEditRejectsStaleSnapshot() throws {
+        let f = try Fixture()
+        let settings = f.settings
+        let scope = WorkspaceScope.organization(f.organizationID)
+        var calls = 0
+        #expect(throws: WorkspaceError.changedOnDisk) {
+            try settings.update { _ in
+                calls += 1
+                let completed = DispatchSemaphore(value: 0)
+                DispatchQueue.global().async {
+                    if (try? settings.update { $0.withdrawApproval(for: scope) }) != nil { completed.signal() }
+                }
+                guard completed.wait(timeout: .now() + 2) == .success else {
+                    Issue.record("Concurrent settings update was blocked")
+                    throw WorkspaceError.changedOnDisk
+                }
+            }
+        }
+        #expect(calls == 1)
+        #expect(try settings.load().detailFolders[scope] == nil)
+    }
+
+    @Test func replacementGraphDirectoryRejectsStaleSnapshot() throws {
+        let f = try Fixture()
+        let record = try f.create(values)
+        let original = f.root.appending(path: "original-graph")
+        let access = f.access(allowsGraph: { _, _ in
+            do {
+                try FileManager.default.moveItem(at: f.graph.directory, to: original)
+                try FileManager.default.createDirectory(at: f.graph.directory, withIntermediateDirectories: false,
+                                                        attributes: [.posixPermissions: 0o700])
+                try FileManager.default.moveItem(at: original.appending(path: "graph.json"),
+                                                 to: f.graph.directory.appending(path: "graph.json"))
+                return true
+            } catch { Issue.record(error); return false }
+        })
+        #expect(throws: TaskGraphError.changedOnDisk) {
+            try f.interface.updateGraph(using: access) { try $0.setState(.running, for: record.task.id) }
+        }
+        #expect(try f.graph.load().tasks.first?.state == .queued)
+    }
+
+    @Test func graphStoreCallbackCanReadGraph() throws {
+        let f = try Fixture()
+        let graph = f.graph
+        try graph.update { _ in
+            let completed = DispatchSemaphore(value: 0)
+            DispatchQueue.global().async {
+                if (try? graph.load()) != nil { completed.signal() }
+            }
+            #expect(completed.wait(timeout: .now() + 2) == .success)
+        }
+    }
+
     @Test func organizationApprovalDoesNotAuthorizeOtherScopes() throws {
         let f = try Fixture()
         let before = try f.graphData()
@@ -303,8 +414,8 @@ import Testing
     @Test func uncertainInitialGraphWriteRetainsTheTaskIdentifier() throws {
         let f = try Fixture()
         var interface = f.interface
-        interface.writeGraph = { store, edit in
-            let outcome = try store.update(edit)
+        interface.writeGraph = { store, graph, snapshot, details in
+            let outcome = try store.update(graph, expecting: snapshot, commit: { try details.withPublicationApproval($0) })
             #expect(outcome == .saved)
             throw TaskGraphError.replacementUncertain
         }
@@ -324,8 +435,8 @@ import Testing
     func initialGraphInspectionDoesNotPublishDetails(status: TaskGraphWriteResult) throws {
         let f = try Fixture()
         var interface = f.interface
-        interface.writeGraph = { store, edit in
-            let outcome = try store.update(edit)
+        interface.writeGraph = { store, graph, snapshot, details in
+            let outcome = try store.update(graph, expecting: snapshot, commit: { try details.withPublicationApproval($0) })
             #expect(outcome == .saved)
             return status
         }

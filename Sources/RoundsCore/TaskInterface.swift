@@ -90,26 +90,25 @@ public struct TaskInterface: Sendable {
         try $0.writeAuthorized(taskID: $1, expecting: $2, assignment: $3.assignment, result: $3.result,
                                progress: $3.progress, decisions: $3.decisions, at: $4, authorizeTimestamp: $5)
     }
-    var writeGraph: @Sendable (TaskGraphStore, (inout TaskGraph) throws -> Void) throws -> TaskGraphWriteResult = {
-        try $0.update($1)
+    var writeGraph: @Sendable (TaskGraphStore, TaskGraph, GraphSnapshot, TaskDetailStore) throws -> TaskGraphWriteResult = { store, graph, snapshot, details in
+        try store.update(graph, expecting: snapshot, commit: { try details.withPublicationApproval($0) })
     }
 
     public func create(details: TaskDetails, parentID: UUID? = nil, required: Bool = false,
                        dependencies: [UUID] = [], using authorization: TaskStorageAuthorization,
                        at: Date = Date()) throws -> TaskCreationResult {
         let stores = try checkedStores(authorization)
-        var taskID = UUID()
+        let (originalGraph, snapshot) = try stores.graph.loadForUpdate()
+        var graph = originalGraph
+        let taskID = try graph.createTask(parentID: parentID, required: required, at: at)
+        for dependency in dependencies { try graph.addDependency(dependency, to: taskID) }
+        let link = TaskDetailLink(taskID: taskID, previous: .empty, resultChanged: details.result != nil, updatedAt: at)
+        try authorize(.snapshot(graph), using: authorization)
+        try authorize(.detailLink(link), using: authorization)
+        try authorize(details, taskID: taskID, using: authorization)
         let graphWrite: TaskGraphWriteResult
         do {
-            graphWrite = try writeGraph(stores.graph) { graph in
-                taskID = try graph.createTask(parentID: parentID, required: required, at: at)
-                for dependency in dependencies { try graph.addDependency(dependency, to: taskID) }
-                let link = TaskDetailLink(taskID: taskID, previous: .empty, resultChanged: details.result != nil, updatedAt: at)
-                try authorize(.snapshot(graph), using: authorization)
-                try authorize(.detailLink(link), using: authorization)
-                try authorize(details, taskID: taskID, using: authorization)
-                _ = try checkedStores(authorization)
-            }
+            graphWrite = try writeGraph(stores.graph, graph, snapshot, stores.details)
         } catch TaskGraphError.replacementUncertain {
             throw TaskCreationError(taskID: taskID, underlyingError: TaskGraphError.replacementUncertain)
         }
@@ -170,11 +169,11 @@ public struct TaskInterface: Sendable {
     public func updateGraph(using authorization: TaskStorageAuthorization,
                             _ edit: (inout TaskGraph) throws -> Void) throws -> TaskGraphWriteResult {
         let stores = try checkedStores(authorization)
-        return try writeGraph(stores.graph) { graph in
-            try edit(&graph)
-            try authorize(.snapshot(graph), using: authorization)
-            _ = try checkedStores(authorization)
-        }
+        let (originalGraph, snapshot) = try stores.graph.loadForUpdate()
+        var graph = originalGraph
+        try edit(&graph)
+        try authorize(.snapshot(graph), using: authorization)
+        return try writeGraph(stores.graph, graph, snapshot, stores.details)
     }
 
     @discardableResult

@@ -243,9 +243,13 @@ public struct TaskGraphStore: Sendable {
         }
     }
 
+    /// The edit runs outside the lock. A concurrent graph change rejects the write.
     @discardableResult
     public func update(_ edit: (inout TaskGraph) throws -> Void) throws -> TaskGraphWriteResult {
-        try update(edit, commit: { try $0() })
+        let (original, snapshot) = try loadForUpdate()
+        var candidate = original
+        try edit(&candidate)
+        return try update(candidate, expecting: snapshot, commit: { try $0() })
     }
 
     func update(_ edit: (inout TaskGraph) throws -> Void,
@@ -257,6 +261,25 @@ public struct TaskGraphStore: Sendable {
             try TaskGraph.validate(graph.tasks)
             let data = try JSONEncoder().encode(GraphDocument(graph))
             return try commit { try replace(directory, path: self.directory, lock: lock, original: original, data: data) }
+        }
+    }
+
+    func loadForUpdate() throws -> (TaskGraph, GraphSnapshot) {
+        try withLock { directory, _ in
+            guard let snapshot = try readSnapshot(directory, "graph.json") else { throw TaskGraphError.missingGraph }
+            let graph = try decode(snapshot.data)
+            try checkGraphDirectoryIdentity(self.directory, directory)
+            return (graph, snapshot)
+        }
+    }
+
+    func update(_ candidate: TaskGraph, expecting snapshot: GraphSnapshot,
+                commit: (() throws -> TaskGraphWriteResult) throws -> TaskGraphWriteResult) throws -> TaskGraphWriteResult {
+        try withLock { directory, lock in
+            guard try readSnapshot(directory, "graph.json") == snapshot else { throw TaskGraphError.changedOnDisk }
+            try TaskGraph.validate(candidate.tasks)
+            let data = try JSONEncoder().encode(GraphDocument(candidate))
+            return try commit { try replace(directory, path: self.directory, lock: lock, original: snapshot, data: data) }
         }
     }
 
@@ -313,10 +336,12 @@ private func checkGraphDirectoryIdentity(_ path: URL, _ dir: Int32) throws {
           held.st_dev == found.st_dev, held.st_ino == found.st_ino else { throw TaskGraphError.changedOnDisk }
 }
 
-private struct GraphSnapshot: Equatable {
+struct GraphSnapshot: Equatable {
     let data: Data
     let device: dev_t
     let inode: ino_t
+    let directoryDevice: dev_t
+    let directoryInode: ino_t
 }
 
 private func graphPOSIXError(_ code: Int32 = errno) -> POSIXError { POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO) }
@@ -353,9 +378,10 @@ private func readSnapshot(_ dir: Int32, _ name: String) throws -> GraphSnapshot?
     }
     let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
     try checkFile(fd)
-    var info = stat()
-    guard fstat(fd, &info) == 0 else { throw graphPOSIXError() }
-    return try GraphSnapshot(data: handle.readToEnd() ?? Data(), device: info.st_dev, inode: info.st_ino)
+    var info = stat(), directoryInfo = stat()
+    guard fstat(fd, &info) == 0, fstat(dir, &directoryInfo) == 0 else { throw graphPOSIXError() }
+    return try GraphSnapshot(data: handle.readToEnd() ?? Data(), device: info.st_dev, inode: info.st_ino,
+                             directoryDevice: directoryInfo.st_dev, directoryInode: directoryInfo.st_ino)
 }
 
 private func replace(_ dir: Int32, path: URL, lock: Int32, original: GraphSnapshot?, data: Data) throws -> TaskGraphWriteResult {
