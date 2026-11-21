@@ -86,9 +86,9 @@ public struct TaskInterface: Sendable {
 
     public init(workspace: WorkspaceSettingsStore) { self.workspace = workspace }
 
-    var writeRecord: @Sendable (TaskRecordStore, UUID, TaskDetailReference, TaskDetails, Date) throws -> TaskRecordWriteResult = {
-        try $0.write(taskID: $1, expecting: $2, assignment: $3.assignment, result: $3.result,
-                     progress: $3.progress, decisions: $3.decisions, at: $4)
+    var writeRecord: @Sendable (TaskRecordStore, UUID, TaskDetailReference, TaskDetails, Date, (Date) throws -> Void) throws -> TaskRecordWriteResult = {
+        try $0.writeAuthorized(taskID: $1, expecting: $2, assignment: $3.assignment, result: $3.result,
+                               progress: $3.progress, decisions: $3.decisions, at: $4, authorizeTimestamp: $5)
     }
     var writeGraph: @Sendable (TaskGraphStore, (inout TaskGraph) throws -> Void) throws -> TaskGraphWriteResult = {
         try $0.update($1)
@@ -116,7 +116,12 @@ public struct TaskInterface: Sendable {
         guard graphWrite == .saved else { return .graphNeedsInspection(taskID: taskID, graphWrite) }
         do {
             _ = try checkedStores(authorization)
-            let outcome = try writeRecord(stores, taskID, .empty, details, at)
+            let outcome = try writeRecord(stores, taskID, .empty, details, at) { timestamp in
+                if timestamp != at {
+                    try authorize(.detailLink(TaskDetailLink(taskID: taskID, previous: .empty,
+                                                              resultChanged: details.result != nil, updatedAt: timestamp)), using: authorization)
+                }
+            }
             if case .saved(let revisionID) = outcome { return .saved(taskID: taskID, revisionID: revisionID) }
             return .detailsNeedInspection(taskID: taskID, outcome)
         } catch {
@@ -148,11 +153,16 @@ public struct TaskInterface: Sendable {
         var values = TaskDetails(revision)
         try edit(&values)
         let link = TaskDetailLink(taskID: taskID, previous: reference,
-                                  resultChanged: revision.result != values.result, updatedAt: at)
+                                  resultChanged: revision.result != values.result, updatedAt: max(task.updatedAt, at))
         try authorize(.detailLink(link), using: authorization)
         try authorize(values, taskID: taskID, using: authorization)
         _ = try checkedStores(authorization)
-        return try writeRecord(stores, taskID, reference, values, at)
+        return try writeRecord(stores, taskID, reference, values, at) { timestamp in
+            if timestamp != link.updatedAt {
+                try authorize(.detailLink(TaskDetailLink(taskID: taskID, previous: reference,
+                                                          resultChanged: revision.result != values.result, updatedAt: timestamp)), using: authorization)
+            }
+        }
     }
 
     /// Uses the existing graph validation without adding a run-state policy.
@@ -183,8 +193,11 @@ public struct TaskInterface: Sendable {
         let scope = authorization.organizationID.map(WorkspaceScope.organization) ?? .unclassified
         guard let directory = workspace.taskDetailFolder(for: scope) else { throw TaskInterfaceError.storageNotReady }
         guard directory == authorization.detailDirectory else { throw TaskInterfaceError.detailDestinationMismatch }
+        guard let identity = try? workspace.load().detailFolders[scope],
+              identity.path == directory.path else { throw TaskInterfaceError.storageNotReady }
         return TaskRecordStore(graph: TaskGraphStore(directory: authorization.graphDirectory),
-                               details: TaskDetailStore(directory: directory))
+                               details: TaskDetailStore(directory: directory, approvedIdentity: identity,
+                                                        workspace: workspace, scope: scope))
     }
 
     private func authorize(_ values: TaskGraphValues, using authorization: TaskStorageAuthorization) throws {

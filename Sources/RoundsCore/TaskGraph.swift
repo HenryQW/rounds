@@ -101,7 +101,7 @@ public struct TaskGraph: Sendable {
             if resultChanged && (tasks[i].state == .completed || tasks[i].state == .cancelled) {
                 tasks[i].resultViewed = false
             }
-            tasks[i].updatedAt = at
+            tasks[i].updatedAt = max(tasks[i].updatedAt, at)
         }
     }
 
@@ -245,13 +245,18 @@ public struct TaskGraphStore: Sendable {
 
     @discardableResult
     public func update(_ edit: (inout TaskGraph) throws -> Void) throws -> TaskGraphWriteResult {
+        try update(edit, commit: { try $0() })
+    }
+
+    func update(_ edit: (inout TaskGraph) throws -> Void,
+                commit: (() throws -> TaskGraphWriteResult) throws -> TaskGraphWriteResult) throws -> TaskGraphWriteResult {
         try withLock { directory, lock in
             let original = try readSnapshot(directory, "graph.json")
             var graph = try decode(original?.data)
             try edit(&graph)
             try TaskGraph.validate(graph.tasks)
             let data = try JSONEncoder().encode(GraphDocument(graph))
-            return try replace(directory, path: self.directory, lock: lock, original: original, data: data)
+            return try commit { try replace(directory, path: self.directory, lock: lock, original: original, data: data) }
         }
     }
 

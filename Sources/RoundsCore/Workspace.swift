@@ -294,6 +294,19 @@ public struct WorkspaceSettingsStore: Sendable {
         taskDetailFolder(for: organizationID.map(WorkspaceScope.organization) ?? .unclassified) != nil
     }
 
+    /// Holds the settings lock while a cooperating task write uses the approved folder.
+    func withTaskDetailApproval<T>(for scope: WorkspaceScope, wait: Bool = true,
+                                   _ body: (FolderIdentity) throws -> T) throws -> T {
+        try withLock(wait: wait) {
+            let settings = try decode(readData())
+            guard let workspace = settings.workspace,
+                  let inspection = try? inspectWorkspaceFolder(workspace.path),
+                  settings.taskDetailFolder(for: scope, inspection: inspection) != nil,
+                  let identity = settings.detailFolders[scope] else { throw TaskInterfaceError.storageNotReady }
+            return try body(identity)
+        }
+    }
+
     private func decode(_ data: Data?) throws -> WorkspaceSettings {
         guard let data else { return WorkspaceSettings() }
         guard let document = try? JSONDecoder().decode(SettingsDocument.self, from: data), document.version == 1 else {
@@ -328,12 +341,15 @@ public struct WorkspaceSettingsStore: Sendable {
         return try encoder.encode(document)
     }
 
-    private func withLock<T>(_ body: () throws -> T) throws -> T {
+    private func withLock<T>(wait: Bool = true, _ body: () throws -> T) throws -> T {
         guard url.isFileURL else { throw WorkspaceError.invalidFile }
         let lock = open(url.appendingPathExtension("lock").path, O_RDWR | O_CREAT | O_NOFOLLOW, 0o600)
         guard lock >= 0 else { throw workspacePOSIXError() }
         defer { close(lock) }
-        guard flock(lock, LOCK_EX) == 0 else { throw workspacePOSIXError() }
+        guard flock(lock, wait ? LOCK_EX : LOCK_EX | LOCK_NB) == 0 else {
+            if !wait && (errno == EWOULDBLOCK || errno == EAGAIN) { throw WorkspaceError.changedOnDisk }
+            throw workspacePOSIXError()
+        }
         defer { flock(lock, LOCK_UN) }
         return try body()
     }

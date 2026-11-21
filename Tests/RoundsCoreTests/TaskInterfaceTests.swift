@@ -217,7 +217,7 @@ import Testing
         try f.interface.updateGraph(using: f.access()) { try $0.setState(.completed, for: record.task.id) }
         try f.interface.markResultViewed(record.task.id, expecting: record.task.detailReference, using: f.access())
         let before = try f.graphData(), detailsBefore = try f.detailData()
-        let time = Date(timeIntervalSince1970: 123)
+        let time = Date().addingTimeInterval(60)
         let reviseAccess = f.access(allowsGraph: { values, destination in
             guard case .detailLink(let link) = values else { Issue.record("Missing detail link authority"); return false }
             #expect(destination == f.graph.directory)
@@ -342,7 +342,7 @@ import Testing
     func detailInspectionRetainsThePublishedRevision(status: TaskDetailDurability) throws {
         let f = try Fixture()
         var interface = f.interface
-        interface.writeRecord = { store, taskID, _, details, _ in
+        interface.writeRecord = { store, taskID, _, details, _, _ in
             let published = try store.details.write(taskID: taskID, assignment: details.assignment,
                                                     result: details.result, progress: details.progress, decisions: details.decisions)
             #expect(published.durability == .saved)
@@ -372,7 +372,7 @@ import Testing
     func linkedGraphInspectionRetainsTheRevision(status: TaskGraphWriteResult) throws {
         let f = try Fixture()
         var interface = f.interface
-        interface.writeRecord = { store, taskID, previous, details, at in
+        interface.writeRecord = { store, taskID, previous, details, at, _ in
             let outcome = try store.write(taskID: taskID, expecting: previous, assignment: details.assignment,
                                           result: details.result, progress: details.progress, decisions: details.decisions, at: at)
             guard case .saved(let revisionID) = outcome else { Issue.record("Fixture write failed"); return outcome }
@@ -442,10 +442,187 @@ import Testing
         #expect(current.details?.result == concurrentResult)
     }
 
+    @Test func replacementAfterReadinessCannotReceiveDetails() throws {
+        let f = try Fixture()
+        let record = try f.create(values)
+        let directory = f.details.directory
+        let original = f.root.appending(path: "original")
+        var interface = f.interface
+        interface.writeRecord = { store, taskID, previous, details, at, _ in
+            try FileManager.default.moveItem(at: directory, to: original)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                                    attributes: [.posixPermissions: 0o700])
+            return try store.write(taskID: taskID, expecting: previous, assignment: details.assignment,
+                                   result: details.result, progress: details.progress, decisions: details.decisions, at: at)
+        }
+        #expect(throws: (any Error).self) {
+            try interface.revise(record.task.id, expecting: record.task.detailReference, using: f.access()) {
+                $0.progress.append(TaskProgress(summary: "Private", actor: "Test", time: .distantPast))
+            }
+        }
+        #expect(try f.detailData().isEmpty)
+        #expect(try f.graph.load().tasks.first?.detailReference == record.task.detailReference)
+    }
+
+    @Test func withdrawalBeforePublicationRejectsDetails() throws {
+        let f = try Fixture()
+        let record = try f.create(values)
+        let settings = f.settings
+        let scope = WorkspaceScope.organization(f.organizationID)
+        var interface = f.interface
+        interface.writeRecord = { store, taskID, previous, details, at, _ in
+            try settings.update { $0.withdrawApproval(for: scope) }
+            return try store.write(taskID: taskID, expecting: previous, assignment: details.assignment,
+                                   result: details.result, progress: details.progress, decisions: details.decisions, at: at)
+        }
+        #expect(throws: TaskInterfaceError.storageNotReady) {
+            try interface.revise(record.task.id, expecting: record.task.detailReference, using: f.access()) {
+                $0.progress.append(TaskProgress(summary: "Private", actor: "Test", time: .distantPast))
+            }
+        }
+        #expect(try f.detailData().count == 1)
+        #expect(try f.graph.load().tasks.first?.detailReference == record.task.detailReference)
+    }
+
+    @Test func concurrentAcknowledgementKeepsItsTimestampAndAuthorizesLink() throws {
+        let f = try Fixture()
+        let record = try f.create(values)
+        let requestTime = Date().addingTimeInterval(60)
+        let later = requestTime.addingTimeInterval(60)
+        var grants: [TaskDetailLink] = []
+        let access = f.access(allowsGraph: { value, _ in
+            guard case .detailLink(let link) = value else { return false }
+            grants.append(link)
+            return true
+        }, allowsDetails: { _, _, _ in
+            do {
+                try f.graph.update {
+                    try $0.setState(.completed, for: record.task.id, at: later)
+                    try $0.markResultViewed(record.task.id, expecting: record.task.detailReference, at: later)
+                }
+                return true
+            } catch { Issue.record(error); return false }
+        })
+        let outcome = try f.interface.revise(record.task.id, expecting: record.task.detailReference, using: access, at: requestTime) {
+            $0.progress.append(TaskProgress(summary: "Progress", actor: "Test", time: requestTime))
+        }
+        guard case .saved = outcome else { Issue.record("Revision was not saved"); return }
+        let task = try #require(f.graph.load().tasks.first)
+        #expect(task.state == .completed && task.resultViewed && task.updatedAt == later)
+        #expect(grants.contains { $0.updatedAt == later })
+    }
+
+    @Test func withdrawalAfterPublicationPreventsLink() throws {
+        let f = try Fixture()
+        let record = try f.create(values)
+        let requestTime = Date().addingTimeInterval(60)
+        let later = requestTime.addingTimeInterval(60)
+        let access = f.access(allowsGraph: { value, _ in
+            guard case .detailLink(let link) = value else { return false }
+            if link.updatedAt == later {
+                do { try f.settings.update { $0.withdrawApproval(for: .organization(f.organizationID)) } }
+                catch { Issue.record(error); return false }
+            }
+            return true
+        }, allowsDetails: { _, _, _ in
+            do { try f.graph.update { try $0.setState(.running, for: record.task.id, at: later) }; return true }
+            catch { Issue.record(error); return false }
+        })
+        do {
+            _ = try f.interface.revise(record.task.id, expecting: record.task.detailReference, using: access, at: requestTime) {
+                $0.progress.append(TaskProgress(summary: "Published before withdrawal", actor: "Test", time: requestTime))
+            }
+            Issue.record("A revision was linked after withdrawal")
+        } catch let error as TaskRecordLinkError {
+            #expect(error.underlyingError as? TaskInterfaceError == .storageNotReady)
+            #expect(try f.details.read(taskID: record.task.id, revisionID: error.revisionID).progress.count == 1)
+        }
+        let task = try #require(f.graph.load().tasks.first)
+        #expect(task.state == .running && task.updatedAt == later && task.detailReference == record.task.detailReference)
+    }
+
+    @Test func authorizesExistingLaterTimestampInsteadOfRequestTime() throws {
+        let f = try Fixture()
+        let record = try f.create(values)
+        let requestTime = Date().addingTimeInterval(60)
+        let later = requestTime.addingTimeInterval(60)
+        try f.graph.update { try $0.setState(.running, for: record.task.id, at: later) }
+        let access = f.access(allowsGraph: { value, _ in
+            guard case .detailLink(let link) = value else { return false }
+            return link.updatedAt == later
+        })
+        let outcome = try f.interface.revise(record.task.id, expecting: record.task.detailReference, using: access, at: requestTime) {
+            $0.progress.append(TaskProgress(summary: "Progress", actor: "Test", time: requestTime))
+        }
+        guard case .saved = outcome else { Issue.record("Revision was not saved"); return }
+        #expect(try f.graph.load().tasks.first?.updatedAt == later)
+    }
+
+    @Test func busySettingsLockLeavesPublishedDetailForInspection() throws {
+        let f = try Fixture()
+        let record = try f.create(values)
+        let requestTime = Date().addingTimeInterval(60)
+        let later = requestTime.addingTimeInterval(60)
+        var heldLock: Int32 = -1
+        defer { if heldLock >= 0 { close(heldLock) } }
+        let access = f.access(allowsGraph: { value, _ in
+            guard case .detailLink(let link) = value else { return false }
+            if link.updatedAt == later {
+                heldLock = open(f.settings.url.appendingPathExtension("lock").path, O_RDWR)
+                guard heldLock >= 0, flock(heldLock, LOCK_EX | LOCK_NB) == 0 else { return false }
+            }
+            return true
+        }, allowsDetails: { _, _, _ in
+            do { try f.graph.update { try $0.setState(.running, for: record.task.id, at: later) }; return true }
+            catch { Issue.record(error); return false }
+        })
+        do {
+            _ = try f.interface.revise(record.task.id, expecting: record.task.detailReference, using: access, at: requestTime) {
+                $0.progress.append(TaskProgress(summary: "Published before contention", actor: "Test", time: requestTime))
+            }
+            Issue.record("A link succeeded while settings were locked")
+        } catch let error as TaskRecordLinkError {
+            #expect(error.underlyingError as? WorkspaceError == .changedOnDisk)
+            #expect(try f.details.read(taskID: record.task.id, revisionID: error.revisionID).progress.count == 1)
+        }
+        #expect(try f.graph.load().tasks.first?.detailReference == record.task.detailReference)
+    }
+
+    @Test func deniedConcurrentTimestampLeavesGraphUnchanged() throws {
+        let f = try Fixture()
+        let record = try f.create(values)
+        let requestTime = Date().addingTimeInterval(60)
+        let later = requestTime.addingTimeInterval(60)
+        let access = f.access(allowsGraph: { value, _ in
+            guard case .detailLink(let link) = value else { return false }
+            return link.updatedAt == requestTime
+        }, allowsDetails: { _, _, _ in
+            do {
+                try f.graph.update {
+                    try $0.setState(.completed, for: record.task.id, at: later)
+                    try $0.markResultViewed(record.task.id, expecting: record.task.detailReference, at: later)
+                }
+                return true
+            } catch { Issue.record(error); return false }
+        })
+        do {
+            _ = try f.interface.revise(record.task.id, expecting: record.task.detailReference, using: access, at: requestTime) {
+                $0.progress.append(TaskProgress(summary: "Progress", actor: "Test", time: requestTime))
+            }
+            Issue.record("An unauthorized timestamp was linked")
+        } catch let error as TaskRecordLinkError {
+            #expect(error.underlyingError as? TaskInterfaceError == .graphNotAuthorized)
+            #expect(try f.details.read(taskID: record.task.id, revisionID: error.revisionID).progress.count == 1)
+        }
+        let task = try #require(f.graph.load().tasks.first)
+        #expect(task.state == .completed && task.resultViewed && task.updatedAt == later)
+        #expect(task.detailReference == record.task.detailReference)
+    }
+
     @Test func linkAuthorityPreservesConcurrentGraphEdits() throws {
         let f = try Fixture()
         let record = try f.create(values)
-        let time = Date(timeIntervalSince1970: 456)
+        let time = Date().addingTimeInterval(60)
         var grants: [TaskDetailLink] = []
         let access = f.access(allowsGraph: { values, _ in
             guard case .detailLink(let link) = values else { Issue.record("Unexpected graph replacement authority"); return false }
