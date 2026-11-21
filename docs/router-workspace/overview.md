@@ -20,12 +20,13 @@ The user gives goals in the Bouncer conversation, makes decisions and reviews re
 - Organization rules, destination consent and outbound checks: [spec 2.7.1](../spec.md#271-organization-boundaries).
 - Workspace setup in Settings > Workspace: [spec 2.7.2](../spec.md#272-workspace-setup). Nothing calls `mayStoreTaskDetails(for:)` until task dispatch exists.
 - The task graph and the task detail store are in the source, but the app does not use them yet. Agent dispatch is not built.
+- [Slice 02a](slices/02-node-harness-host.md) adds the paused Node Host lifecycle and SQLite storage. Bouncer migration remains in 02b; tools remain in 02c.
 
 ## Parts
 
 | Part | Runs where | Holds |
 |---|---|---|
-| Bouncer | A conversation in the Node Host's pi-durable Harness (decision "Bouncer on pi-durable"); until slice 02 a `pi --mode rpc` session stands in | The user's conversation, and dispatch and result tools from Rounds. It does not edit repositories. |
+| Bouncer | A conversation in the Node Host's pi-durable Harness (decision "Bouncer on pi-durable"); until slice 02b a `pi --mode rpc` session stands in | The user's conversation, and dispatch and result tools from Rounds. It does not edit repositories. |
 | Node Host | One Node process that Rounds starts and stops | A [pi-durable](archive/reuse-review.md#pi-durable-checked-2026-11-18) Harness with SQLite storage |
 | Bartender | A conversation in the Harness | The model sees container-use tools only |
 | Barback | A child conversation of its Bartender | The same tool limits; it cannot delegate further |
