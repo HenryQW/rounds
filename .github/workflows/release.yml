@@ -36,7 +36,9 @@ jobs:
         run: scripts/check-tap-token.sh 0
 
       - name: Test
-        run: swift test
+        run: |
+          scripts/test-harness-node.sh
+          swift test
 
       - name: Import the signing identity
         run: scripts/import-identity.sh

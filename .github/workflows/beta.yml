@@ -38,7 +38,9 @@ jobs:
           { echo "TAG=$TAG"; echo "ROUNDS_VERSION=$VERSION"; echo "ROUNDS_SHORT_VERSION=$VERSION beta ($SHA)"; } >> "$GITHUB_ENV"
 
       - name: Test
-        run: swift test
+        run: |
+          scripts/test-harness-node.sh
+          swift test
 
       - name: Import the signing identity
         run: scripts/import-identity.sh

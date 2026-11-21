@@ -21,6 +21,8 @@ public actor NodeHarnessHost {
     private let executable: URL, script: URL, dataFolder: URL
     private let requestWait: Duration, exitWait: Duration
     private var child: pid_t?
+    private var exitStatus: Int32?
+    private var monitorFailure: String?
     private var input: FileHandle?, output: FileHandle?
     private var lock: Int32 = -1
     private var record: HostProcessRecord?
@@ -43,6 +45,7 @@ public actor NodeHarnessHost {
     public func start() async throws -> HarnessHostHealth {
         try await enter()
         defer { busy = false }
+        monitorFailure = nil
         reap()
         if child != nil {
             do { return try await checkedHealth() }
@@ -78,6 +81,23 @@ public actor NodeHarnessHost {
         try await enter()
         defer { busy = false }
         try await cleanup(graceful: true)
+        if let failure = monitorFailure {
+            monitorFailure = nil
+            throw HarnessHostError("The Harness health check failed: \(failure)")
+        }
+    }
+
+    /// Checks the running host until it fails or the caller cancels the monitor.
+    public func monitor(interval: Duration = .seconds(1)) async throws {
+        while true {
+            try await Task.sleep(for: interval)
+            let check = Task.detached { try await self.health() }
+            do { _ = try await check.value } catch {
+                monitorFailure = error.localizedDescription
+                throw error
+            }
+            try Task.checkCancellation()
+        }
     }
 
     private func enter() async throws {
@@ -132,6 +152,7 @@ public actor NodeHarnessHost {
         var pid: pid_t = 0
         try check(posix_spawn(&pid, executable.path, &actions, &attrs, args, env))
         child = pid
+        exitStatus = nil
         input = stdin.fileHandleForWriting
         output = stdout.fileHandleForReading
         try stdin.fileHandleForReading.close()
@@ -187,9 +208,9 @@ public actor NodeHarnessHost {
         }
     }
 
-    private func readLine() async throws -> Data {
+    private func readLine(wait: Duration? = nil) async throws -> Data {
         guard let output else { throw HarnessHostError("The Harness output is closed.") }
-        let deadline = ContinuousClock.now + requestWait
+        let deadline = ContinuousClock.now + (wait ?? requestWait)
         var result = Data(), bytes = [UInt8](repeating: 0, count: 4096)
         while ContinuousClock.now < deadline {
             let count = read(output.fileDescriptor, &bytes, bytes.count)
@@ -211,11 +232,23 @@ public actor NodeHarnessHost {
     }
 
     private func cleanup(graceful: Bool) async throws {
-        if graceful, child != nil { try? write("shutdown", id: UUID().uuidString) }
+        var closeFailure: Error?
+        let closeDeadline = ContinuousClock.now + exitWait
+        if graceful, child != nil {
+            do {
+                let id = UUID().uuidString
+                try write("shutdown", id: id)
+                let response = try JSONDecoder().decode(ShutdownResponse.self, from: await readLine(wait: exitWait))
+                guard response.version == 1, response.id == id, response.command == "shutdown", response.ok,
+                      response.commit == Self.sourceCommit else {
+                    throw HarnessHostError("Invalid Harness shutdown response.")
+                }
+            } catch { closeFailure = error }
+        }
         try input?.close()
         input = nil
         if let record {
-            try await terminate(record, graceful: graceful)
+            try await terminate(record, graceful: graceful, gracefulWait: max(.zero, ContinuousClock.now.duration(to: closeDeadline)))
             try clearRecord()
         }
         reap()
@@ -224,6 +257,7 @@ public actor NodeHarnessHost {
             kill(child, SIGKILL)
             var status: Int32 = 0
             waitpid(child, &status, 0)
+            exitStatus = status
             self.child = nil
         }
         try output?.close()
@@ -233,10 +267,19 @@ public actor NodeHarnessHost {
             close(lock)
             lock = -1
         }
+        if graceful, let status = exitStatus, status != 0 {
+            exitStatus = nil
+            let detail = status & 0x7f == 0 ? "status \(status >> 8)" : "signal \(status & 0x7f)"
+            throw HarnessHostError("The Harness host exited with \(detail). Check host.log.")
+        }
+        exitStatus = nil
+        if let closeFailure {
+            throw HarnessHostError("The Harness close failed: \(closeFailure.localizedDescription)")
+        }
     }
 
-    private func terminate(_ record: HostProcessRecord, graceful: Bool) async throws {
-        if graceful, try await waitForGroup(record, for: exitWait) { return }
+    private func terminate(_ record: HostProcessRecord, graceful: Bool, gracefulWait: Duration? = nil) async throws {
+        if graceful, try await waitForGroup(record, for: gracefulWait ?? exitWait) { return }
         for signal in [SIGTERM, SIGKILL] {
             if try await verifiedMembers(record).isEmpty { reap(); return }
             // members() checks every live member immediately before each group signal.
@@ -271,7 +314,10 @@ public actor NodeHarnessHost {
     private func reap() {
         guard let child else { return }
         var status: Int32 = 0
-        if waitpid(child, &status, WNOHANG) == child { self.child = nil }
+        if waitpid(child, &status, WNOHANG) == child {
+            exitStatus = status
+            self.child = nil
+        }
     }
 }
 
@@ -380,6 +426,13 @@ struct HostProcessIdentity: Codable, Sendable {
     let pid: pid_t
     let seconds: UInt64
     let microseconds: UInt64
+}
+
+private struct ShutdownResponse: Decodable {
+    let version: Int
+    let id, command: String
+    let ok: Bool
+    let commit: String
 }
 
 private struct HostInspectionPending: Error {}

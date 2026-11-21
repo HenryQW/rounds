@@ -35,6 +35,7 @@ final class BouncerModel {
     @ObservationIgnored private var listener: Task<Void, Never>?
     @ObservationIgnored private var host: NodeHarnessHost?
     @ObservationIgnored private var startup: Task<Void, Never>?
+    @ObservationIgnored private var hostMonitor: Task<Void, Never>?
     /// Shutdowns that have not ended, from each Off and quit, so quit waits for a Pi that an earlier Off stops.
     @ObservationIgnored private var shutdowns: [UUID: Task<Void, Never>] = [:]
     /// The session file that Pi reported at start; `sessionFile` once it exists.
@@ -81,11 +82,15 @@ final class BouncerModel {
                                    dataFolder: URL.applicationSupportDirectory.appending(path: "Rounds/harness"))
         }
         adapter = made
+        listen(to: made)
+        launch()
+    }
+
+    private func listen(to adapter: any BouncerAdapter) {
         listener = Task { [weak self] in
             // `stop()` cancels this task on the main actor, so no event of an old adapter reaches the next thread.
-            for await event in made.events where !Task.isCancelled { self?.apply(event) }
+            for await event in adapter.events where !Task.isCancelled { self?.apply(event) }
         }
-        launch()
     }
 
     /// Mode off: the adapter closes Pi (stdin, then signals), and the window closes.
@@ -100,8 +105,10 @@ final class BouncerModel {
     private func shutDown() {
         BouncerWindowController.shared.close()
         guard let adapter else { return }
-        let host = self.host, startup = self.startup
+        let host = self.host, startup = self.startup, monitor = self.hostMonitor
         startup?.cancel()
+        monitor?.cancel()
+        hostMonitor = nil
         self.startup = nil
         self.host = nil
         self.adapter = nil
@@ -112,10 +119,14 @@ final class BouncerModel {
         (thread, models, model) = (BouncerThread(), [], nil)
         let id = UUID()
         shutdowns[id] = Task {
-            await startup?.value
             async let adapterStop: Void = adapter.shutdown()
+            await startup?.value
+            await monitor?.value
             do { try await host?.stop() } catch {
-                thread.apply(.failed("The Harness host did not stop: \(error.localizedDescription)"))
+                let text = "The Harness host did not stop: \(error.localizedDescription)"
+                log.error("\(text, privacy: .public)")
+                appDefaults.set(text, forKey: "bouncerHostShutdownError")
+                thread.apply(.failed(text))
             }
             await adapterStop
             shutdowns[id] = nil
@@ -124,17 +135,42 @@ final class BouncerModel {
 
     /// Start Again in the exit banner.
     func launch() {
-        guard let adapter, startup == nil else { return }
-        let host = self.host, earlierStops = Array(shutdowns.values)
+        guard adapter != nil, startup == nil else { return }
+        let host = self.host, earlierStops = Array(shutdowns.values), monitor = hostMonitor
+        hostMonitor = nil
+        monitor?.cancel()
         startup = Task {
-            defer { if self.adapter === adapter { startup = nil } }
+            defer { if !Task.isCancelled { startup = nil } }
+            await monitor?.value
+            guard !Task.isCancelled, let adapter = self.adapter else { return }
             do {
                 for task in earlierStops { await task.value }
                 try Task.checkCancellation()
                 if let host { _ = try await host.start() }
                 try Task.checkCancellation()
                 try await adapter.start()
-                if self.adapter === adapter { running = true }
+                if self.adapter === adapter {
+                    running = true
+                    if let host {
+                        hostMonitor = Task {
+                            do { try await host.monitor() } catch {
+                                guard !(error is CancellationError), self.adapter === adapter else { return }
+                                running = false
+                                listener?.cancel()
+                                listener = nil
+                                thread.apply(.exited("The Harness host stopped: \(error.localizedDescription)"))
+                                await adapter.shutdown()
+                                guard self.adapter === adapter else { return }
+                                if let replacement = makeAdapter() {
+                                    self.adapter = replacement
+                                    listen(to: replacement)
+                                } else {
+                                    self.adapter = nil
+                                }
+                            }
+                        }
+                    }
+                }
             } catch {
                 fail("The Bouncer did not start: \(error.localizedDescription)", from: adapter)
             }
@@ -204,6 +240,10 @@ final class BouncerModel {
         default: break
         }
         thread.apply(event)
+        if case .started = event, let error = appDefaults.string(forKey: "bouncerHostShutdownError") {
+            appDefaults.removeObject(forKey: "bouncerHostShutdownError")
+            thread.apply(.failed(error))
+        }
     }
 
     private func recordSessionFile() {

@@ -17,11 +17,11 @@ private struct HarnessFixture {
         echo $$ > "$folder/fixture-pid"
         \(behavior)
         while IFS= read -r line; do
-            case "$line" in
-                *shutdown*) echo shutdown > "$folder/stopped"; exit 0 ;;
-            esac
             id=${line#*'"id":"'}
             id=${id%%'"'*}
+            case "$line" in
+                *shutdown*) echo shutdown > "$folder/stopped"; printf '{"version":1,"id":"%s","command":"shutdown","ok":true,"commit":"\(NodeHarnessHost.sourceCommit)"}\\n' "$id"; exit 0 ;;
+            esac
             printf '{"version":1,"id":"%s","command":"health","ok":true,"commit":"\(NodeHarnessHost.sourceCommit)","scheduling":"paused"}\\n' "$id"
         done
         """.write(to: script, atomically: true, encoding: .utf8)
@@ -101,6 +101,136 @@ private func withHarness(_ fixture: HarnessFixture, requestWait: Duration = .sec
         #expect(try await host.start().ok)
         #expect(try fixture.record().pid != first.pid)
         #expect(try first.members().isEmpty)
+        await #expect(throws: (any Error).self) { try await host.stop() }
+    }
+}
+
+@Test func harnessHostReportsUnexpectedExit() async throws {
+    let fixture = try HarnessFixture()
+    try await withHarness(fixture) { host in
+        _ = try await host.start()
+        let record = try fixture.record()
+        let monitor = Task { try await host.monitor(interval: .milliseconds(20)) }
+        kill(record.pid, SIGKILL)
+        await #expect(throws: (any Error).self) { try await monitor.value }
+        #expect(try record.members().isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: fixture.folder.appending(path: "host-process.json").path))
+        await #expect(throws: (any Error).self) { try await host.stop() }
+    }
+}
+
+@Test func harnessMonitorCancellationKeepsShutdownCooperative() async throws {
+    let fixture = try HarnessFixture("""
+        count=0
+        while IFS= read -r line; do
+            id=${line#*'"id":"'}
+            id=${id%%'"'*}
+            case "$line" in
+                *shutdown*) printf '{"version":1,"id":"%s","command":"shutdown","ok":true,"commit":"\(NodeHarnessHost.sourceCommit)"}\\n' "$id"; exit 0 ;;
+            esac
+            count=$((count + 1))
+            if [ "$count" -gt 1 ]; then
+                echo checking > "$folder/checking"
+                /bin/sleep 0.2
+            fi
+            printf '{"version":1,"id":"%s","command":"health","ok":true,"commit":"\(NodeHarnessHost.sourceCommit)","scheduling":"paused"}\\n' "$id"
+        done
+        """)
+    try await withHarness(fixture) { host in
+        _ = try await host.start()
+        let monitor = Task { try await host.monitor(interval: .milliseconds(20)) }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !FileManager.default.fileExists(atPath: fixture.folder.appending(path: "checking").path),
+              ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(FileManager.default.fileExists(atPath: fixture.folder.appending(path: "checking").path))
+        monitor.cancel()
+        await #expect(throws: CancellationError.self) { try await monitor.value }
+        try await host.stop()
+    }
+}
+
+@Test func harnessMonitorRetainsFailureDuringCancellation() async throws {
+    let fixture = try HarnessFixture("""
+        count=0
+        while IFS= read -r line; do
+            id=${line#*'"id":"'}
+            id=${id%%'"'*}
+            count=$((count + 1))
+            if [ "$count" -gt 1 ]; then
+                echo checking > "$folder/checking"
+                /bin/sleep 0.1
+                exit 1
+            fi
+            printf '{"version":1,"id":"%s","command":"health","ok":true,"commit":"\(NodeHarnessHost.sourceCommit)","scheduling":"paused"}\\n' "$id"
+        done
+        """)
+    try await withHarness(fixture) { host in
+        _ = try await host.start()
+        let monitor = Task { try await host.monitor(interval: .milliseconds(20)) }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !FileManager.default.fileExists(atPath: fixture.folder.appending(path: "checking").path),
+              ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(FileManager.default.fileExists(atPath: fixture.folder.appending(path: "checking").path))
+        monitor.cancel()
+        await #expect(throws: (any Error).self) { try await monitor.value }
+        do {
+            try await host.stop()
+            Issue.record("Health failure was lost")
+        } catch {
+            #expect(error.localizedDescription.contains("health check failed"))
+        }
+    }
+}
+
+@Test func harnessHostRejectsInvalidShutdownReply() async throws {
+    let fixture = try HarnessFixture("""
+        while IFS= read -r line; do
+            id=${line#*'"id":"'}
+            id=${id%%'"'*}
+            case "$line" in
+                *shutdown*) printf '{"version":1,"id":"wrong","command":"shutdown","ok":true,"commit":"\(NodeHarnessHost.sourceCommit)"}\\n'; exit 0 ;;
+            esac
+            printf '{"version":1,"id":"%s","command":"health","ok":true,"commit":"\(NodeHarnessHost.sourceCommit)","scheduling":"paused"}\\n' "$id"
+        done
+        """)
+    try await withHarness(fixture) { host in
+        _ = try await host.start()
+        do {
+            try await host.stop()
+            Issue.record("Invalid shutdown reply was accepted")
+        } catch {
+            #expect(error.localizedDescription.contains("Invalid Harness shutdown response"))
+        }
+    }
+}
+
+@Test(arguments: [false, true])
+func harnessHostReportsFailedClose(afterResponse: Bool) async throws {
+    let fixture = try HarnessFixture("""
+        while IFS= read -r line; do
+            id=${line#*'"id":"'}
+            id=${id%%'"'*}
+            case "$line" in
+                *shutdown*)
+                    if \(afterResponse ? "true" : "false"); then
+                        printf '{"version":1,"id":"%s","command":"shutdown","ok":true,"commit":"\(NodeHarnessHost.sourceCommit)"}\\n' "$id"
+                    fi
+                    exit 1 ;;
+            esac
+            printf '{"version":1,"id":"%s","command":"health","ok":true,"commit":"\(NodeHarnessHost.sourceCommit)","scheduling":"paused"}\\n' "$id"
+        done
+        """)
+    try await withHarness(fixture) { host in
+        _ = try await host.start()
+        let record = try fixture.record()
+        do {
+            try await host.stop()
+            Issue.record("Failed close was accepted")
+        } catch {
+            #expect(error.localizedDescription.contains("status 1"))
+        }
+        #expect(try record.members().isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: fixture.folder.appending(path: "host-process.json").path))
     }
 }
 
@@ -174,7 +304,7 @@ private let stubborn = """
         let record = try fixture.record()
         let child = try Int32(String(contentsOf: fixture.folder.appending(path: "fixture-child"), encoding: .utf8)
             .trimmingCharacters(in: .whitespacesAndNewlines))!
-        try await host.stop()
+        await #expect(throws: (any Error).self) { try await host.stop() }
         #expect(HostProcessRecord.info(record.pid) == nil)
         #expect(HostProcessRecord.info(child).map { $0.pbi_status == SZOMB } ?? true)
         #expect(try record.members().isEmpty)
@@ -198,7 +328,7 @@ private let stubborn = """
         #expect(try record.members().isEmpty)
         #expect(try next.record().pid != record.pid)
         try await replacement.stop()
-        try await original.stop()
+        await #expect(throws: (any Error).self) { try await original.stop() }
     } catch {
         try? await replacement.stop()
         try? await original.stop()
