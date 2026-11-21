@@ -187,12 +187,20 @@ Claude Code's record of a session's messages.
 ## Window
 
 **Pill**:
-The tab at a screen edge that shows the counts and opens the session window. It shows the Your Turn count: red while a session in it failed, orange while one needs input, and green while it holds only results (Ready, Finished, Stopped); with no Your Turn session it turns blue with the running count while sessions run. It rings (peeks out) only while a wait is not yet seen. It is the app's only entry point.
+The tab at a screen edge that shows the counts and opens the session window. It shows the Your Turn count: red while a session in it failed, orange while one needs input, and green while it holds only results (Ready, Finished, Stopped); with no Your Turn session it turns blue with the running count while sessions run. It rings (peeks out) only while a wait is not yet seen. It is the app's only entry point. In Bouncer mode it shows only what waits for the user in the Bouncer: orange with that count, ringing while anything waits, else empty and still; a click opens the Bouncer Window.
 _Avoid_: handle, badge, edge tab
 
 **Session window**:
 The window that slides out from the pill's edge with the filter bar and the list.
 _Avoid_: drawer, panel, popover
+
+**Bouncer**:
+In Bouncer mode (Settings > General), the agent that the user talks to in the Bouncer Window. The role is in Planned coordination roles.
+_Avoid_: router agent
+
+**Bouncer Window**:
+The normal window that a click on the pill opens in Bouncer mode. It holds the Bouncer conversation, the questions and approvals that wait for the user, and the composer.
+_Avoid_: Task View, chat window
 
 **Filter bar**:
 The tiles and agent toggles above the list.

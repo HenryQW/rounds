@@ -2,15 +2,15 @@
 
 ## Goal
 
-Rounds starts and stops one Node Host that runs a pi-durable Harness, ready to hold Bartenders and Barbacks.
+Rounds starts and stops one Node Host that runs a pi-durable Harness. The Bouncer moves into it, and it is ready to hold Bartenders and Barbacks.
 
 ## State
 
-Brief, 2026-11-19. No open owner decision.
+Brief, 2026-11-20. No open owner decision.
 
 ## Depends
 
-None in code. It follows [slice 01](01-bouncer-mode.md) in the build order.
+Slice 01: the `BouncerAdapter` protocol and the Bouncer Window.
 
 ## Builds
 
@@ -18,11 +18,12 @@ None in code. It follows [slice 01](01-bouncer-mode.md) in the build order.
 - SQLite storage in an approved folder.
 - Magpie models.
 - The pinned container-use wrapper: a small stdio MCP server with 12 tools, without `environment_checkpoint`, and with `environment_source` pinned to the task repository.
+- The Bouncer as a Harness conversation with no tools, and a Rounds protocol between the Bouncer Window and the Node Host: messages, text deltas, tool steps, questions and answers, model list, stop. A durable adapter replaces `PiRPCBouncer`, which this slice deletes with its tests.
 - On start, Rounds kills any leftover MCP process group before `resume()`. After a `kill -9` during a tool, the orphaned `container-use stdio` child finished the command.
 
 ## Decided
 
-- Decisions "pi-durable Harness for Bartenders and Barbacks", "Build on unreleased pi-durable" and "Option 3: container-use for all agent work" ([decisions.md](../decisions.md)).
+- Decisions "Bouncer on pi-durable", "pi-durable Harness for Bartenders and Barbacks", "Build on unreleased pi-durable" and "Option 3: container-use for all agent work" ([decisions.md](../decisions.md)).
 - Build pi-durable in a folder with no symbolic link in its path. Under `/tmp` (a link to `/private/tmp`) TypeScript loads the same file twice and `harness.ts(202,49)` fails with TS2322.
 - Preview packages at `pkg.earendil.com` need a login (HTTP 401), so Rounds cannot use them.
 - The new database format cannot go back to 1.5.2, so keep no data from earlier probes.

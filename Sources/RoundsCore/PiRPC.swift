@@ -48,6 +48,12 @@ public func decodePiRPC(_ line: Data) -> PiRPCRecord {
             }
             return .state(id: id, sessionFile: data["sessionFile"] as? String, model: model)
         }
+        if success, command == "get_available_models", let models = data?["models"] as? [[String: Any]] {
+            return .event(.models(models.compactMap { m in
+                guard let provider = m["provider"] as? String, let id = m["id"] as? String else { return nil }
+                return provider + "/" + id
+            }))
+        }
         if success, command == "get_messages", let messages = data?["messages"] as? [[String: Any]] {
             return .messages(id: id, messages.flatMap(piItems))
         }

@@ -6,7 +6,7 @@ Rounds gets a Bouncer mode. The pill is the Bouncer, and a click on it opens the
 
 ## State
 
-Details, 2026-11-19. No open owner decision. Sub-step 01a is built (RoundsCore only). Next step: build sub-step 01b.
+Details, 2026-11-19. No open owner decision. Sub-steps 01a (RoundsCore) and 01b (mode switch, pill, Bouncer Window) are built. Next step: build sub-step 01c.
 
 ## Depends
 
@@ -17,7 +17,7 @@ None. Organization rules and workspace setup are built ([overview](../overview.m
 - The mode switch.
 - The pill as the Bouncer: it stays still while nothing waits, and bounces only when the Bouncer asks for an approval or an answer.
 - The Bouncer Window: the conversation, results and decisions. Approvals show as inline cards that host code draws, never as model text.
-- The window drives Pi with `pi --mode rpc` through one adapter. Demo data until dispatch exists ([slice 03](03-dispatch-and-results.md)).
+- The window talks to the Bouncer through one adapter. Demo data until dispatch exists ([slice 03](03-dispatch-and-results.md)). The `pi --mode rpc` adapter is temporary: [slice 02](02-node-harness-host.md) replaces it (decision "Bouncer on pi-durable").
 
 ## Decided
 
@@ -105,6 +105,7 @@ public enum BouncerItem: Identifiable, Equatable, Sendable {
 public enum BouncerEvent: Equatable, Sendable {
     case started(sessionFile: String?, isNew: Bool), item(BouncerItem), textDelta(String), toolStep(String)
     case replying(Bool), closed(questionID: String), tasks([BouncerTask]), banner(String?), failed(String), exited(String)
+    case models([String])  // get_available_models, each "provider/id", for the Model menu; the thread ignores it
 }
 public struct BouncerThread: Equatable, Sendable {
     public private(set) var items: [BouncerItem]; public private(set) var tasks: [BouncerTask]
@@ -116,7 +117,7 @@ public struct BouncerThread: Equatable, Sendable {
     public var waitingCount: Int  // open questions + undecided approvals
 }
 public enum BouncerSetupStep: Equatable, Sendable { case chooseWorkspace, confirmRemotes, installPi }
-public func bouncerSetupSteps(workspace: WorkspaceSettings, isWorkspace: Bool, remotes: [WorkspaceRemote], piPath: String?) -> [BouncerSetupStep]
+public func bouncerSetupSteps(workspace: WorkspaceSettings, isWorkspace: Bool, remotes: [WorkspaceRemote]?, piPath: String?) -> [BouncerSetupStep]
 public func otherWaits(_ sessions: [SessionRow], bouncerSessionFile: String?) -> [SessionRow]
 
 // RoundsCore/PiRPC.swift
@@ -159,11 +160,11 @@ App side: `BouncerModel.shared` holds `thread: BouncerThread`, `adapter: any Bou
 - Mode: `bouncerMode` off keeps today's app. On, `BouncerModel.start()` makes the adapter; Off calls `shutdown()` and closes the window.
 - Pill (`EdgePill`): in Bouncer mode it shows the Bouncer state only. `pillWaiting` 0: the empty clear glass tab of today, still, no number. More than 0: orange (`systemOrange`, ink #2B1A00) with the number; `RingingTab` peeks every 2 s with the ring. Reduce Motion: orange and still. `EdgeDrawer.observe` tracks `pillWaiting` and `bouncerMode` as it tracks `ringing`, for the larger panel size.
 - Click: `EdgeDrawer.open(display:)` calls `BouncerWindowController.shared.show()` in Bouncer mode. The focus goes to the title of the first undecided approval card, else option 1 of the first open question, else the prompt box.
-- Pi adapter: `pi --mode rpc` plus `bouncerArguments`, which always adds the no-tools flags (see Decided). The adapter builds the arguments itself. A command without a response in 10 s fails with `noAnswer`. A recorded session file that exists adds `--session <file>`; a missing file starts a new session and a note "New conversation. The earlier Bouncer session file is missing." Any other launch error shows in the banner and keeps the thread (CONTEXT.md, Bouncer Session). After start: `get_state` gives `sessionFile`, saved as `bouncerSessionFile`; `get_messages` fills the thread.
+- Pi adapter: `pi --mode rpc` plus `bouncerArguments`, which always adds the no-tools flags (see Decided). The adapter builds the arguments itself. A command without a response in 10 s fails with `noAnswer`. A recorded session file that exists adds `--session <file>`; a missing file starts a new session and a note "New conversation. The earlier Bouncer session file is missing." Any other launch error shows in the banner and keeps the thread (CONTEXT.md, Bouncer Session). After start: `get_state` gives `sessionFile`, saved as `bouncerSessionFile` once the file exists (Pi writes a new session file after the first reply); `get_messages` fills the thread; `get_available_models` gives `.models` for the Model menu.
 - Stream: assistant `message_update` text deltas grow the current reply; `tool_execution_start` adds a tool step to it; only `agent_settled` sets `replying` to false (`agent_end` can be followed by a retry). While a reply runs, the send button is a stop button that sends `abort`; `agent_settled` with `aborted: true` adds the "stopped" item; the window sends no prompt then, because Pi rejects a `prompt` during a run without `streamingBehavior`.
 - Dialogs: `extension_ui_request` `select` gives a question with its options in order; `confirm` gives Yes and No; `input` and `editor` give a question with a text field. The answer goes back as `extension_ui_response` with the same `id` (`value`, `confirmed` or `cancelled: true`). A request with `timeout`: when Pi resolves it, the card shows "Pi closed this question." and stops counting. `notify` gives a note; `setStatus`, `setWidget`, `setTitle` and `set_editor_text` are ignored.
-- Exit: Rounds closes stdin at quit or Off, then sends SIGTERM after 5 s and SIGKILL after 5 s more, because Pi ignores a single signal during its shutdown. An unexpected exit shows the last stderr lines in the banner with Start Again.
-- Set Up row: `bouncerSetupSteps` from `WorkspaceSettingsState` and the `pi` path; it shows above the tasks only when a step is missing. A click opens Settings on the Workspace or Agents page (`SettingsState.page`). The adapter starts only with no step missing.
+- Exit: Rounds closes stdin at quit or Off (quit also waits for a stop that an earlier Off started), then sends SIGTERM after 5 s and SIGKILL after 5 s more, because Pi ignores a single signal during its shutdown. An unexpected exit shows the last stderr lines in the banner with Start Again.
+- Set Up row: `bouncerSetupSteps` from `WorkspaceSettingsState` and the `pi` path; it shows above the tasks only when a step is missing. A click opens Settings on the Workspace or Agents page (`SettingsState.page`). The adapter starts only with no step missing; `remotes` is nil until the check of the workspace folder finds a repository, so Pi does not start before that check ends.
 - Host note: `otherWaits(AppModel.shared.allGroups.sessions, ...)` gives the sessions that need input or failed, without the Bouncer's own session. 0 hides the button. The popover lists title and state word, "Shown by Rounds; the Bouncer does not see these." and Open Session List (`PanelController.shared.show(.yourTurn)`).
 - Demo: `--demo` makes `DemoBouncer`, which plays the mockup thread: one undecided approval, one open three-option question, so the pill shows 2.
 
@@ -175,7 +176,7 @@ App side: `BouncerModel.shared` holds `thread: BouncerThread`, `adapter: any Bou
 | Esc | Closes, in this order: a menu, the popover, the reply (stop), a sidebar or details overlay below 700 pt |
 | ⌘W | Closes the window; the adapter keeps running |
 
-Accessibility: the pill label is "Bouncer", its value "N waiting for you" or "Nothing waiting", and its hint "Opens the Bouncer Window". Each state dot has its state word in its label. The approval card is one group with a heading; its actions are a list in order. Every control is reachable with Tab and shows the grey hover fill. Reduce Motion stops the pill and the typing dots.
+Accessibility: the pill label is "Bouncer", its value "N waiting for you" or "Nothing waiting", and its hint "Opens the Bouncer Window". Each state dot has its state word in its label. The approval card is one group with a heading; its actions are a list in order. In 01b the card shows only the count of its actions; the ordered action list comes in 01c with `BouncerCards.swift`. Every control is reachable with Tab and shows the grey hover fill. Reduce Motion stops the pill and the typing dots.
 
 Docs in the same commit: 01b changes spec 4 (new components), 5.1 (the pill's menu), 5.4 (General toggle, Keys rows), 5.7 (the pill in Bouncer mode), 2.7 (the Bouncer session folder is not read), 7.1 (the `--demo-scene bouncer` scene), and adds 5.9 Bouncer Window. GLOSSARY.md: the Pill entry, and Bouncer and Bouncer Window under Window. CONTEXT.md: the new names (host note, fact banner, Set Up row) before the code uses them. 01c adds the task, card and details parts to 5.9.
 

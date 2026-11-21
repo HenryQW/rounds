@@ -25,7 +25,7 @@ The user gives goals in the Bouncer conversation, makes decisions and reviews re
 
 | Part | Runs where | Holds |
 |---|---|---|
-| Bouncer | A Pi session that the Bouncer Window drives with `pi --mode rpc` in version one; it moves to pi-durable later | The user's conversation, and dispatch and result tools from Rounds. It does not edit repositories. |
+| Bouncer | A conversation in the Node Host's pi-durable Harness (decision "Bouncer on pi-durable"); until slice 02 a `pi --mode rpc` session stands in | The user's conversation, and dispatch and result tools from Rounds. It does not edit repositories. |
 | Node Host | One Node process that Rounds starts and stops | A [pi-durable](archive/reuse-review.md#pi-durable-checked-2026-11-18) Harness with SQLite storage |
 | Bartender | A conversation in the Harness | The model sees container-use tools only |
 | Barback | A child conversation of its Bartender | The same tool limits; it cannot delegate further |

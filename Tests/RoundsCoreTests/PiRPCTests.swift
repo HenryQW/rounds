@@ -128,6 +128,11 @@ private func json(_ data: Data) throws -> [String: Any] {
         == .response(id: nil, command: "parse", success: false, error: "bad"))
 }
 
+@Test func availableModelsGiveTheModelMenu() {
+    let line = #"{"type":"response","id":"m","command":"get_available_models","success":true,"data":{"models":[{"id":"gpt","name":"GPT","provider":"magpie"},{"name":"No id","provider":"x"},{"id":"sonnet","provider":"anthropic"}]}}"#
+    #expect(decodePiRPC(Data(line.utf8)) == .event(.models(["magpie/gpt", "anthropic/sonnet"])))
+}
+
 private let noTools = ["--no-tools", "--no-extensions", "--no-mcp", "--no-skills", "--no-prompt-templates"]
 
 @Test func reopenUsesTheRecordedSessionOnlyWhenItExists() {

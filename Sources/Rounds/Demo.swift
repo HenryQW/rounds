@@ -23,6 +23,9 @@ enum Demo {
     /// goes as the rows come); window-slide does so 0.1 s into the opening slide.
     private static var quiet: Bool { ["window-quiet", "pill-running", "window-turn", "window-slide"].contains(scene) }
 
+    /// The `bouncer-setup` scene: Bouncer mode with no `pi`, so the Set Up row shows and the Bouncer does not start.
+    static var bouncerSetup: Bool { scene == "bouncer-setup" }
+
     private static func argument(_ name: String) -> String? {
         let args = CommandLine.arguments
         return args.firstIndex(of: name).flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil }
@@ -30,8 +33,11 @@ enum Demo {
 
     /// Called once the app has finished launching. Pill scenes need no window: the drawer shows the pill. `settings` opens
     /// the Settings window; `settings-<page>` opens it at that page (`settings-agents`, `settings-tickets`, `settings-workspace`).
+    /// Scenes that start with `bouncer` turn on Bouncer mode: `bouncer-pill` shows the pill only, `bouncer` opens the Bouncer
+    /// Window, `bouncer-note` also opens its host note, and `bouncer-setup` shows the Set Up row.
     @MainActor static func start() {
         guard isOn else { return }
+        if scene?.hasPrefix("bouncer") == true { BouncerModel.shared.on = true }
         switch argument("--demo-appearance") {
         case "light": NSApp.appearance = NSAppearance(named: .aqua)
         case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -48,6 +54,10 @@ enum Demo {
                     if let menu = NSApp.mainMenu?.items.first?.submenu, let item = menu.items.firstIndex(where: { $0.keyEquivalent == "," }) {
                         menu.performActionForItem(at: item)
                     }
+                }
+                if scene?.hasPrefix("bouncer") == true, scene != "bouncer-pill" {
+                    BouncerWindowController.shared.show()
+                    if scene == "bouncer-note" { BouncerWindowController.shared.state.hostNote = true }
                 }
                 if scene?.hasPrefix("window") == true {
                     if scene == "window-children" { PanelController.shared.state.expanded = ["demo-parser", "demo-notes"] }

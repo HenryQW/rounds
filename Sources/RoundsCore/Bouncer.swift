@@ -93,8 +93,11 @@ public enum BouncerItem: Identifiable, Equatable, Sendable {
 }
 
 public enum BouncerEvent: Equatable, Sendable {
-    case started(sessionFile: String?, isNew: Bool), item(BouncerItem), textDelta(String), toolStep(String)
+    /// `model`: the model that Pi runs, "provider/id"; a reopened session keeps its own.
+    case started(sessionFile: String?, isNew: Bool, model: String?), item(BouncerItem), textDelta(String), toolStep(String)
     case replying(Bool), closed(questionID: String), tasks([BouncerTask]), banner(String?), failed(String), exited(String)
+    /// The models for the Model menu, each "provider/id", from `get_available_models`.
+    case models([String])
 }
 
 /// The Bouncer conversation: what the window shows and what the pill counts.
@@ -125,6 +128,8 @@ public struct BouncerThread: Equatable, Sendable {
         case .exited(let text):
             (banner, replying) = (text, false)
             closeQuestions { _ in true }
+        // The window keeps the model list; the thread does not show it.
+        case .models: break
         }
     }
 
@@ -179,10 +184,12 @@ public enum BouncerSetupStep: Equatable, Sendable { case chooseWorkspace, confir
 
 /// The steps that the Set Up row shows, in order; empty when the Bouncer can start.
 /// `isWorkspace`: the recorded folder is the workspace repository now (`WorkspaceSettings.workspaceProblem`).
-public func bouncerSetupSteps(workspace: WorkspaceSettings, isWorkspace: Bool, remotes: [WorkspaceRemote], piPath: String?) -> [BouncerSetupStep] {
+/// `remotes`: nil until a check of the folder finds a repository, so no remote is confirmed before the check ends.
+public func bouncerSetupSteps(workspace: WorkspaceSettings, isWorkspace: Bool, remotes: [WorkspaceRemote]?, piPath: String?) -> [BouncerSetupStep] {
     var steps: [BouncerSetupStep] = []
     if workspace.workspace == nil || !isWorkspace { steps.append(.chooseWorkspace) }
-    else if !workspace.acknowledges(remotes) { steps.append(.confirmRemotes) }
+    else if let remotes { if !workspace.acknowledges(remotes) { steps.append(.confirmRemotes) } }
+    else { steps.append(.chooseWorkspace) }
     if piPath?.isEmpty ?? true { steps.append(.installPi) }
     return steps
 }
@@ -197,4 +204,18 @@ public func otherWaits(_ sessions: [SessionRow], bouncerSessionFile: String?) ->
         return (!isOwn && (state == .needsInput || state == .failed) ? [row] : []) + row.children.flatMap(waits)
     }
     return sessions.flatMap(waits)
+}
+
+/// The Bouncer session file to record. Pi writes a new session file after the first reply, not at start, so only a file
+/// that exists replaces the recorded one: recording it before would call an unused session missing at the next start.
+public func bouncerSessionToRecord(reported: String?, recorded: String?, exists: (String) -> Bool) -> String? {
+    guard let reported, reported != recorded, exists(reported) else { return recorded }
+    return reported
+}
+
+/// The recorded file that is gone, for the "missing" note: only a file that exists is recorded, so a recorded file that
+/// Pi did not reopen (`isNew`) was removed.
+public func missingBouncerSession(recorded: String?, reported: String?, isNew: Bool) -> String? {
+    guard isNew, let recorded, recorded != reported else { return nil }
+    return recorded
 }
