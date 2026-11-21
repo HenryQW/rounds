@@ -47,7 +47,7 @@ private let now = Date(timeIntervalSince1970: 1_800_000_000)
     let tasks = [
         BouncerTask(id: "a", title: "Zulu", repository: "web", organization: "Acme", state: .working, updatedAt: now),
         BouncerTask(id: "b", title: "Alpha", repository: "api", organization: "Acme", state: .needsInput, updatedAt: now),
-        BouncerTask(id: "c", title: "Beta", repository: "web", state: .working, updatedAt: now.addingTimeInterval(1)),
+        BouncerTask(id: "c", title: "Zyzzyva", repository: "web", state: .working, updatedAt: now.addingTimeInterval(1)),
         BouncerTask(id: "d", title: "Old", state: .finished, updatedAt: now, archived: true),
     ]
     let states = bouncerTaskGroups(tasks, archived: false, grouping: .state, sort: .activity)
@@ -55,7 +55,7 @@ private let now = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(states.flatMap(\.tasks).map(\.id) == ["b", "c", "a"])
     let repositories = bouncerTaskGroups(tasks, archived: false, grouping: .repository, sort: .title)
     #expect(repositories.map(\.name) == ["api", "web"])
-    #expect(repositories.flatMap(\.tasks).map(\.id) == ["b", "c", "a"])
+    #expect(repositories.flatMap(\.tasks).map(\.id) == ["b", "a", "c"])
     #expect(bouncerTaskGroups(tasks, archived: false, grouping: .organization, sort: .title).map(\.name) == ["Acme", "No organization"])
     #expect(bouncerTaskGroups(tasks, archived: true, grouping: .none, sort: .activity).flatMap(\.tasks).map(\.id) == ["d"])
     // Equal activity falls back to title, then id, independent of input order.
