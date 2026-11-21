@@ -1,7 +1,8 @@
 #!/bin/sh
 # Build "build/Rounds.app". --install also copies it to /Applications.
 set -e
-cd "$(dirname "$0")/.."
+cd -P "$(dirname "$0")/.."
+scripts/build-harness-host.sh
 swift build -c release
 BIN="$(swift build -c release --show-bin-path)"
 APP="build/Rounds.app"
@@ -9,6 +10,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN/Rounds" "$APP/Contents/MacOS/Rounds"
 cp "$BIN/rounds-hook" "$APP/Contents/Helpers/rounds-hook"
+cp -R .build/harness-host "$APP/Contents/Helpers/harness-host"
 ditto "$BIN/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 # VERSION is the one place the version lives; Settings reads it from there, and Sparkle compares CFBundleVersion. A beta

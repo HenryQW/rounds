@@ -6,7 +6,9 @@ Rounds starts and stops one Node Host that runs a pi-durable Harness. The Bounce
 
 ## State
 
-Details, 2026-11-22. Build only 02a first. The items under Open remain open.
+Details, 2026-11-22. Built: 02a lifecycle. The items under Open remain open. Parts 02b and 02c remain planned.
+
+Built files and checks are in the [02a walkthrough](02/walkthrough/README.md).
 
 ## Depends
 
@@ -35,6 +37,8 @@ Slice 01: the `BouncerAdapter` protocol and the Bouncer Window.
 - *default*: 02a builds the process lifecycle only. Keep `PiRPCBouncer` until 02b replaces it. No Harness conversation or scheduling starts in 02a.
 - *default*: Store 02a data in `~/Library/Application Support/Rounds/harness/`. Keep the database separate from earlier probes and Bouncer session files.
 - *default*: Bundle a local Node executable and the compiled host with the app. Build from the pinned source; do not download preview packages.
+- *default*: Packaging builds its own payload. Use `ROUNDS_PI_SOURCE` for a verified local source, or fetch the exact pin into this worktree.
+- *default*: Use the first health request as the startup handshake. Save ownership before sending it; input closure ends a launch without a request.
 - *default*: Use standard input and output for a versioned, line-based lifecycle protocol. Standard error holds diagnostics only.
 - *default*: Check the recorded process birth time, user and run marker before signalling its group. Refuse cleanup when ownership cannot be proved.
 - *default*: Leave scheduling paused. Health reads Harness state without creating a conversation, resuming work or calling a model.
@@ -83,7 +87,7 @@ Read these files in the pi source at commit `5a14e69c067d40dfbff4f2fff7d3b34c897
 | Protocol | One JSON object per line, protocol `1`, matching string `id` and `command`. Commands are `health` and `shutdown`. Health returns `ok`, pinned `commit` and `scheduling`. |
 | Harness | `Harness.open(storage, {models: createModels(), registry: createRegistry()}, BACKGROUND_CONTEXT)`. Health calls `inspect`. Shutdown calls `close`. No `root`, `submit` or `resume`. |
 | Storage | `harness.sqlite` under the configured folder. A per-folder lock rejects a second owner. An atomic process record supports cleanup after an abrupt parent exit. |
-| Process group | Create a fresh group before the host executes. Record its leader, birth time and random run marker. Validate live members before each group signal. |
+| Process group | Create a fresh group before the host executes. Record its leader, birth time and argument marker. Record observed descendant births after health. Validate live members before each group signal. |
 | Failure | Startup, invalid health, timeout, early exit and unsafe cleanup throw a clear error. Keep a record when cleanup fails. Never resume work after failed cleanup. |
 | App | Mode off and quit await host cleanup. A mode toggle cannot start a replacement before the previous shutdown ends. Demo mode uses no host. |
 
@@ -93,7 +97,7 @@ Read these files in the pi source at commit `5a14e69c067d40dfbff4f2fff7d3b34c897
 |---|---|
 | Build | Verify the source commit. Export it into this worktree's ignored build folder. Use `cd -P` before dependency installation and compilation. Build the required packages, then bundle the host. |
 | Start | Create the data folder and acquire its lock. Check and clean a recorded leftover group before starting a new host. |
-| Launch | Spawn Node in its own process group, with pipes and a run marker. Save the process record before allowing execution. |
+| Launch | Spawn Node in its own process group, with pipes and an argument marker. Save the record before the first health request. Input closure exits an interrupted launch. |
 | Ready | Open SQLite, then open the Harness. Return health only after both succeed. Swift checks the protocol version, request identity, source commit and paused state. |
 | Running | Keep one host for this mode lifetime. Health reports real Harness inspection. Keep the existing Bouncer adapter separate until 02b. |
 | Stop | Ask for shutdown and close input. Wait for graceful exit, then send `SIGTERM`, then `SIGKILL` after bounded waits. Reap the child and check group members. |
@@ -118,6 +122,9 @@ flowchart LR
 | Leftover group | A replacement cleans the recorded group before launching its new host |
 | Identity mismatch | Cleanup refuses to signal an unrelated live process and preserves the record |
 | Two owners | The folder lock rejects the second owner without stopping the first |
+| Released failed owner | The record remains, but releasing the actor closes its lock; a new owner can read a corrected record |
+| Exited child or closed input | Start Again starts a healthy replacement on its first attempt |
+| Absent process record | Verified stop succeeds and a later start acquires the folder |
 | Real Harness | With a scratch data folder, start the built host, inspect paused state, stop it and check that no Node child remains |
 | Regression proof | Temporarily remove one behavior. Its focused test must fail through `scripts/test.sh`. Restore it before final checks. |
 
@@ -134,6 +141,32 @@ flowchart LR
 | Pinned pi commit | `5a14e69c067d40dfbff4f2fff7d3b34c897e2dc9` |
 | Automated acceptance | All tests through `scripts/test.sh`, full build and `git diff --check` pass |
 | Live acceptance | One real Harness health response; no model request; no live Node descendant after stop |
+
+## Carried
+
+| Part | Remaining work | Takes it |
+|---|---|---|
+| 02b | Model resolution, Bouncer conversation protocol and removal of `PiRPCBouncer` | Slice 02b |
+| 02c | Pinned container tool bridge and its unresolved requirements | Slice 02c |
+
+## Review round 1
+
+| Finding | Action |
+|---|---|
+| Failed cleanup could leave a raw folder lock open after actor release | Close the descriptor in actor destruction; test a new owner after failure |
+| Start Again could need two attempts after a child exit | Reap before reuse; replace a host whose output closed; test the first retry |
+| A crash before record persistence could leave a suspended child | Remove suspended spawn; wait for health before opening storage; close on input end |
+| Packaging required an ignored payload that clean builds did not prepare | Make packaging build the exact source pin, with a local source override |
+
+## Review round 2
+
+| Finding | Action |
+|---|---|
+| A child could close input between the reap check and the health write | Map broken-pipe writes to an exited host; test replacement on the same start call |
+| Failed record persistence could make later cleanup require an absent file | Clear an absent record after verified termination; test stop and restart |
+| Full-suite concurrency exposed delayed lock release | Explicitly unlock before closing the descriptor; the final full suite passes |
+
+The main review checked both new failure paths and their regression tests. No finding remains in 02a.
 
 ## Open
 

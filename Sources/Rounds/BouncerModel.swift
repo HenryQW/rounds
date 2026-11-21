@@ -33,6 +33,8 @@ final class BouncerModel {
     private(set) var running = false
     @ObservationIgnored private var adapter: (any BouncerAdapter)?
     @ObservationIgnored private var listener: Task<Void, Never>?
+    @ObservationIgnored private var host: NodeHarnessHost?
+    @ObservationIgnored private var startup: Task<Void, Never>?
     /// Shutdowns that have not ended, from each Off and quit, so quit waits for a Pi that an earlier Off stops.
     @ObservationIgnored private var shutdowns: [UUID: Task<Void, Never>] = [:]
     /// The session file that Pi reported at start; `sessionFile` once it exists.
@@ -68,6 +70,16 @@ final class BouncerModel {
     func start() {
         guard on, adapter == nil else { return }
         guard setupSteps.isEmpty, let made = makeAdapter() else { return watchSetup() }
+        if !Demo.isOn {
+            let helpers = Bundle.main.bundleURL.appending(path: "Contents/Helpers/harness-host")
+            guard FileManager.default.isExecutableFile(atPath: helpers.appending(path: "node").path),
+                  FileManager.default.fileExists(atPath: helpers.appending(path: "host.mjs").path) else {
+                thread.apply(.failed("The Harness host is missing. Build the app with its host resources."))
+                return
+            }
+            host = NodeHarnessHost(executable: helpers.appending(path: "node"), script: helpers.appending(path: "host.mjs"),
+                                   dataFolder: URL.applicationSupportDirectory.appending(path: "Rounds/harness"))
+        }
         adapter = made
         listener = Task { [weak self] in
             // `stop()` cancels this task on the main actor, so no event of an old adapter reaches the next thread.
@@ -88,6 +100,10 @@ final class BouncerModel {
     private func shutDown() {
         BouncerWindowController.shared.close()
         guard let adapter else { return }
+        let host = self.host, startup = self.startup
+        startup?.cancel()
+        self.startup = nil
+        self.host = nil
         self.adapter = nil
         running = false
         listener?.cancel()
@@ -96,20 +112,31 @@ final class BouncerModel {
         (thread, models, model) = (BouncerThread(), [], nil)
         let id = UUID()
         shutdowns[id] = Task {
-            await adapter.shutdown()
+            await startup?.value
+            async let adapterStop: Void = adapter.shutdown()
+            do { try await host?.stop() } catch {
+                thread.apply(.failed("The Harness host did not stop: \(error.localizedDescription)"))
+            }
+            await adapterStop
             shutdowns[id] = nil
         }
     }
 
     /// Start Again in the exit banner.
     func launch() {
-        guard let adapter else { return }
-        Task {
+        guard let adapter, startup == nil else { return }
+        let host = self.host, earlierStops = Array(shutdowns.values)
+        startup = Task {
+            defer { if self.adapter === adapter { startup = nil } }
             do {
+                for task in earlierStops { await task.value }
+                try Task.checkCancellation()
+                if let host { _ = try await host.start() }
+                try Task.checkCancellation()
                 try await adapter.start()
                 if self.adapter === adapter { running = true }
             } catch {
-                fail("Pi did not start: \(error.localizedDescription)", from: adapter)
+                fail("The Bouncer did not start: \(error.localizedDescription)", from: adapter)
             }
         }
     }
