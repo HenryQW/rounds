@@ -16,6 +16,13 @@ public protocol BouncerAdapter: AnyObject, Sendable {
     func shutdown() async
 }
 
+public extension BouncerAdapter {
+    /// Host recovery must finish stopping Pi even if a restart cancels the monitor.
+    func shutdownAfterHostFailure() async {
+        await Task.detached { await self.shutdown() }.value
+    }
+}
+
 /// `pi --mode rpc` as a child process. It starts and stops only its own child.
 public actor PiRPCBouncer: BouncerAdapter {
     public nonisolated let events: AsyncStream<BouncerEvent>

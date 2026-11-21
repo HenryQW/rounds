@@ -34,6 +34,7 @@ final class BouncerWindowController: NSObject, NSWindowDelegate {
         self.window = window
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        model.windowShown()
         model.focusToken += 1
         keyMonitor = keyMonitor ?? NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.window else { return event }
@@ -101,6 +102,10 @@ final class BouncerWindowController: NSObject, NSWindowDelegate {
             return false
         }
         return true
+    }
+
+    func windowDidDeminiaturize(_ notification: Notification) {
+        BouncerModel.shared.windowShown()
     }
 
     func windowDidResize(_ notification: Notification) {

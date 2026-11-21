@@ -15,6 +15,11 @@ public struct HarnessHostError: LocalizedError, Sendable {
     init(_ message: String) { errorDescription = message }
 }
 
+public struct HarnessMonitorFailure: LocalizedError, Sendable {
+    public let errorDescription: String?
+    init(_ message: String) { errorDescription = "The Harness health check failed: \(message)" }
+}
+
 /// One paused Harness in a Node process group. No conversation or tool runs in slice 02a.
 public actor NodeHarnessHost {
     public static let sourceCommit = "5a14e69c067d40dfbff4f2fff7d3b34c897e2dc9"
@@ -83,9 +88,12 @@ public actor NodeHarnessHost {
         try await cleanup(graceful: true)
         if let failure = monitorFailure {
             monitorFailure = nil
-            throw HarnessHostError("The Harness health check failed: \(failure)")
+            throw HarnessMonitorFailure(failure)
         }
     }
+
+    /// Clears a health failure after the caller shows it to the user.
+    public func acknowledgeMonitorFailure() { monitorFailure = nil }
 
     /// Checks the running host until it fails or the caller cancels the monitor.
     public func monitor(interval: Duration = .seconds(1)) async throws {

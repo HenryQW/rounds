@@ -115,7 +115,8 @@ private func withHarness(_ fixture: HarnessFixture, requestWait: Duration = .sec
         await #expect(throws: (any Error).self) { try await monitor.value }
         #expect(try record.members().isEmpty)
         #expect(!FileManager.default.fileExists(atPath: fixture.folder.appending(path: "host-process.json").path))
-        await #expect(throws: (any Error).self) { try await host.stop() }
+        await host.acknowledgeMonitorFailure()
+        try await host.stop()
     }
 }
 
@@ -177,6 +178,7 @@ private func withHarness(_ fixture: HarnessFixture, requestWait: Duration = .sec
             try await host.stop()
             Issue.record("Health failure was lost")
         } catch {
+            #expect(error is HarnessMonitorFailure)
             #expect(error.localizedDescription.contains("health check failed"))
         }
     }

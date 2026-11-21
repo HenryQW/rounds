@@ -39,6 +39,6 @@ node_modules/.bin/esbuild host.mjs --bundle --platform=node --format=esm \
     --outfile="$ROOT/.build/harness-host/host.mjs" \
     --banner:js='import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);'
 cp "$NODE" "$ROOT/.build/harness-host/node"
-"$ROOT/scripts/check-harness-node.sh" "$ROOT/.build/harness-host/node"
+"$ROOT/scripts/check-harness-node.sh" "$ROOT/.build/harness-host/node" "$ROOT/.build/harness-host/host.mjs" "$PIN"
 printf '%s\n' "$PIN" > "$ROOT/.build/harness-host/commit"
 "$ROOT/.build/harness-host/node" --check "$ROOT/.build/harness-host/host.mjs"

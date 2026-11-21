@@ -124,6 +124,45 @@ private func waitUntil(seconds: Double = 5, _ ok: () -> Bool) async -> Bool {
     return ok()
 }
 
+private actor CancellationProbe: BouncerAdapter {
+    nonisolated let events = AsyncStream<BouncerEvent> { $0.finish() }
+    private(set) var started = false
+    private(set) var wasCancelled = false
+    private var resumeShutdown: CheckedContinuation<Void, Never>?
+
+    func start() async throws {}
+    func send(_ text: String) async throws {}
+    func stop() async {}
+    func answer(_ questionID: String, _ answer: BouncerAnswer) async throws {}
+    func decide(_ approvalID: String, _ decision: ApprovalDecision) async throws {}
+    func checkAgain() async {}
+    func setModel(_ id: String?) async throws {}
+    func shutdown() async {
+        started = true
+        await withCheckedContinuation { resumeShutdown = $0 }
+        wasCancelled = Task.isCancelled
+    }
+    func finishShutdown() { resumeShutdown?.resume(); resumeShutdown = nil }
+}
+
+@Test func hostFailureShutdownSurvivesMonitorCancellation() async throws {
+    let adapter = CancellationProbe()
+    let monitor = Task { await adapter.shutdownAfterHostFailure() }
+    let deadline = ContinuousClock.now + .seconds(2)
+    while !(await adapter.started), ContinuousClock.now < deadline {
+        try await Task.sleep(for: .milliseconds(10))
+    }
+    guard await adapter.started else {
+        monitor.cancel()
+        Issue.record("Shutdown did not start")
+        return
+    }
+    monitor.cancel()
+    await adapter.finishShutdown()
+    await monitor.value
+    #expect(!(await adapter.wasCancelled))
+}
+
 @Test func childExitShowsItsErrorText() async throws {
     let pi = try fakePi(#"read line; echo '{"type":"response","id":"rounds-1","command":"get_state","success":true,"data":{"sessionFile":"/s/a.jsonl"}}'; echo 'pi: no model' >&2; exit 1"#)
     defer { try? FileManager.default.removeItem(at: pi) }

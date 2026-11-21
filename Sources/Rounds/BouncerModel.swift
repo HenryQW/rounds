@@ -36,6 +36,7 @@ final class BouncerModel {
     @ObservationIgnored private var host: NodeHarnessHost?
     @ObservationIgnored private var startup: Task<Void, Never>?
     @ObservationIgnored private var hostMonitor: Task<Void, Never>?
+    @ObservationIgnored private var hostFailureActive = false
     /// Shutdowns that have not ended, from each Off and quit, so quit waits for a Pi that an earlier Off stops.
     @ObservationIgnored private var shutdowns: [UUID: Task<Void, Never>] = [:]
     /// The session file that Pi reported at start; `sessionFile` once it exists.
@@ -82,6 +83,7 @@ final class BouncerModel {
                                    dataFolder: URL.applicationSupportDirectory.appending(path: "Rounds/harness"))
         }
         adapter = made
+        hostFailureActive = false
         listen(to: made)
         launch()
     }
@@ -122,7 +124,11 @@ final class BouncerModel {
             async let adapterStop: Void = adapter.shutdown()
             await startup?.value
             await monitor?.value
-            do { try await host?.stop() } catch {
+            do { try await host?.stop() } catch let error as HarnessMonitorFailure {
+                let text = "The Harness host stopped: \(error.localizedDescription)"
+                log.error("\(text, privacy: .public)")
+                appDefaults.set(text, forKey: "bouncerHostHealthError")
+            } catch {
                 let text = "The Harness host did not stop: \(error.localizedDescription)"
                 log.error("\(text, privacy: .public)")
                 appDefaults.set(text, forKey: "bouncerHostShutdownError")
@@ -151,15 +157,21 @@ final class BouncerModel {
                 try await adapter.start()
                 if self.adapter === adapter {
                     running = true
+                    hostFailureActive = false
                     if let host {
                         hostMonitor = Task {
                             do { try await host.monitor() } catch {
                                 guard !(error is CancellationError), self.adapter === adapter else { return }
                                 running = false
+                                hostFailureActive = true
                                 listener?.cancel()
                                 listener = nil
-                                thread.apply(.exited("The Harness host stopped: \(error.localizedDescription)"))
-                                await adapter.shutdown()
+                                let text = "The Harness host stopped: \(error.localizedDescription)"
+                                appDefaults.set(text, forKey: "bouncerHostHealthError")
+                                thread.apply(.exited(text))
+                                windowShown()
+                                await host.acknowledgeMonitorFailure()
+                                await adapter.shutdownAfterHostFailure()
                                 guard self.adapter === adapter else { return }
                                 if let replacement = makeAdapter() {
                                     self.adapter = replacement
@@ -172,7 +184,11 @@ final class BouncerModel {
                     }
                 }
             } catch {
-                fail("The Bouncer did not start: \(error.localizedDescription)", from: adapter)
+                fail("The Bouncer did not start: \(error.localizedDescription)", from: adapter, duringStartup: true)
+                if !Task.isCancelled {
+                    startup = nil
+                    windowShown()
+                }
             }
         }
     }
@@ -212,7 +228,7 @@ final class BouncerModel {
             do { try await adapter.setModel(id) } catch {
                 guard self.adapter === adapter else { return }
                 model = previous
-                thread.apply(.failed(message(error)))
+                if !hostFailureActive { thread.apply(.failed(message(error))) }
             }
         }
     }
@@ -222,6 +238,19 @@ final class BouncerModel {
         selection = nil
         draft = ""
         focusToken += 1
+    }
+
+    /// Clears a saved host notice only when its banner is visible in the Bouncer window.
+    func windowShown() {
+        guard let window = BouncerWindowController.shared.window, window.isVisible, !window.isMiniaturized,
+              let notice = appDefaults.string(forKey: "bouncerHostHealthError") else { return }
+        if thread.banner?.contains(notice) != true {
+            // A pending Pi request may have replaced the host banner during shutdown.
+            // During startup, wait for `.started` to restore the notice after Pi clears the banner.
+            guard startup == nil else { return }
+            thread.apply(.failed([thread.banner, notice].compactMap { $0 }.joined(separator: "\n")))
+        }
+        appDefaults.removeObject(forKey: "bouncerHostHealthError")
     }
 
     private func apply(_ event: BouncerEvent) {
@@ -240,9 +269,18 @@ final class BouncerModel {
         default: break
         }
         thread.apply(event)
-        if case .started = event, let error = appDefaults.string(forKey: "bouncerHostShutdownError") {
-            appDefaults.removeObject(forKey: "bouncerHostShutdownError")
-            thread.apply(.failed(error))
+        if case .started = event {
+            var notices: [String] = []
+            if let error = appDefaults.string(forKey: "bouncerHostShutdownError") {
+                appDefaults.removeObject(forKey: "bouncerHostShutdownError")
+                notices.append(error)
+            }
+            if let error = appDefaults.string(forKey: "bouncerHostHealthError") { notices.append(error) }
+            if !notices.isEmpty { thread.apply(.failed(notices.joined(separator: "\n"))) }
+            windowShown()
+        } else if case .exited = event, let notice = appDefaults.string(forKey: "bouncerHostHealthError") {
+            thread.apply(.failed([thread.banner, notice].compactMap { $0 }.joined(separator: "\n")))
+            windowShown()
         }
     }
 
@@ -252,8 +290,8 @@ final class BouncerModel {
     }
 
     /// An error of an adapter that `stop()` replaced does not reach the current thread.
-    private func fail(_ text: String, from adapter: any BouncerAdapter) {
-        if self.adapter === adapter { thread.apply(.failed(text)) }
+    private func fail(_ text: String, from adapter: any BouncerAdapter, duringStartup: Bool = false) {
+        if self.adapter === adapter, !hostFailureActive || duringStartup { thread.apply(.failed(text)) }
     }
 
     private func makeAdapter() -> (any BouncerAdapter)? {
