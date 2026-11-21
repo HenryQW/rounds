@@ -1,6 +1,6 @@
 import Foundation
 
-// The Bouncer Window's model (docs/router-workspace/slices/01-bouncer-mode.md). Nothing in the app uses it yet.
+// The Bouncer Window's model (docs/router-workspace/slices/01-bouncer-mode.md).
 
 public enum BouncerError: Error, Equatable {
     /// A rejection needs a reason.
@@ -36,6 +36,34 @@ public struct BouncerTask: Identifiable, Equatable, Sendable {
 
     /// Only a task that ended can go to the archive.
     public var canArchive: Bool { state == .finished || state == .stopped }
+}
+
+public enum BouncerTaskGrouping: String, CaseIterable, Sendable { case state = "State", repository = "Repository", organization = "Organization", none = "None" }
+public enum BouncerTaskSort: String, CaseIterable, Sendable { case activity = "Last Activity", title = "Title" }
+
+/// Sidebar order also supplies the next and previous task keys. Ties use the stable task id.
+public func bouncerTaskGroups(_ tasks: [BouncerTask], archived: Bool, grouping: BouncerTaskGrouping,
+                              sort: BouncerTaskSort) -> [(name: String, tasks: [BouncerTask])] {
+    let ordered = tasks.filter { $0.archived == archived }.sorted {
+        if sort == .activity, $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
+        let comparison = $0.title.localizedStandardCompare($1.title)
+        return comparison == .orderedSame ? $0.id < $1.id : comparison == .orderedAscending
+    }
+    if grouping == .none { return ordered.isEmpty ? [] : [("", ordered)] }
+    func key(_ task: BouncerTask) -> String {
+        switch grouping {
+        case .state: task.state.rawValue
+        case .repository: task.repository ?? "No repository"
+        case .organization: task.organization ?? "No organization"
+        case .none: ""
+        }
+    }
+    let groups = Dictionary(grouping: ordered, by: key)
+    let states: [BouncerTaskState] = [.needsInput, .failed, .working, .finished, .stopped]
+    let keys = grouping == .state ? states.map(\.rawValue).filter { groups[$0] != nil } : groups.keys.sorted {
+        $0.localizedStandardCompare($1) == .orderedAscending
+    }
+    return keys.map { ($0, groups[$0]!) }
 }
 
 public enum BouncerAnswer: Equatable, Sendable { case option(Int), text(String), confirmed(Bool), dismissed }
@@ -82,6 +110,16 @@ public enum BouncerItem: Identifiable, Equatable, Sendable {
     case user(id: String, text: String), reply(id: String, text: String, toolSteps: Int)
     case report(id: String, taskID: String, role: String, text: String, toolSteps: [String])
     case question(BouncerQuestion), approval(ApprovalCard), note(id: String, text: String), stopped(id: String)
+
+    /// Only task reports, questions and approvals belong to a task in slice 01.
+    public var taskID: String? {
+        switch self {
+        case .report(_, let taskID, _, _, _): taskID
+        case .question(let question): question.taskID
+        case .approval(let card): card.taskID
+        default: nil
+        }
+    }
 
     public var id: String {
         switch self {
@@ -147,6 +185,19 @@ public struct BouncerThread: Equatable, Sendable {
               card.decision == nil else { return }
         card.decision = decision
         items[i] = .approval(card)
+    }
+
+    /// Archive is local presentation state. A running or waiting task cannot be hidden.
+    public mutating func setArchived(_ id: String, _ archived: Bool) {
+        guard let i = tasks.firstIndex(where: { $0.id == id }), !archived || tasks[i].canArchive else { return }
+        tasks[i].archived = archived
+    }
+
+    /// The Bouncer shows the active thread; a selected task shows only its own items, including archived history.
+    public func visibleItems(taskID: String?) -> [BouncerItem] {
+        if let taskID { return items.filter { $0.taskID == taskID } }
+        let archived = Set(tasks.filter(\.archived).map(\.id))
+        return items.filter { $0.taskID.map { !archived.contains($0) } ?? true }
     }
 
     /// Open questions and undecided approvals: the number on the pill.
