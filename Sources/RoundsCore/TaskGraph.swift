@@ -236,10 +236,22 @@ public struct TaskGraphStore: Sendable {
     }
 
     public func load() throws -> TaskGraph {
+        try load(expectingDirectory: nil)
+    }
+
+    func load(expectingDirectory identity: GraphDirectoryIdentity?) throws -> TaskGraph {
         try withLock { directory, _ in
+            try identity?.check(directory)
             let graph = try decode(readSnapshot(directory, "graph.json")?.data)
             try checkGraphDirectoryIdentity(self.directory, directory)
             return graph
+        }
+    }
+
+    func pinDirectory() throws -> GraphDirectoryIdentity {
+        try withLock { directory, _ in
+            try checkGraphDirectoryIdentity(self.directory, directory)
+            return try GraphDirectoryIdentity(directory)
         }
     }
 
@@ -253,8 +265,10 @@ public struct TaskGraphStore: Sendable {
     }
 
     func update(_ edit: (inout TaskGraph) throws -> Void,
+                expectingDirectory identity: GraphDirectoryIdentity? = nil,
                 commit: (() throws -> TaskGraphWriteResult) throws -> TaskGraphWriteResult) throws -> TaskGraphWriteResult {
         try withLock { directory, lock in
+            try identity?.check(directory)
             let original = try readSnapshot(directory, "graph.json")
             var graph = try decode(original?.data)
             try edit(&graph)
@@ -265,11 +279,16 @@ public struct TaskGraphStore: Sendable {
     }
 
     func loadForUpdate() throws -> (TaskGraph, GraphSnapshot) {
+        let (graph, snapshot, _) = try loadForRecord()
+        return (graph, snapshot)
+    }
+
+    func loadForRecord() throws -> (TaskGraph, GraphSnapshot, GraphDirectoryIdentity) {
         try withLock { directory, _ in
             guard let snapshot = try readSnapshot(directory, "graph.json") else { throw TaskGraphError.missingGraph }
             let graph = try decode(snapshot.data)
             try checkGraphDirectoryIdentity(self.directory, directory)
-            return (graph, snapshot)
+            return (graph, snapshot, try GraphDirectoryIdentity(directory))
         }
     }
 
@@ -334,6 +353,25 @@ private func checkGraphDirectoryIdentity(_ path: URL, _ dir: Int32) throws {
           found.st_uid == geteuid(), found.st_mode & S_IFMT == S_IFDIR,
           found.st_mode & 0o077 == 0, try noExtendedACL(current),
           held.st_dev == found.st_dev, held.st_ino == found.st_ino else { throw TaskGraphError.changedOnDisk }
+}
+
+/// Holds the original directory open until the record operation ends.
+final class GraphDirectoryIdentity: @unchecked Sendable {
+    private let handle: FileHandle
+
+    init(_ directory: Int32) throws {
+        let duplicate = fcntl(directory, F_DUPFD_CLOEXEC, 0)
+        guard duplicate >= 0 else { throw graphPOSIXError() }
+        handle = FileHandle(fileDescriptor: duplicate, closeOnDealloc: true)
+    }
+
+    func check(_ directory: Int32) throws {
+        var original = stat(), current = stat()
+        guard fstat(handle.fileDescriptor, &original) == 0, fstat(directory, &current) == 0,
+              original.st_dev == current.st_dev, original.st_ino == current.st_ino else {
+            throw TaskGraphError.changedOnDisk
+        }
+    }
 }
 
 struct GraphSnapshot: Equatable {

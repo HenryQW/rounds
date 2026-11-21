@@ -86,9 +86,9 @@ public struct TaskInterface: Sendable {
 
     public init(workspace: WorkspaceSettingsStore) { self.workspace = workspace }
 
-    var writeRecord: @Sendable (TaskRecordStore, UUID, TaskDetailReference, TaskDetails, Date, (Date) throws -> Void) throws -> TaskRecordWriteResult = {
+    var writeRecord: @Sendable (TaskRecordStore, UUID, TaskDetailReference, TaskDetails, Date, GraphDirectoryIdentity, (Date) throws -> Void) throws -> TaskRecordWriteResult = {
         try $0.writeAuthorized(taskID: $1, expecting: $2, assignment: $3.assignment, result: $3.result,
-                               progress: $3.progress, decisions: $3.decisions, at: $4, authorizeTimestamp: $5)
+                               progress: $3.progress, decisions: $3.decisions, at: $4, graphIdentity: .success($5), authorizeTimestamp: $6)
     }
     var writeGraph: @Sendable (TaskGraphStore, TaskGraph, GraphSnapshot, TaskDetailStore) throws -> TaskGraphWriteResult = { store, graph, snapshot, details in
         try store.update(graph, expecting: snapshot, commit: { try details.withPublicationApproval($0) })
@@ -98,7 +98,7 @@ public struct TaskInterface: Sendable {
                        dependencies: [UUID] = [], using authorization: TaskStorageAuthorization,
                        at: Date = Date()) throws -> TaskCreationResult {
         let stores = try checkedStores(authorization)
-        let (originalGraph, snapshot) = try stores.graph.loadForUpdate()
+        let (originalGraph, snapshot, graphIdentity) = try stores.graph.loadForRecord()
         var graph = originalGraph
         let taskID = try graph.createTask(parentID: parentID, required: required, at: at)
         for dependency in dependencies { try graph.addDependency(dependency, to: taskID) }
@@ -115,7 +115,7 @@ public struct TaskInterface: Sendable {
         guard graphWrite == .saved else { return .graphNeedsInspection(taskID: taskID, graphWrite) }
         do {
             _ = try checkedStores(authorization)
-            let outcome = try writeRecord(stores, taskID, .empty, details, at) { timestamp in
+            let outcome = try writeRecord(stores, taskID, .empty, details, at, graphIdentity) { timestamp in
                 if timestamp != at {
                     try authorize(.detailLink(TaskDetailLink(taskID: taskID, previous: .empty,
                                                               resultChanged: details.result != nil, updatedAt: timestamp)), using: authorization)
@@ -144,7 +144,7 @@ public struct TaskInterface: Sendable {
                        using authorization: TaskStorageAuthorization, at: Date = Date(),
                        _ edit: (inout TaskDetails) throws -> Void) throws -> TaskRecordWriteResult {
         let stores = try checkedStores(authorization)
-        let graph = try stores.graph.load()
+        let (graph, _, graphIdentity) = try stores.graph.loadForRecord()
         let task = try task(taskID, in: graph)
         guard task.detailReference == reference else { throw TaskGraphError.changedOnDisk }
         let record = try read(taskID, from: graph, details: stores.details)
@@ -156,7 +156,7 @@ public struct TaskInterface: Sendable {
         try authorize(.detailLink(link), using: authorization)
         try authorize(values, taskID: taskID, using: authorization)
         _ = try checkedStores(authorization)
-        return try writeRecord(stores, taskID, reference, values, at) { timestamp in
+        return try writeRecord(stores, taskID, reference, values, at, graphIdentity) { timestamp in
             if timestamp != link.updatedAt {
                 try authorize(.detailLink(TaskDetailLink(taskID: taskID, previous: reference,
                                                           resultChanged: revision.result != values.result, updatedAt: timestamp)), using: authorization)

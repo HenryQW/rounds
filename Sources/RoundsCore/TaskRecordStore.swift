@@ -29,21 +29,24 @@ public struct TaskRecordStore: Sendable {
     public func write(taskID: UUID, expecting previous: TaskDetailReference, assignment: TaskAssignment,
                       result: TaskResult? = nil, progress: [TaskProgress] = [],
                       decisions: [TaskDecision] = [], at: Date = Date()) throws -> TaskRecordWriteResult {
-        try writeAuthorized(taskID: taskID, expecting: previous, assignment: assignment, result: result,
-                            progress: progress, decisions: decisions, at: at, authorizeTimestamp: { timestamp in
+        let identity = Result { try graph.pinDirectory() }
+        return try writeAuthorized(taskID: taskID, expecting: previous, assignment: assignment, result: result,
+                            progress: progress, decisions: decisions, at: at, graphIdentity: identity, authorizeTimestamp: { timestamp in
             guard timestamp == at else { throw TaskGraphError.changedOnDisk }
         })
     }
 
     func writeAuthorized(taskID: UUID, expecting previous: TaskDetailReference, assignment: TaskAssignment,
                          result: TaskResult?, progress: [TaskProgress], decisions: [TaskDecision], at: Date,
+                         graphIdentity: Result<GraphDirectoryIdentity, any Error>,
                          authorizeTimestamp: (Date) throws -> Void) throws -> TaskRecordWriteResult {
         let detail = try details.write(taskID: taskID, assignment: assignment, result: result,
                                        progress: progress, decisions: decisions)
         guard detail.durability == .saved else { return .detailNeedsInspection(detail) }
         let revisionID = detail.revisionID
         do {
-            let snapshot = try graph.load()
+            let identity = try graphIdentity.get()
+            let snapshot = try graph.load(expectingDirectory: identity)
             guard let current = snapshot.tasks.first(where: { $0.id == taskID }) else { throw TaskGraphError.unknownTask }
             guard current.detailReference == previous else { throw TaskGraphError.changedOnDisk }
             let timestamp = max(current.updatedAt, at)
@@ -60,7 +63,7 @@ public struct TaskRecordStore: Sendable {
                 guard max(task.updatedAt, at) == timestamp else { throw TaskGraphError.changedOnDisk }
                 try graph.setDetailRevision(revisionID, for: taskID, expecting: previous,
                                             resultChanged: previousResult != result, at: at)
-            }, commit: { try details.withPublicationApproval($0) })
+            }, expectingDirectory: identity, commit: { try details.withPublicationApproval($0) })
             switch outcome {
             case .saved: return .saved(revisionID)
             case .committedNotDurable, .committedIdentityChanged, .committedNotDurableAndIdentityChanged:

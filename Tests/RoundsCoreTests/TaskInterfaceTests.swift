@@ -143,6 +143,96 @@ import Testing
         }
     }
 
+    @Test func replacingGraphDirectoryWithIdenticalGraphRejectsDetailLink() throws {
+        let f = try Fixture()
+        let record = try f.create(values)
+        let before = try f.graphData()
+        let original = f.root.appending(path: "original-graph")
+        let access = f.access(allowsDetails: { _, _, _ in
+            do {
+                try FileManager.default.moveItem(at: f.graph.directory, to: original)
+                try FileManager.default.createDirectory(at: f.graph.directory, withIntermediateDirectories: false,
+                                                        attributes: [.posixPermissions: 0o700])
+                try FileManager.default.copyItem(at: original.appending(path: "graph.json"),
+                                                 to: f.graph.directory.appending(path: "graph.json"))
+                return true
+            } catch { Issue.record(error); return false }
+        })
+        do {
+            _ = try f.interface.revise(record.task.id, expecting: record.task.detailReference, using: access) {
+                $0.assignment = TaskAssignment(objective: "Revised objective", scope: "Task records", target: "Temporary checkout",
+                                               constraints: ["Keep details local"], acceptanceConditions: ["Checks pass"])
+            }
+            Issue.record("A detail was linked in the replacement graph")
+        } catch let error as TaskRecordLinkError {
+            #expect(error.underlyingError as? TaskGraphError == .changedOnDisk)
+            #expect(try f.details.read(taskID: record.task.id, revisionID: error.revisionID).assignment.objective == "Revised objective")
+        }
+        #expect(try f.graphData() == before)
+        #expect(try Data(contentsOf: original.appending(path: "graph.json")) == before)
+    }
+
+    @Test func replacingGraphAfterCreationRejectsDetailLink() throws {
+        let f = try Fixture()
+        let directory = f.graph.directory
+        let original = f.root.appending(path: "original-graph")
+        var interface = f.interface
+        let writeRecord = interface.writeRecord
+        interface.writeRecord = { store, taskID, previous, details, at, identity, authorize in
+            try FileManager.default.moveItem(at: directory, to: original)
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                                    attributes: [.posixPermissions: 0o700])
+            try FileManager.default.copyItem(at: original.appending(path: "graph.json"),
+                                             to: directory.appending(path: "graph.json"))
+            return try writeRecord(store, taskID, previous, details, at, identity, authorize)
+        }
+        do {
+            _ = try interface.create(details: values, using: f.access())
+            Issue.record("A created task linked details in the replacement graph")
+        } catch let error as TaskCreationError {
+            let linkError = try #require(error.underlyingError as? TaskRecordLinkError)
+            #expect(linkError.underlyingError as? TaskGraphError == .changedOnDisk)
+            #expect(try f.details.read(taskID: error.taskID, revisionID: linkError.revisionID).assignment == assignment)
+            #expect(try f.graph.load().tasks.first?.detailReference == .empty)
+            #expect(try f.graphData() == Data(contentsOf: original.appending(path: "graph.json")))
+        }
+    }
+
+    @Test func replacingGraphAfterTimestampAuthorizationRejectsDetailLink() throws {
+        let f = try Fixture()
+        let record = try f.create(values)
+        let requestTime = Date().addingTimeInterval(60)
+        let later = requestTime.addingTimeInterval(60)
+        let original = f.root.appending(path: "original-graph")
+        let access = f.access(allowsGraph: { value, _ in
+            guard case .detailLink(let link) = value else { return false }
+            if link.updatedAt == later {
+                do {
+                    try FileManager.default.moveItem(at: f.graph.directory, to: original)
+                    try FileManager.default.createDirectory(at: f.graph.directory, withIntermediateDirectories: false,
+                                                            attributes: [.posixPermissions: 0o700])
+                    try FileManager.default.copyItem(at: original.appending(path: "graph.json"),
+                                                     to: f.graph.directory.appending(path: "graph.json"))
+                } catch { Issue.record(error); return false }
+            }
+            return true
+        }, allowsDetails: { _, _, _ in
+            do { try f.graph.update { try $0.setState(.running, for: record.task.id, at: later) }; return true }
+            catch { Issue.record(error); return false }
+        })
+        do {
+            _ = try f.interface.revise(record.task.id, expecting: record.task.detailReference, using: access, at: requestTime) {
+                $0.progress.append(TaskProgress(summary: "Retain as orphan", actor: "Test", time: requestTime))
+            }
+            Issue.record("A detail was linked after the graph directory changed")
+        } catch let error as TaskRecordLinkError {
+            #expect(error.underlyingError as? TaskGraphError == .changedOnDisk)
+            #expect(try f.details.read(taskID: record.task.id, revisionID: error.revisionID).progress.count == 1)
+        }
+        #expect(try f.graph.load().tasks.first?.detailReference == record.task.detailReference)
+        #expect(try f.graphData() == Data(contentsOf: original.appending(path: "graph.json")))
+    }
+
     @Test func graphAuthorizationCanReadGraphAndSettings() throws {
         let f = try Fixture()
         let graph = f.graph
@@ -453,7 +543,7 @@ import Testing
     func detailInspectionRetainsThePublishedRevision(status: TaskDetailDurability) throws {
         let f = try Fixture()
         var interface = f.interface
-        interface.writeRecord = { store, taskID, _, details, _, _ in
+        interface.writeRecord = { store, taskID, _, details, _, _, _ in
             let published = try store.details.write(taskID: taskID, assignment: details.assignment,
                                                     result: details.result, progress: details.progress, decisions: details.decisions)
             #expect(published.durability == .saved)
@@ -483,7 +573,7 @@ import Testing
     func linkedGraphInspectionRetainsTheRevision(status: TaskGraphWriteResult) throws {
         let f = try Fixture()
         var interface = f.interface
-        interface.writeRecord = { store, taskID, previous, details, at, _ in
+        interface.writeRecord = { store, taskID, previous, details, at, _, _ in
             let outcome = try store.write(taskID: taskID, expecting: previous, assignment: details.assignment,
                                           result: details.result, progress: details.progress, decisions: details.decisions, at: at)
             guard case .saved(let revisionID) = outcome else { Issue.record("Fixture write failed"); return outcome }
@@ -559,7 +649,7 @@ import Testing
         let directory = f.details.directory
         let original = f.root.appending(path: "original")
         var interface = f.interface
-        interface.writeRecord = { store, taskID, previous, details, at, _ in
+        interface.writeRecord = { store, taskID, previous, details, at, _, _ in
             try FileManager.default.moveItem(at: directory, to: original)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                     attributes: [.posixPermissions: 0o700])
@@ -581,7 +671,7 @@ import Testing
         let settings = f.settings
         let scope = WorkspaceScope.organization(f.organizationID)
         var interface = f.interface
-        interface.writeRecord = { store, taskID, previous, details, at, _ in
+        interface.writeRecord = { store, taskID, previous, details, at, _, _ in
             try settings.update { $0.withdrawApproval(for: scope) }
             return try store.write(taskID: taskID, expecting: previous, assignment: details.assignment,
                                    result: details.result, progress: details.progress, decisions: details.decisions, at: at)
