@@ -24,8 +24,18 @@ final class BouncerModel {
     /// The Model menu: Default (nil) and the models that Pi lists, each "provider/id".
     private(set) var models: [String] = []
     private(set) var model: String?
-    /// The selected sidebar row; nil is the Bouncer row (01c adds task rows).
+    /// The selected sidebar row; nil is the Bouncer row.
     var selection: String?
+    var grouping = BouncerTaskGrouping.state
+    var sort = BouncerTaskSort.activity
+    var archived = false
+    var focusOnPrompt = false
+
+    var taskGroups: [(name: String, tasks: [BouncerTask])] {
+        bouncerTaskGroups(thread.tasks, archived: archived, grouping: grouping, sort: sort)
+    }
+    var selectedTask: BouncerTask? { thread.tasks.first { $0.id == selection } }
+    var visibleItems: [BouncerItem] { thread.visibleItems(taskID: selection) }
     var draft = ""
     /// Each change asks the window to put the focus on the first thing that waits (`BouncerView.focusFirst`).
     var focusToken = 0
@@ -120,6 +130,8 @@ final class BouncerModel {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let adapter, running, !text.isEmpty, !thread.replying else { return }
         draft = ""
+        selection = nil
+        archived = false
         Task {
             do { try await adapter.send(text) } catch {
                 if self.adapter === adapter, draft.isEmpty { draft = text }
@@ -136,8 +148,38 @@ final class BouncerModel {
     func answer(_ questionID: String, _ answer: BouncerAnswer) {
         guard let adapter else { return }
         thread.answer(questionID, answer)
+        if Demo.isOn, let item = thread.items.first(where: { $0.id == questionID }), let taskID = item.taskID {
+            updateDemoTask(taskID, state: .working)
+        }
         Task {
             do { try await adapter.answer(questionID, answer) } catch { fail(message(error), from: adapter) }
+        }
+    }
+
+    /// Slice 01 changes only the demo. Real approval enforcement comes in slice 04.
+    func decide(_ id: String, _ decision: ApprovalDecision) {
+        guard Demo.isOn else { return }
+        do {
+            try thread.decide(id, decision)
+            if let taskID = thread.items.first(where: { $0.id == id })?.taskID {
+                updateDemoTask(taskID, state: decision == .approved ? .finished : .stopped)
+            }
+        } catch { thread.apply(.failed(message(error))) }
+    }
+
+    private func updateDemoTask(_ id: String, state: BouncerTaskState) {
+        var tasks = thread.tasks
+        guard let i = tasks.firstIndex(where: { $0.id == id }) else { return }
+        tasks[i].state = state
+        tasks[i].updatedAt = Date()
+        thread.apply(.tasks(tasks))
+    }
+
+    func setArchived(_ task: BouncerTask, _ archived: Bool) {
+        guard Demo.isOn else { return }
+        thread.setArchived(task.id, archived)
+        if thread.tasks.first(where: { $0.id == task.id })?.archived != self.archived, selection == task.id {
+            selection = nil
         }
     }
 
@@ -157,7 +199,9 @@ final class BouncerModel {
     /// ⌘N: until dispatch exists, a new task is a message in the Bouncer thread (slice 01, Decided).
     func newTask() {
         selection = nil
+        archived = false
         draft = ""
+        focusOnPrompt = true
         focusToken += 1
     }
 

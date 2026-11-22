@@ -117,6 +117,41 @@ public func inspectWorkspaceFolder(_ folder: String, timeout: TimeInterval = 10)
     return .repository(root: root, remotes: remotes)
 }
 
+/// Resolves a full `refs/` name in a working tree to the commit available locally at the time of lookup.
+public func resolveWorkspaceSourceCommit(in repositoryRoot: String, sourceRef: String,
+                                         timeout: TimeInterval = 10) throws -> String {
+    guard let root = FolderIdentity.current(repositoryRoot) else { throw WorkspaceError.invalidFolder }
+    let invalidRef = WorkspaceError.gitFailed("Use a valid full Git reference name under refs/.")
+    guard sourceRef.hasPrefix("refs/"), !sourceRef.utf8.contains(0) else { throw invalidRef }
+    let format = try runGit(["check-ref-format", sourceRef], timeout: timeout)
+    guard format.status == 0 else { throw invalidRef }
+
+    // An explicit .git path supports linked worktrees and prevents parent discovery on every command.
+    let local = ["-C", root.path, "--git-dir=.git", "--no-lazy-fetch", "--no-replace-objects"]
+    let top = try runGit(local + ["rev-parse", "--show-toplevel"], timeout: timeout)
+    guard top.status == 0 else {
+        if top.stderr.contains("not a git repository") || top.stderr.contains("must be run in a work tree") {
+            throw WorkspaceError.notRepository
+        }
+        throw WorkspaceError.gitFailed(top.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+    let workTree = String(decoding: top.stdout.utf8.dropLast(), as: UTF8.self)
+    guard FolderIdentity.current(workTree) == root else { throw WorkspaceError.notRepository }
+
+    let ref = try runGit(local + ["show-ref", "--verify", "--hash", "--", sourceRef], timeout: timeout)
+    guard ref.status == 0 else { throw WorkspaceError.gitFailed("Git could not read the local source reference.") }
+    let object = ref.stdout.trimmingCharacters(in: .newlines)
+    guard [40, 64].contains(object.utf8.count), object.allSatisfy({ $0.isASCII && $0.isHexDigit }) else {
+        throw WorkspaceError.gitFailed("Git did not return a full object identifier for the source reference.")
+    }
+    // Peel the captured object so a ref move between commands cannot change the lookup.
+    let commit = try runGit(local + ["rev-parse", "--verify", "--end-of-options", "\(object)^{commit}"], timeout: timeout)
+    guard commit.status == 0 else {
+        throw WorkspaceError.gitFailed("The source reference does not resolve to a locally available commit.")
+    }
+    return commit.stdout.trimmingCharacters(in: .newlines)
+}
+
 /// Initializes a repository in `folder` and writes `rounds-workspace.json`. Call only after the user says yes.
 /// Adds no remote and makes no commit. Never replaces an existing file.
 public func createWorkspaceRepository(in folder: String, name: String, timeout: TimeInterval = 10) throws {
