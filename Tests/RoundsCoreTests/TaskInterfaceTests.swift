@@ -251,6 +251,22 @@ import Testing
         #expect(!thread.localApprovalRetries.contains(fixture.taskID) && thread.waitingCount == 1)
     }
 
+    @Test func failedLocalApprovalReloadHidesCardsAndKeepsAttention() throws {
+        let fixture = try ApprovalFixture()
+        let card = ApprovalCard(local: try fixture.request())
+        var thread = BouncerThread()
+        thread.replaceLocalApprovals(for: fixture.taskID, with: [card])
+
+        thread.localApprovalReloadNeedsRetry(for: fixture.taskID, discardCards: true)
+        #expect(thread.items.isEmpty)
+        #expect(thread.localApprovalRetries == [fixture.taskID])
+        #expect(thread.waitingCount == 1)
+
+        thread.replaceLocalApprovals(for: fixture.taskID, with: [])
+        #expect(thread.localApprovalRetries.isEmpty)
+        #expect(thread.waitingCount == 0)
+    }
+
     @Test func contendedApprovalCanRetryAfterRecheck() throws {
         let fixture = try ApprovalFixture()
         let pending = try fixture.request()

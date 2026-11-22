@@ -227,8 +227,12 @@ public struct BouncerThread: Equatable, Sendable {
         }
     }
 
-    public mutating func localApprovalReloadNeedsRetry(for taskID: UUID) {
-        beginLocalApprovalReload(for: taskID)
+    public mutating func localApprovalReloadNeedsRetry(for taskID: UUID, discardCards: Bool = false) {
+        if discardCards {
+            replaceLocalApprovals(for: taskID, with: [])
+        } else {
+            beginLocalApprovalReload(for: taskID)
+        }
         localApprovalRetries.insert(taskID)
     }
 

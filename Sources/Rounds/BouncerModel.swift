@@ -326,7 +326,7 @@ final class BouncerModel {
                 thread.localApprovalReloadNeedsRetry(for: taskID)
                 localApprovalErrors[taskID] = "The task changed. Try again."
             case .failure(let error):
-                thread.replaceLocalApprovals(for: taskID, with: [])
+                thread.localApprovalReloadNeedsRetry(for: taskID, discardCards: true)
                 localApprovalErrors[taskID] = localApprovalMessage(error)
             }
         }
