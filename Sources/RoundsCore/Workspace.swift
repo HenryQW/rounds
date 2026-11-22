@@ -120,6 +120,11 @@ public func inspectWorkspaceFolder(_ folder: String, timeout: TimeInterval = 10)
 /// Resolves a full `refs/` name in a working tree to the commit available locally at the time of lookup.
 public func resolveWorkspaceSourceCommit(in repositoryRoot: String, sourceRef: String,
                                          timeout: TimeInterval = 10) throws -> String {
+    try resolveWorkspaceSource(in: repositoryRoot, sourceRef: sourceRef, timeout: timeout).commit
+}
+
+private func resolveWorkspaceSource(in repositoryRoot: String, sourceRef: String,
+                                    timeout: TimeInterval) throws -> (object: String, commit: String) {
     guard let root = FolderIdentity.current(repositoryRoot) else { throw WorkspaceError.invalidFolder }
     let invalidRef = WorkspaceError.gitFailed("Use a valid full Git reference name under refs/.")
     guard sourceRef.hasPrefix("refs/"), !sourceRef.utf8.contains(0) else { throw invalidRef }
@@ -135,12 +140,17 @@ public func resolveWorkspaceSourceCommit(in repositoryRoot: String, sourceRef: S
         }
         throw WorkspaceError.gitFailed(top.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
     }
-    let workTree = String(decoding: top.stdout.utf8.dropLast(), as: UTF8.self)
-    guard FolderIdentity.current(workTree) == root else { throw WorkspaceError.notRepository }
+    guard let path = top.stdoutUTF8, path.utf8.last == 10,
+          let workTree = String(bytes: path.utf8.dropLast(), encoding: .utf8),
+          FolderIdentity.current(workTree) == root else { throw WorkspaceError.notRepository }
 
-    let ref = try runGit(local + ["show-ref", "--verify", "--hash", "--", sourceRef], timeout: timeout)
-    guard ref.status == 0 else { throw WorkspaceError.gitFailed("Git could not read the local source reference.") }
-    let object = ref.stdout.trimmingCharacters(in: .newlines)
+    let ref = try runGit(local + ["show-ref", "--verify", "--", sourceRef], timeout: timeout)
+    // Foundation can normalize subprocess arguments. Check the reference spelling Git received.
+    let suffix = " \(sourceRef)\n".utf8
+    guard ref.status == 0, ref.stdoutBytes.suffix(suffix.count).elementsEqual(suffix) else {
+        throw WorkspaceError.gitFailed("Git could not read the local source reference.")
+    }
+    let object = String(decoding: ref.stdoutBytes.dropLast(suffix.count), as: UTF8.self)
     guard [40, 64].contains(object.utf8.count), object.allSatisfy({ $0.isASCII && $0.isHexDigit }) else {
         throw WorkspaceError.gitFailed("Git did not return a full object identifier for the source reference.")
     }
@@ -149,7 +159,7 @@ public func resolveWorkspaceSourceCommit(in repositoryRoot: String, sourceRef: S
     guard commit.status == 0 else {
         throw WorkspaceError.gitFailed("The source reference does not resolve to a locally available commit.")
     }
-    return commit.stdout.trimmingCharacters(in: .newlines)
+    return (object, commit.stdout.trimmingCharacters(in: .newlines))
 }
 
 /// Initializes a repository in `folder` and writes `rounds-workspace.json`. Call only after the user says yes.
@@ -453,12 +463,15 @@ private func workspacePOSIXError(_ code: Int32 = errno) -> POSIXError {
 
 private struct GitOutput {
     let status: Int32
-    let stdout: String
+    let stdoutBytes: Data
+    var stdout: String { String(decoding: stdoutBytes, as: UTF8.self) }
+    var stdoutUTF8: String? { String(data: stdoutBytes, encoding: .utf8) }
     let stderr: String
 }
 
 /// Runs `/usr/bin/git` with explicit arguments, English messages and no prompts. Stops it after `timeout`.
-private func runGit(_ arguments: [String], timeout: TimeInterval) throws -> GitOutput {
+private func runGit(_ arguments: [String], timeout: TimeInterval,
+                    remoteOverride: (name: String, url: String)? = nil) throws -> GitOutput {
     let process = Process(), out = Pipe(), err = Pipe()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
     process.arguments = arguments
@@ -467,6 +480,11 @@ private func runGit(_ arguments: [String], timeout: TimeInterval) throws -> GitO
     environment["LC_ALL"] = "C"
     environment["GIT_TERMINAL_PROMPT"] = "0"
     environment["GIT_OPTIONAL_LOCKS"] = "0"
+    if let remoteOverride {
+        environment["GIT_CONFIG_COUNT"] = "1"
+        environment["GIT_CONFIG_KEY_0"] = "remote.\(remoteOverride.name).url"
+        environment["GIT_CONFIG_VALUE_0"] = remoteOverride.url
+    }
     process.environment = environment
     (process.standardOutput, process.standardError, process.standardInput) = (out, err, FileHandle.nullDevice)
     let exited = DispatchSemaphore(value: 0)
@@ -482,6 +500,142 @@ private func runGit(_ arguments: [String], timeout: TimeInterval) throws -> GitO
         throw WorkspaceError.gitTimedOut
     }
     guard pipes.wait(timeout: .now() + 2) == .success else { throw WorkspaceError.gitTimedOut }
-    return GitOutput(status: process.terminationStatus, stdout: String(decoding: stdout, as: UTF8.self),
-                     stderr: String(decoding: stderr, as: UTF8.self))
+    return GitOutput(status: process.terminationStatus, stdoutBytes: stdout, stderr: String(decoding: stderr, as: UTF8.self))
+}
+
+/// Reads the exact source and the effective fetch and push destinations of every local remote.
+public func inspectApprovalSnapshot(repository: URL, sourceRef: String, remote: String,
+                                    timeout: TimeInterval = 10) throws -> ApprovalSnapshot {
+    guard repository.isFileURL, repository.host == nil || repository.host == "",
+          let folder = FolderIdentity.current(repository.path), validApprovalRemoteName(remote) else {
+        throw ApprovalError.snapshotUnavailable
+    }
+    do {
+        let source = try resolveWorkspaceSource(in: folder.path, sourceRef: sourceRef, timeout: timeout)
+        let local = ["-C", folder.path, "--git-dir=.git", "--no-lazy-fetch"]
+        func output(_ args: [String], allowEmpty: Bool = false,
+                    remoteOverride: (name: String, url: String)? = nil) throws -> String {
+            let result = try runGit(local + args, timeout: timeout, remoteOverride: remoteOverride)
+            guard result.status == 0 || (allowEmpty && result.status == 1 && result.stdoutBytes.isEmpty),
+                  let text = result.stdoutUTF8 else {
+                throw ApprovalError.snapshotUnavailable
+            }
+            return text
+        }
+        func destinations(_ name: String, push: Bool) throws -> [String] {
+            let args = ["remote", "get-url", "--all"] + (push ? ["--push"] : []) + ["--", name]
+            let lines = try output(args).split(separator: "\n", omittingEmptySubsequences: false)
+            guard lines.count > 1, lines.last?.isEmpty == true else { throw ApprovalError.snapshotUnavailable }
+            return try lines.dropLast().map { try cleanDestination(String($0)) }
+        }
+        // Preserve login positions in the same order as the inspected destinations.
+        var sshLogins: [String?] = []
+        func cleanDestination(_ raw: String) throws -> String {
+            guard let destination = approvalDestination(raw) else { throw ApprovalError.snapshotUnavailable }
+            sshLogins.append(destination.sshLogin)
+            return destination.url
+        }
+        // Detect configuration changes during the read. Keep the raw values in memory only.
+        let configArgs = ["config", "--null", "--list"]
+        let config = try output(configArgs)
+        // A custom remote helper can change the transport without changing the destination URLs.
+        guard try output(["config", "--null", "--get-regexp", #"^remote\..*\.vcs$"#], allowEmpty: true).isEmpty else {
+            throw ApprovalError.snapshotUnavailable
+        }
+        let urlConfig = try output(["config", "--null", "--get-regexp", #"^(remote\..*\.(url|pushurl)|url\..*\.(insteadof|pushinsteadof))$"#],
+                                   allowEmpty: true)
+        // Git prints effective URLs one per line. Reject multiline configuration before parsing that output.
+        guard urlConfig.split(separator: "\0").allSatisfy({ $0.filter { $0 == "\n" }.count == 1 }) else {
+            throw ApprovalError.snapshotUnavailable
+        }
+        let names = try output(["remote"]).split(separator: "\n").map(String.init).sorted()
+        guard names.allSatisfy(validApprovalRemoteName) else { throw ApprovalError.snapshotUnavailable }
+        let remotes = try names.map { name in
+            let fetch = try destinations(name, push: false)
+            let push = try destinations(name, push: true)
+            return ApprovalSnapshot.Remote(name: name, fetch: fetch, push: push)
+        }
+        let keys = try output(["config", "--null", "--get-regexp", #"^(branch\..*\.(pushremote|remote)|remote\.pushdefault)$"#],
+                              allowEmpty: true)
+        let overrides = try keys.split(separator: "\0").flatMap { item -> [ApprovalSnapshot.Override] in
+            let fields = item.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
+            guard fields.count == 2 else { throw ApprovalError.snapshotUnavailable }
+            let key = String(fields[0]), value = String(fields[1])
+            if key.hasPrefix("branch.") {
+                let branch = key.dropFirst("branch.".count).dropLast(key.hasSuffix(".pushremote") ? ".pushremote".count : ".remote".count)
+                guard validApprovalRef("refs/heads/\(branch)") else { throw ApprovalError.snapshotUnavailable }
+            }
+            if value == "." || names.contains(value) { return [.init(key: key, value: value)] }
+            let clean = try cleanDestination(value)
+            let name = "rounds-\(UUID().uuidString)"
+            let override = (name, value)
+            let actual = try output(["config", "--null", "--get", "remote.\(name).url"], remoteOverride: override)
+            guard actual.utf8.elementsEqual("\(value)\0".utf8) else { throw ApprovalError.snapshotUnavailable }
+            // Git applies its own longest-prefix rewrite rules to this in-memory remote.
+            let listing = try output(["remote", "-v"], remoteOverride: override)
+            let prefix = "\(name)\t", suffix = " (push)"
+            let effective = try listing.split(separator: "\n").compactMap { line -> String? in
+                guard line.hasPrefix(prefix), line.hasSuffix(suffix) else { return nil }
+                return try cleanDestination(String(line.dropFirst(prefix.count).dropLast(suffix.count)))
+            }
+            guard !effective.isEmpty else { throw ApprovalError.snapshotUnavailable }
+            return [.init(key: key, value: clean)] + effective.map { .init(key: key, value: $0) }
+        }
+        guard try output(configArgs).utf8.elementsEqual(config.utf8), FolderIdentity.current(repository.path) == folder,
+              try resolveWorkspaceSource(in: folder.path, sourceRef: sourceRef, timeout: timeout) == source else {
+            throw ApprovalError.snapshotUnavailable
+        }
+        let sshLoginDigest = try sshLogins.contains { $0 != nil } ? approvalDigest(JSONEncoder().encode(sshLogins)) : nil
+        return ApprovalSnapshot(folder: folder, sourceRef: sourceRef, revision: source.commit,
+                                annotatedSourceObject: source.object == source.commit ? nil : source.object, remote: remote,
+                                remotes: remotes, overrides: overrides, sshLoginDigest: sshLoginDigest)
+    } catch {
+        // Git can put raw configuration values in diagnostics.
+        throw ApprovalError.snapshotUnavailable
+    }
+}
+
+/// Returns a credential-free address and the transient SSH login. An empty login means SSH uses its default.
+func approvalDestination(_ raw: String) -> (url: String, sshLogin: String?)? {
+    guard !raw.isEmpty, !raw.utf8.contains(where: { $0 < 32 || $0 == 127 }) else { return nil }
+    if let separator = raw.range(of: "://"), !raw[..<separator.lowerBound].contains("/") {
+        guard let original = URLComponents(string: raw), let scheme = original.scheme?.lowercased(),
+              ["http", "https", "ssh", "git", "git+ssh", "ssh+git", "ftp", "ftps"].contains(scheme),
+              original.host?.isEmpty == false, original.query == nil, original.fragment == nil else { return nil }
+        let isSSH = ["ssh", "git+ssh", "ssh+git"].contains(scheme)
+        let login = original.user
+        if isSSH {
+            // Git passes SSH user information as a login, including any password separator.
+            guard original.percentEncodedPassword == nil, original.host?.contains("@") == false,
+                  original.percentEncodedUser == nil || login.map(validApprovalSSHLogin) == true,
+                  !original.path.isEmpty, !original.path.hasPrefix("/~") else { return nil }
+        }
+        let sshLogin = isSSH ? login ?? "" : nil
+        guard original.percentEncodedUser != nil || original.percentEncodedPassword != nil else { return (raw, sshLogin) }
+        // Remove only user information. Rebuilding a URL can change the spelling of the destination.
+        let authority = raw[separator.upperBound...].prefix { $0 != "/" }
+        guard let at = authority.lastIndex(of: "@") else { return nil }
+        return (String(raw[..<separator.upperBound]) + raw[raw.index(after: at)...], sshLogin)
+    }
+    // A local path with a slash before the first colon is not SCP syntax.
+    if let colon = raw.firstIndex(of: ":"), !raw[..<colon].contains("/") {
+        let authority = raw[..<colon]
+        let separator = authority.lastIndex(of: "@")
+        let login = separator.map { String(authority[..<$0]) }
+        let host = separator.map { authority[authority.index(after: $0)...] } ?? authority
+        guard login.map(validApprovalSSHLogin) != false,
+              !host.isEmpty, host.utf8.allSatisfy({ "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_".utf8.contains($0) }),
+              !raw[raw.index(after: colon)...].isEmpty,
+              !raw[raw.index(after: colon)...].hasPrefix(":"),
+              !raw[raw.index(after: colon)...].prefix(while: { $0 != "/" }).contains("@") else { return nil }
+        let path = raw[raw.index(after: colon)...]
+        guard path.hasPrefix("/") else { return nil }
+        return ("\(host)\(raw[colon...])", login ?? "")
+    }
+    // A local path can resolve to a different repository without changing the Git configuration.
+    return nil
+}
+
+private func validApprovalSSHLogin(_ login: String) -> Bool {
+    !login.isEmpty && !login.utf8.contains { $0 <= 32 || $0 == 127 || ":/".utf8.contains($0) }
 }

@@ -70,6 +70,22 @@ import Testing
         }
     }
 
+    @Test func sourceCommitRejectsAReferenceSpellingChangedByTheSubprocess() throws {
+        let repo = try tempDir()
+        defer { try? FileManager.default.removeItem(at: repo) }
+        try git("-C", repo.path, "init", "--quiet", "--initial-branch=main")
+        let revision = try commit(in: repo)
+        let composed = "refs/heads/caf\u{e9}"
+        let decomposed = "refs/heads/cafe\u{301}"
+        try git("-C", repo.path, "config", "core.precomposeUnicode", "false")
+        try git("-C", repo.path, "update-ref", decomposed, revision)
+        try git("-C", repo.path, "pack-refs", "--all")
+        #expect(try resolveWorkspaceSourceCommit(in: repo.path, sourceRef: decomposed) == revision)
+        #expect(throws: WorkspaceError.gitFailed("Git could not read the local source reference.")) {
+            try resolveWorkspaceSourceCommit(in: repo.path, sourceRef: composed)
+        }
+    }
+
     @Test func sourceCommitRejectsRevisionExpressions() throws {
         let repo = try tempDir()
         defer { try? FileManager.default.removeItem(at: repo) }

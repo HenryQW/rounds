@@ -6,16 +6,7 @@ Rounds pushes a branch or opens a draft pull request for a result only after the
 
 ## State
 
-Details, 2026-11-22. Open decisions: see Open. These details authorize no publication implementation.
-
-04a is blocked on this base by two unmerged prerequisites:
-
-| Prerequisite | Required before 04a |
-|---|---|
-| 01c, `feat/bouncer-01c-cards` at `5843c5c` | `Sources/Rounds/BouncerCards.swift` and its decision callback for Approve and Reject. |
-| 03 local task interface, `feat/slice-03-details` through `8a3b8af` | `TaskInterface` and `TaskStorageAuthorization` in `Sources/RoundsCore/TaskInterface.swift`, with the detail publication and link checks. |
-
-Build 04a on the integrated prerequisites. Extend the existing card and authorized task detail write path. Use a local result fixture until dispatch is available.
+Details, 2026-11-22. The 04a code uses the integrated 01c cards and 03 local task interface. An authorized test fixture supplies a local result. The app has no caller for `showLocalApprovals`. Slice 03 dispatch and task mapping must supply real task identifiers, organization scope and fresh graph and detail grants. Workspace folder setup supplies readiness, not those grants. Until then, the app cannot discover or display saved local approvals. See Open for the later steps.
 
 ## Depends
 
@@ -31,7 +22,7 @@ Build 04a on the integrated prerequisites. Extend the existing card and authoriz
 | [Decisions](../decisions.md) | Read the complete entries named under Decided. |
 | [Context](../CONTEXT.md); [archived Bouncer review](../archive/bouncer-review.md) | Authority chain and proposals that remain open. |
 | [Bouncer.swift](../../../Sources/RoundsCore/Bouncer.swift), [BouncerModel.swift](../../../Sources/Rounds/BouncerModel.swift), [BouncerWindow.swift](../../../Sources/Rounds/BouncerWindow.swift) | Current approval types and adapter boundary. |
-| `Sources/Rounds/BouncerCards.swift` | Read the built 01c card on `feat/bouncer-01c-cards`, commit `5843c5c`, by path. It is absent from this base. |
+| [BouncerCards.swift](../../../Sources/Rounds/BouncerCards.swift) | The existing card, its callback and the local result display. |
 | [TaskDetailStore.swift](../../../Sources/RoundsCore/TaskDetailStore.swift), [TaskRecordStore.swift](../../../Sources/RoundsCore/TaskRecordStore.swift), [Workspace.swift](../../../Sources/RoundsCore/Workspace.swift) | Immutable records, graph references and local repository inspection. |
 | `living-docs/SKILL.md`, section "Slice brief" | Read from `vps:~/.local/share/magpie/shared-skills/skills/living-docs/SKILL.md`. |
 | Pi source at `5a14e69c067d40dfbff4f2fff7d3b34c897e2dc9` | Read `packages/durable/test/examples/44-approval-gate.ts`, `packages/durable/src/signals.ts`, and the `signal` definitions in `packages/durable/src/harness/{types,harness}.ts`. |
@@ -44,7 +35,7 @@ Each row is a separate merge. Merge 04a first; 04b adds no publication capabilit
 
 | Sub-step | Scope | Why it merges alone |
 |---|---|---|
-| 04a: local approval records | Store a request and answer; recheck the local revision and remote URL after restart; connect card decisions to stored answers. | Local repository fixtures and a fake adapter prove the complete local flow. It needs no container, model or network. |
+| 04a: local approval records | Store a request and answer; recheck the local revision and remote URL after restart; connect card decisions to stored answers. | Local repository fixtures prove storage and rechecks. App registration awaits real task context and storage grants. No container, model or network is needed for the fixtures. |
 | 04b: durable gate connection | Connect stored requests and answers to a sleeping Pi task, using an inert test tool and a fake provider. | Proves persistence and signal recovery independently of the publication guard. No agent dispatch or protected tool is enabled. |
 | 04c: publication | **not detailed; blocked by Open item 1**. Barback requests also depend on Open item 2. | A later merge can add publication only after ownership, recovery, review and the complete guard are specified and verified. |
 
@@ -61,7 +52,7 @@ These are implementation locations for later work. This details step changes doc
 | 04a | [Workspace.swift](../../../Sources/RoundsCore/Workspace.swift) | Extend the local inspector to resolve the result's named source reference to its full commit revision. Reuse remote inspection. |
 | 04a | [Bouncer.swift](../../../Sources/RoundsCore/Bouncer.swift), [BouncerModel.swift](../../../Sources/Rounds/BouncerModel.swift), [BouncerWindow.swift](../../../Sources/Rounds/BouncerWindow.swift) | Project records into cards. Save before updating a card's decision. |
 | 04a | `Sources/Rounds/BouncerCards.swift` (01c prerequisite) | Reuse its decision callback and rejection reason. Select the card copy from host provenance. |
-| 04a | `Tests/RoundsCoreTests/ApprovalTests.swift` (new); [TaskDetailStoreTests.swift](../../../Tests/RoundsCoreTests/TaskDetailStoreTests.swift); [TaskRecordStoreTests.swift](../../../Tests/RoundsCoreTests/TaskRecordStoreTests.swift); [WorkspaceTests.swift](../../../Tests/RoundsCoreTests/WorkspaceTests.swift); [BouncerTests.swift](../../../Tests/RoundsCoreTests/BouncerTests.swift) | Add the cases below to the existing Swift test target. |
+| 04a | [TaskInterfaceTests.swift](../../../Tests/RoundsCoreTests/TaskInterfaceTests.swift), [TaskDetailStoreTests.swift](../../../Tests/RoundsCoreTests/TaskDetailStoreTests.swift) | Exercise approval boundaries, saved answers, stale records and old checksums in the existing Swift test target. |
 | 04b | Node Host source and test files established by slice 02 | Add the gate and local approval messages there. Set exact paths in slice 02 before implementation; do not create another host or database. |
 | 04a, 04b | [Spec](../../spec.md#59-bouncer-window), this brief and [slice index](README.md) | Update current behavior when each implementation merges. Keep future publication marked as blocked. |
 | 04c | None selected | Publication files await the complete guard. |
@@ -70,15 +61,15 @@ These are implementation locations for later work. This details step changes doc
 
 ### Local request and answer
 
-The following types are proposed contracts, not types already present in the source.
+The local store uses these record types. The gate and delivery fields belong to 04b.
 
 | Record | Required contents and rule |
 |---|---|
 | `ApprovalRequest` | A host-created request identifier; task, repository and organization identities; result detail revision; source reference and full commit revision; creation and check times. |
 | Requested actions | A nonempty ordered list with unique action identifiers, action kind, exact target and the local result being proposed. Accept only push and draft pull request intents. |
-| Push intent | Source reference and revision; selected remote; credential-free effective destination URLs; exact destination reference. This is data for display and comparison only. |
+| Push intent | Source reference and exact Git object identifier, selected remote, effective addresses with user information removed, and exact destination reference. These values support display and comparison. |
 | Draft pull request intent | Provider repository, base and head references, head revision, draft status, and an immutable reference to the proposed title and body. No provider call. |
-| Local snapshot | Repository folder path, device and inode; named source reference and resolved commit; selected remote and the complete effective remote list. Include branch push overrides. |
+| Local snapshot | Repository folder path, device and inode. Include the named source reference, resolved commit and distinct tag object if present. Include the selected remote, complete effective remote list and branch push overrides. |
 | `ApprovalAnswer` | Request identifier, `ApprovalDecision`, user actor and answer time. A rejection requires a reason after whitespace trimming. The first stored answer is final. |
 | Gate binding, added in 04b | Durable task identifier, signal name, signal version and signal key. One request maps to one task and one key. Agents cannot supply or replace this binding. |
 | Delivery, added in 04b | Record whether the stored answer still needs delivery, was durably accepted, or needs inspection. Delivery is separate from the answer and action outcome. |
@@ -98,7 +89,9 @@ Store the records in the task's authorized detail revisions. Write the detail be
 
 Keep the request's original result revision separate from the current detail revision used for storage. Approval, delivery and progress writes create new detail revisions without changing that result. Compare the original result with the current `TaskResult`; those storage writes alone must not make the request stale.
 
-Only a fully saved detail and graph reference can change the visible answer. An orphan detail or uncertain durability cannot authorize anything. Keep the visible error and require inspection before another answer is stored.
+A result must carry the repository identifier and folder identity supplied by its authorized producer. The request must match both. An older result without this binding cannot create an actionable approval. This records the producer's association; it does not prove checkout ownership.
+
+Only a fully saved detail and graph reference can change the visible answer. Pin the graph directory before its first authorized read and keep that identity through the save and reload. A per-task lock serializes approval checks and saves with detail links. A competing operation reports a conflict when the lock is held. During a recheck, earlier cards cannot accept answers. On a conflict, the banner offers Try Again, including when no card was loaded. The waiting pill counts each task that needs a retry. Restore answer controls only after a successful recheck. An approval save or a result change that invalidates an approval sets an inspection marker. Reject an oversized revision before setting the marker. Clear the marker only after both writes are durable. An uncertain save blocks further detail links and answers until local storage inspection.
 
 Authorize each destination separately under [spec 2.7.2](../../spec.md#272-workspace-setup). Request text, targets and reasons stay outside the root workspace repository. Gate state must also use storage authorized for that organization. An unclassified task does not acquire transmission permission.
 
@@ -106,7 +99,11 @@ Authorize each destination separately under [spec 2.7.2](../../spec.md#272-works
 
 Use local Git inspection with explicit arguments, no shell, no inherited `GIT_*` variables and the existing timeout. Resolve the recorded source reference, not merely the currently checked out branch. Do not fetch or query remote visibility.
 
-Before restoring an actionable card, compare folder identity, result identity, source revision, action list, selected remote and effective URLs. Reuse credential-free URL handling; do not store or log URL credentials. Compare the complete remote list in a stable order. Include URL rewrites, push URLs and branch overrides.
+Before restoring an actionable card, check the folder, result and local Git snapshot. Bind a push to the object in the named reference. Bind the result to the commit that Git resolves from that object. Recreating an annotated tag on the same commit changes the push object.
+
+Compare the complete remote list in a stable order. Compare address bytes after removing user information. Include address rewrites, push addresses and branch overrides. Block custom Git remote helpers, invalid UTF-8 encoding, local paths and `file://` addresses. Block source references and direct branch addresses if their spelling changes on the way to Git. A local path or symbolic link can change its target without a configuration change. Compare a digest of Secure Shell (SSH) logins in destination order. Block SSH addresses with a password field. A saved SSH snapshot without the digest becomes stale on recheck.
+
+Draft text and rejection reasons remain free text. Rounds rejects common web or file transfer addresses with sign-in details. It also rejects Git transport addresses with an explicit password. Rounds can still save and display a standalone secret or a token embedded in a destination path. Keep credentials out of these fields.
 
 An equal snapshot keeps the same request and its stored answer, if any. A changed snapshot makes that request stale. Save its invalidation, retain its history and remove its action controls. For an unbound request, a fresh local check can create a new unanswered request. A request with a durable task binding must also pass the recovery checks below. Never copy an answer to a replacement. A stale request stays stale even if the original snapshot returns.
 
@@ -175,10 +172,12 @@ flowchart TD
 1. Load an authorized local result or fixture. Build typed intents without executing them.
 2. Inspect the local source revision and remotes. Save the request before showing it as Needs input.
 3. Render the existing 01c card with its host provenance, ordered actions, local check time and rejection reason control. Use the saved local request copy.
-4. Route its `decide(ApprovalDecision)` callback through `BouncerModel` to the record writer. Replace the demo-only decision path for these records.
-5. Recheck the snapshot and store the first valid answer. Serialize answers per task and retain the existing expected-detail-reference check.
-6. Update `BouncerThread` from the saved record. A failed save leaves the card unanswered and shows the error.
-7. On restart, reload referenced records and repeat the comparison. Preserve identical requests; replace changed requests without their answers.
+4. The local card buttons create a response bound to the task, request and decision. `BouncerModel` passes that response to the record writer as separate answer authority.
+5. Recheck the snapshot and store the first valid answer. Serialize approval saves with detail edits and retain the expected detail reference check.
+6. Update `BouncerThread` from the saved record. Rejected free text shows a validation error and keeps the controls available for correction.
+7. On reload, read referenced records and repeat the comparison. Keep identical requests. A confirmed change requires an explicit request for a new check and answer.
+
+The writer trusts code in the local process to attest to a card response. Task storage permission and adapter events cannot supply that response through the app path. This boundary provides no proof against a caller that can run trusted in-process code or change local files.
 
 Stop after the stored answer. Do not call the Node Host, `harness.signal`, a model, a container or a remote service. An approved card does not mark the task Done.
 
@@ -218,9 +217,12 @@ Add these cases with the implementation, boundary cases first. Run Swift cases t
 | 04a | Restart with changed source revision, deleted source reference or changed result contents | Old request cannot be answered. A valid replacement has a new identifier and no answer. |
 | 04a | Restart with changed push URL, URL rewrite, branch override or folder identity | Old request becomes stale. A missing repository or timeout shows an error. |
 | 04a | Restart with equal revision and URLs, with harmless remote-list ordering changes | Restore the same request and its stored answer. Do not add another question. |
-| 04a | Credential-bearing URL in a fixture | Compare the credential-free destination; saved records, cards and logs contain no credentials. |
+| 04a | Annotated tag changes on the same commit, address spelling changes, or an override changes | The old request becomes stale. Compare the exact object and address bytes. |
+| 04a | Local path, file address or invalid address encoding | The snapshot check fails before the card opens. |
+| 04a | Credential-bearing web address in a remote fixture, draft or rejection reason | Remove remote user information. Reject the recognized address in free text before saving. |
 | 04a | Crash after detail write but before graph update; uncertain store durability | Orphan data cannot answer a card. Show the storage error and require inspection. |
-| 04a | Two card callbacks race to answer one request | Exactly one answer becomes referenced; the other cannot overwrite it. |
+| 04a | Two card responses or a progress edit race an answer | Only one answer becomes referenced. A competing detail link cannot interrupt the marked save. |
+| 04a | Storage permission with absent or mismatched answer authority | Store no answer. |
 | 04a | Approve and reject through the existing card callback, then reload | Saved local copy shows the stored decision and reason. Demo cards use demo copy. Failed writes leave the card unanswered. |
 | 04a | Approve a valid local fixture with network, model and container services absent | Answer persists; no adapter delivery or protected action occurs; task does not become Done. |
 | 04a | Read an older detail revision without approval fields; then write approval, delivery or progress data without changing the result | Older data loads. Existing approval history and result binding survive new storage revisions. |

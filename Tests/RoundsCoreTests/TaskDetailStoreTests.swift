@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 import Testing
@@ -55,7 +56,7 @@ import Testing
         let url = file(dir, task, revision)
         let store = TaskDetailStore(directory: dir)
         for (data, error) in [(Data("broken".utf8), TaskDetailStoreError.malformedData),
-                              (Data("{\"version\":2}".utf8), TaskDetailStoreError.unknownVersion)] {
+                              (Data("{\"version\":3}".utf8), TaskDetailStoreError.unknownVersion)] {
             try data.write(to: url)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
             #expect(throws: error) { try store.read(taskID: task, revisionID: revision) }
@@ -69,6 +70,26 @@ import Testing
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         #expect(throws: TaskDetailStoreError.identityMismatch) { try store.read(taskID: task, revisionID: revision) }
         #expect(try Data(contentsOf: url) == data)
+    }
+
+    @Test func verifiesOriginalChecksumBeforeUpgradingVersionOne() throws {
+        let dir = try directory()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let task = UUID(), revision = UUID()
+        let legacy = """
+        {"assignment":{"acceptanceConditions":[],"constraints":[],"objective":"Legacy fixture","scope":"Local","target":"Checkout"},"decisions":[],"progress":[],"result":{"blockers":[],"changedLocations":[],"checkedRevisionOrWorkingTree":"fixture revision","risks":[],"validationOutcomes":[]},"revisionID":"\(revision.uuidString)","taskID":"\(task.uuidString)"}
+        """
+        let checksum = SHA256.hash(data: Data(legacy.utf8)).map { String(format: "%02x", $0) }.joined()
+        let original = "{\"version\":1,\"checksum\":\"\(checksum)\",\"revision\":\(legacy)}"
+        let url = file(dir, task, revision)
+        try Data(original.utf8).write(to: url)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        let store = TaskDetailStore(directory: dir)
+        let loaded = try store.read(taskID: task, revisionID: revision)
+        #expect(loaded.approvals.isEmpty && loaded.resultRevisionID == revision)
+        #expect(loaded.assignment.objective == "Legacy fixture")
+        try Data(original.replacingOccurrences(of: "Legacy fixture", with: "Changed fixture").utf8).write(to: url)
+        #expect(throws: TaskDetailStoreError.integrityMismatch) { try store.read(taskID: task, revisionID: revision) }
     }
 
     @Test func rejectsValidButAlteredRevision() throws {

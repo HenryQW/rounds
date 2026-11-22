@@ -90,7 +90,7 @@ public struct BouncerQuestion: Identifiable, Equatable, Sendable {
     public var isOpen: Bool { answer == nil && !closedByPi }
 }
 
-public enum ApprovalDecision: Equatable, Sendable { case approved, rejected(reason: String) }
+public enum ApprovalCardSource: Equatable, Sendable { case demo, local }
 
 /// An approval request that host code draws; never made from model text or a Pi dialog.
 public struct ApprovalCard: Identifiable, Equatable, Sendable {
@@ -99,10 +99,29 @@ public struct ApprovalCard: Identifiable, Equatable, Sendable {
     public let title: String
     public let actions: [String]
     public let checkedAt: Date
+    public let source: ApprovalCardSource
+    public let result: TaskResult?
     public var decision: ApprovalDecision?
+    public var localError: String?
+    public var isOpen: Bool { decision == nil && localError == nil }
 
     public init(id: String, taskID: String, title: String, actions: [String], checkedAt: Date, decision: ApprovalDecision? = nil) {
         (self.id, self.taskID, self.title, self.actions, self.checkedAt, self.decision) = (id, taskID, title, actions, checkedAt, decision)
+        source = .demo
+        result = nil
+    }
+
+    public init(local record: ApprovalRecord, result: TaskResult? = nil) {
+        let request = record.request
+        id = request.id.uuidString
+        taskID = request.taskID.uuidString
+        title = request.actions.count == 1 ? "Approve this action?" : "Approve these actions?"
+        actions = request.actions.map { $0.intent.display }
+        checkedAt = request.checkedAt
+        source = .local
+        self.result = result
+        decision = record.answer?.decision
+        if record.invalidatedAt != nil { localError = ApprovalError.stale.errorDescription }
     }
 }
 
@@ -144,6 +163,7 @@ public struct BouncerThread: Equatable, Sendable {
     public private(set) var tasks: [BouncerTask]
     public private(set) var banner: String?
     public private(set) var replying: Bool
+    public private(set) var localApprovalRetries: Set<UUID> = []
 
     public init(items: [BouncerItem] = [], tasks: [BouncerTask] = []) {
         (self.items, self.tasks, banner, replying) = (items, tasks, nil, false)
@@ -182,9 +202,34 @@ public struct BouncerThread: Equatable, Sendable {
             throw BouncerError.reasonRequired
         }
         guard let i = items.firstIndex(where: { $0.id == approvalID }), case .approval(var card) = items[i],
-              card.decision == nil else { return }
+              card.source == .demo, card.isOpen else { return }
         card.decision = decision
         items[i] = .approval(card)
+    }
+
+    public mutating func beginLocalApprovalReload(for taskID: UUID) {
+        for i in items.indices {
+            guard case .approval(var card) = items[i], card.source == .local,
+                  card.taskID == taskID.uuidString, card.isOpen else { continue }
+            card.localError = "Check this approval again before answering."
+            items[i] = .approval(card)
+        }
+    }
+
+    public mutating func localApprovalReloadNeedsRetry(for taskID: UUID) {
+        beginLocalApprovalReload(for: taskID)
+        localApprovalRetries.insert(taskID)
+    }
+
+    public mutating func replaceLocalApprovals(for taskID: UUID, with cards: [ApprovalCard]) {
+        localApprovalRetries.remove(taskID)
+        items.removeAll {
+            guard case .approval(let card) = $0 else { return false }
+            return card.source == .local && card.taskID == taskID.uuidString
+        }
+        for card in cards where card.source == .local && card.taskID == taskID.uuidString {
+            apply(.item(.approval(card)))
+        }
     }
 
     /// Archive is local presentation state. A running or waiting task cannot be hidden.
@@ -200,12 +245,12 @@ public struct BouncerThread: Equatable, Sendable {
         return items.filter { $0.taskID.map { !archived.contains($0) } ?? true }
     }
 
-    /// Open questions and undecided approvals: the number on the pill.
+    /// Open questions and approvals, plus tasks whose approval check needs a retry.
     public var waitingCount: Int {
-        items.reduce(0) { n, item in
+        items.reduce(localApprovalRetries.count) { n, item in
             switch item {
             case .question(let q) where q.isOpen: n + 1
-            case .approval(let a) where a.decision == nil: n + 1
+            case .approval(let a) where a.isOpen: n + 1
             default: n
             }
         }

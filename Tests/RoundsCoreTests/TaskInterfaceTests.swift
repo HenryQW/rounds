@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 import Testing
 @testable import RoundsCore
 
@@ -63,7 +64,7 @@ import Testing
 
         func detailData() throws -> [String: Data] {
             let names = try FileManager.default.contentsOfDirectory(atPath: details.directory.path)
-            return try Dictionary(uniqueKeysWithValues: names.map {
+            return try Dictionary(uniqueKeysWithValues: names.filter { !$0.hasSuffix(".approval-lock") }.map {
                 ($0, try Data(contentsOf: details.directory.appending(path: $0)))
             })
         }
@@ -75,6 +76,704 @@ import Testing
     }
 
     private var values: TaskDetails { TaskDetails(assignment: assignment) }
+
+    private struct ApprovalFixture {
+        let store: Fixture
+        let checkout: URL
+        let repositoryID = UUID()
+        let sourceRef = "refs/heads/main"
+        let initial: TaskRecord
+        let actions: [ApprovalAction]
+
+        init(bound: Bool = true) throws {
+            let store = try Fixture()
+            self.store = store
+            checkout = store.root.appending(path: "source")
+            try FileManager.default.createDirectory(at: checkout, withIntermediateDirectories: false)
+            try Self.git(checkout, "init", "--quiet", "--initial-branch=main")
+            let revision = try Self.advanceRef(checkout)
+            try Self.git(checkout, "config", "remote.origin.url", "https://fixture-user:\(Self.password)@example.invalid/team/repo.git")
+            let result = TaskResult(changedLocations: ["example"], validationOutcomes: ["Passed"],
+                                    checkedRevisionOrWorkingTree: revision, risks: [], blockers: [],
+                                    repositoryID: bound ? repositoryID : nil,
+                                    repositoryFolder: bound ? try #require(FolderIdentity.current(checkout.path)) : nil)
+            initial = try store.create(TaskDetails(assignment: TaskAssignment(objective: "Check a local approval", scope: "Fixture",
+                                                                                 target: "Local source", constraints: [], acceptanceConditions: []),
+                                                   result: result))
+            actions = [
+                ApprovalAction(intent: .push(sourceRef: sourceRef, revision: revision, remote: "origin",
+                                             urls: ["https://example.invalid/team/repo.git"], destinationRef: "refs/heads/result")),
+                ApprovalAction(intent: .draftPullRequest(repository: "example.invalid/team/repo", baseRef: "refs/heads/main",
+                                                         headRef: "refs/heads/result", revision: revision,
+                                                         draft: ApprovalDraft(title: "Local fixture", body: "Check only")))
+            ]
+        }
+
+        var taskID: UUID { initial.task.id }
+
+        func request(expecting reference: TaskDetailReference? = nil, actions: [ApprovalAction]? = nil,
+                     using access: TaskStorageAuthorization? = nil, sourceRef: String? = nil) throws -> ApprovalRecord {
+            try store.interface.requestApproval(for: taskID, expecting: reference ?? initial.task.detailReference,
+                                                repositoryID: repositoryID, repository: checkout, sourceRef: sourceRef ?? self.sourceRef,
+                                                remote: "origin", actions: actions ?? self.actions, using: access ?? store.access())
+        }
+
+        func reload() throws -> TaskRecord { try store.interface.reloadApprovals(for: taskID, using: store.access()) }
+
+        func answer(_ id: UUID, _ decision: ApprovalDecision, using interface: TaskInterface? = nil) throws -> ApprovalRecord {
+            try (interface ?? store.interface).answerApproval(id, for: taskID, decision: decision, using: store.access()) {
+                $0 == taskID && $1 == id && $2 == (try? decision.normalized())
+            }
+        }
+
+        @discardableResult
+        static func git(_ directory: URL, _ args: String...) throws -> String {
+            let process = Process(), output = Pipe()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
+            process.arguments = ["-C", directory.path] + args
+            process.environment = ProcessInfo.processInfo.environment.filter { !$0.key.hasPrefix("GIT_") }
+            process.standardOutput = output
+            process.standardError = FileHandle.nullDevice
+            try process.run()
+            let data = output.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            try #require(process.terminationStatus == 0)
+            return String(decoding: data, as: UTF8.self).trimmingCharacters(in: .newlines)
+        }
+
+        static let password = UUID().uuidString
+
+        @discardableResult
+        static func advanceRef(_ directory: URL) throws -> String {
+            let tree = try git(directory, "hash-object", "-w", "-t", "tree", "/dev/null")
+            let revision = try git(directory, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                                   "-c", "commit.gpgSign=false", "commit-tree", tree, "-m", UUID().uuidString)
+            try git(directory, "update-ref", "refs/heads/main", revision)
+            return revision
+        }
+    }
+
+    @Test func localApprovalRejectsRepositorySubstitutionsAndUnboundResult() throws {
+        let legacy = try ApprovalFixture(bound: false)
+        #expect(throws: ApprovalError.resultMismatch) { try legacy.request() }
+        let fixture = try ApprovalFixture()
+        func request(repositoryID: UUID, repository: URL) throws -> ApprovalRecord {
+            try fixture.store.interface.requestApproval(for: fixture.taskID, expecting: fixture.initial.task.detailReference,
+                                                        repositoryID: repositoryID, repository: repository,
+                                                        sourceRef: fixture.sourceRef, remote: "origin", actions: fixture.actions,
+                                                        using: fixture.store.access())
+        }
+        #expect(throws: ApprovalError.resultMismatch) { try request(repositoryID: UUID(), repository: fixture.checkout) }
+        let otherFixture = try ApprovalFixture()
+        let other = otherFixture.store.root.appending(path: "other")
+        try ApprovalFixture.git(otherFixture.store.root, "clone", "--quiet", "--local", otherFixture.checkout.path, other.path)
+        let remoteURL = try ApprovalFixture.git(otherFixture.checkout, "config", "remote.origin.url")
+        try ApprovalFixture.git(other, "config", "remote.origin.url", remoteURL)
+        #expect(throws: ApprovalError.resultMismatch) {
+            try otherFixture.store.interface.requestApproval(for: otherFixture.taskID, expecting: otherFixture.initial.task.detailReference,
+                                                            repositoryID: otherFixture.repositoryID, repository: other,
+                                                            sourceRef: otherFixture.sourceRef, remote: "origin", actions: otherFixture.actions,
+                                                            using: otherFixture.store.access())
+        }
+    }
+
+    @Test(arguments: ["unbound", "missing ID", "missing folder", "wrong ID", "wrong folder"])
+    func localApprovalReloadInvalidatesUnboundOrMismatchedResult(binding: String) throws {
+        let fixture = try ApprovalFixture()
+        let pending = try fixture.request()
+        let record = try fixture.store.interface.read(fixture.taskID, using: fixture.store.access())
+        let details = try #require(record.details)
+        let originalResult = try #require(details.result)
+        let otherFolder = try #require(FolderIdentity.current(fixture.store.repository.path))
+        let result = TaskResult(changedLocations: originalResult.changedLocations, validationOutcomes: originalResult.validationOutcomes,
+                                checkedRevisionOrWorkingTree: originalResult.checkedRevisionOrWorkingTree,
+                                risks: originalResult.risks, blockers: originalResult.blockers,
+                                repositoryID: binding == "unbound" || binding == "missing ID" ? nil :
+                                    (binding == "wrong ID" ? UUID() : fixture.repositoryID),
+                                repositoryFolder: binding == "unbound" || binding == "missing folder" ? nil :
+                                    (binding == "wrong folder" ? otherFolder : originalResult.repositoryFolder))
+        let old = pending.request
+        let request = ApprovalRequest(id: old.id, taskID: old.taskID, repositoryID: old.repositoryID,
+                                      organizationID: old.organizationID, resultRevisionID: old.resultRevisionID,
+                                      resultDigest: try approvalResultDigest(result), snapshot: old.snapshot, actions: old.actions,
+                                      createdAt: old.createdAt, checkedAt: old.checkedAt)
+        let revision = try fixture.store.details.write(taskID: fixture.taskID, assignment: details.assignment, result: result,
+                                                       progress: details.progress, decisions: details.decisions,
+                                                       approvals: [ApprovalRecord(request: request)], resultRevisionID: old.resultRevisionID)
+        try fixture.store.graph.update {
+            try $0.setDetailRevision(revision.revisionID, for: fixture.taskID, expecting: record.task.detailReference, resultChanged: false)
+        }
+        let reloaded = try fixture.reload()
+        #expect(reloaded.details?.approvals.first?.invalidatedAt != nil)
+        #expect(throws: ApprovalError.stale) { try fixture.answer(pending.id, .approved) }
+    }
+
+    @Test func localApprovalRejectsGraphDirectoryReplacementDuringAuthorization() throws {
+        let fixture = try ApprovalFixture()
+        let pending = try fixture.request()
+        let graph = fixture.store.graph.directory
+        let original = fixture.store.root.appending(path: "original-graph")
+        var replaced = false
+        let access = fixture.store.access(allowsGraph: { _, _ in
+            guard !replaced else { return true }
+            replaced = true
+            do {
+                try FileManager.default.moveItem(at: graph, to: original)
+                try FileManager.default.copyItem(at: original, to: graph)
+                return true
+            } catch { Issue.record(error); return false }
+        })
+        #expect(throws: (any Error).self) {
+            try fixture.store.interface.answerApproval(pending.id, for: fixture.taskID, decision: .approved, using: access) { _, _, _ in true }
+        }
+        #expect(try fixture.store.interface.read(fixture.taskID, using: fixture.store.access()).details?.approvals.last?.answer == nil)
+    }
+
+    @Test func localApprovalReloadConflictOffersRetryAndBlocksOldCards() throws {
+        let fixture = try ApprovalFixture()
+        let pending = try fixture.request()
+        let card = ApprovalCard(local: pending)
+        var thread = BouncerThread()
+        thread.beginLocalApprovalReload(for: fixture.taskID)
+        thread.localApprovalReloadNeedsRetry(for: fixture.taskID)
+        #expect(thread.localApprovalRetries.contains(fixture.taskID))
+        #expect(thread.items.isEmpty && thread.waitingCount == 1)
+        thread.replaceLocalApprovals(for: fixture.taskID, with: [card])
+        #expect(!thread.localApprovalRetries.contains(fixture.taskID))
+        #expect(thread.waitingCount == 1)
+        thread.beginLocalApprovalReload(for: fixture.taskID)
+        #expect(thread.waitingCount == 0)
+        thread.localApprovalReloadNeedsRetry(for: fixture.taskID)
+        #expect(thread.localApprovalRetries.contains(fixture.taskID) && thread.waitingCount == 1)
+        guard case .approval(let blocked) = try #require(thread.items.first) else { throw ApprovalError.invalidRequest }
+        #expect(!blocked.isOpen && blocked.decision == nil)
+        thread.replaceLocalApprovals(for: fixture.taskID, with: [card])
+        #expect(!thread.localApprovalRetries.contains(fixture.taskID) && thread.waitingCount == 1)
+    }
+
+    @Test func contendedApprovalCanRetryAfterRecheck() throws {
+        let fixture = try ApprovalFixture()
+        let pending = try fixture.request()
+        try fixture.store.details.withApprovalLock(taskID: fixture.taskID, wait: false) { _, _ in
+            #expect(throws: TaskGraphError.changedOnDisk) { try fixture.answer(pending.id, .approved) }
+        }
+        #expect(try fixture.reload().details?.approvals.last == pending)
+        #expect(try fixture.answer(pending.id, .approved).answer?.decision == .approved)
+    }
+
+    @Test func directOversizedResultDoesNotLeaveInspectionMarker() throws {
+        let fixture = try ApprovalFixture()
+        let pending = try fixture.request()
+        let record = try fixture.reload()
+        let oversized = TaskResult(changedLocations: [String(repeating: "x", count: 1_200_000)], validationOutcomes: [],
+                                   checkedRevisionOrWorkingTree: "other", risks: [], blockers: [])
+        #expect(throws: TaskDetailStoreError.tooLarge) {
+            try TaskRecordStore(graph: fixture.store.graph, details: fixture.store.details)
+                .write(taskID: fixture.taskID, expecting: record.task.detailReference,
+                       assignment: try #require(record.details).assignment, result: oversized)
+        }
+        #expect(try fixture.reload().details?.approvals.last == pending)
+        #expect(try fixture.answer(pending.id, .approved).answer?.decision == .approved)
+    }
+
+    @Test func approvalReloadRejectsTemporaryGraphReplacement() throws {
+        let fixture = try ApprovalFixture()
+        _ = try fixture.request()
+        let graph = fixture.store.graph.directory
+        let alternate = fixture.store.root.appending(path: "alternate-graph")
+        let original = fixture.store.root.appending(path: "original-graph")
+        try FileManager.default.copyItem(at: graph, to: alternate)
+        _ = try TaskGraphStore(directory: alternate).update { try $0.setState(.running, for: fixture.taskID) }
+        var detailReads = 0, switched = false
+        func restore() throws {
+            guard switched else { return }
+            try FileManager.default.moveItem(at: graph, to: alternate)
+            try FileManager.default.moveItem(at: original, to: graph)
+            switched = false
+        }
+        defer { try? restore() }
+        let access = fixture.store.access(allowsGraph: { _, _ in
+            do { try restore(); return true } catch { Issue.record(error); return false }
+        }, allowsDetails: { _, _, _ in
+            detailReads += 1
+            guard detailReads == 2 else { return true }
+            do {
+                try FileManager.default.moveItem(at: graph, to: original)
+                try FileManager.default.moveItem(at: alternate, to: graph)
+                switched = true
+                return true
+            } catch { Issue.record(error); return false }
+        })
+        #expect(throws: (any Error).self) {
+            try fixture.store.interface.reloadApprovals(for: fixture.taskID, using: access)
+        }
+    }
+
+    @Test func staleApprovalReloadRejectsTemporaryGraphReplacement() throws {
+        let fixture = try ApprovalFixture()
+        _ = try fixture.request()
+        try ApprovalFixture.git(fixture.checkout, "config", "remote.origin.pushurl", "https://example.invalid/changed.git")
+        let graph = fixture.store.graph.directory, taskID = fixture.taskID
+        let alternate = fixture.store.root.appending(path: "alternate-after-save")
+        let original = fixture.store.root.appending(path: "original-after-save")
+        let switched = OSAllocatedUnfairLock(initialState: false)
+        var interface = fixture.store.interface
+        let writer = interface.writeRecord
+        interface.writeRecord = { store, id, reference, details, at, identity, holding, grant in
+            let result = try writer(store, id, reference, details, at, identity, holding, grant)
+            try FileManager.default.copyItem(at: graph, to: alternate)
+            _ = try TaskGraphStore(directory: alternate).update { try $0.setState(.running, for: taskID) }
+            try FileManager.default.moveItem(at: graph, to: original)
+            try FileManager.default.moveItem(at: alternate, to: graph)
+            switched.withLock { $0 = true }
+            return result
+        }
+        func restore() throws {
+            guard switched.withLock({ $0 }) else { return }
+            try FileManager.default.moveItem(at: graph, to: alternate)
+            try FileManager.default.moveItem(at: original, to: graph)
+            switched.withLock { $0 = false }
+        }
+        defer { try? restore() }
+        let access = fixture.store.access(allowsGraph: { _, _ in
+            do { try restore(); return true } catch { Issue.record(error); return false }
+        })
+        #expect(throws: (any Error).self) { try interface.reloadApprovals(for: taskID, using: access) }
+    }
+
+    @Test func directResultReplacementRequiresInspectionAfterFailedLink() throws {
+        let fixture = try ApprovalFixture()
+        _ = try fixture.request()
+        let record = try fixture.reload()
+        let result = TaskResult(changedLocations: [], validationOutcomes: [], checkedRevisionOrWorkingTree: "other", risks: [], blockers: [])
+        #expect(throws: (any Error).self) {
+            try TaskRecordStore(graph: fixture.store.graph, details: fixture.store.details)
+                .write(taskID: fixture.taskID, expecting: record.task.detailReference,
+                       assignment: try #require(record.details).assignment, result: result, at: .distantPast)
+        }
+        #expect(throws: ApprovalError.needsInspection) { try fixture.reload() }
+    }
+
+    @Test func reentrantApprovalAuthorizationDoesNotBlock() throws {
+        let fixture = try ApprovalFixture()
+        let pending = try fixture.request()
+        let interface = fixture.store.interface, taskID = fixture.taskID
+        let graph = fixture.store.graph.directory, details = fixture.store.details.directory, scope = fixture.store.organizationID
+        let access = fixture.store.access(allowsDetails: { _, _, _ in
+            let done = DispatchSemaphore(value: 0)
+            DispatchQueue.global().async {
+                let nested = TaskStorageAuthorization(organizationID: scope, graphDirectory: graph, detailDirectory: details,
+                                                      allowsGraph: { _, _ in true }, allowsDetails: { _, _, _ in true })
+                _ = try? interface.reloadApprovals(for: taskID, using: nested)
+                done.signal()
+            }
+            return done.wait(timeout: .now() + 1) == .success
+        })
+        let saved = try fixture.store.interface.answerApproval(pending.id, for: fixture.taskID, decision: .approved, using: access) { _, _, _ in true }
+        #expect(saved.answer?.decision == .approved)
+    }
+
+    @Test func localApprovalPersistsOneAnswerAndKeepsResultIdentity() throws {
+        let fixture = try ApprovalFixture()
+        let taskID = fixture.taskID
+        try fixture.store.interface.revise(taskID, expecting: fixture.initial.task.detailReference, using: fixture.store.access()) {
+            $0.progress.append(TaskProgress(summary: "Saved before requesting", actor: "Fixture", time: Date()))
+        }
+        let reference = try fixture.reload().task.detailReference
+        let pending = try fixture.request(expecting: reference)
+        let reopened = try fixture.reload()
+        #expect(reopened.details?.approvals == [pending])
+        #expect(pending.request.resultRevisionID == fixture.initial.details?.revisionID)
+        #expect(pending.request.resultRevisionID != reference.revisionID && pending.request.resultRevisionID != reopened.details?.revisionID)
+        var thread = BouncerThread(items: [.approval(ApprovalCard(local: pending))])
+        #expect(thread.waitingCount == 1)
+        try thread.decide(pending.id.uuidString, .approved)
+        #expect(thread.waitingCount == 1)
+        let saved = try fixture.answer(pending.id, .rejected(reason: "  Check the base. \n"))
+        #expect(saved.answer?.decision == .rejected(reason: "Check the base."))
+        #expect(saved.answer?.actor == .user)
+        #expect(throws: ApprovalError.alreadyAnswered) { try fixture.answer(pending.id, .approved) }
+        let answered = try fixture.reload()
+        thread.replaceLocalApprovals(for: taskID, with: answered.details?.approvals.map { ApprovalCard(local: $0) } ?? [])
+        let card = ApprovalCard(local: saved)
+        #expect(thread.items == [.approval(card)] && thread.waitingCount == 0)
+        #expect(card.source == .local && card.taskID == taskID.uuidString && card.decision == saved.answer?.decision)
+        #expect(card.actions.first?.hasPrefix("Push ") == true && card.actions.last?.hasPrefix("Open a draft pull request ") == true)
+        #expect(answered.task.state == fixture.initial.task.state)
+        #expect(!card.actions.joined().contains(ApprovalFixture.password))
+        #expect(try fixture.store.detailData().values.allSatisfy { !String(decoding: $0, as: UTF8.self).contains(ApprovalFixture.password) })
+        try fixture.store.interface.revise(taskID, expecting: answered.task.detailReference, using: fixture.store.access()) {
+            $0.progress.append(TaskProgress(summary: "Checked the outcome", actor: "Fixture", time: Date()))
+        }
+        #expect(try fixture.reload().details?.approvals == [saved])
+    }
+
+    @Test func localApprovalRejectsUnauthorizedMalformedAndUnknownInputs() throws {
+        let fixture = try ApprovalFixture()
+        let initial = try fixture.store.detailData()
+        #expect(throws: ApprovalError.invalidRequest) { try fixture.request(actions: []) }
+        #expect(throws: ApprovalError.invalidRequest) { try fixture.request(actions: [fixture.actions[0], fixture.actions[0]]) }
+        let invalid = ApprovalAction(intent: .push(sourceRef: fixture.sourceRef, revision: String(repeating: "a", count: 40),
+                                                  remote: "origin", urls: ["https://example.invalid/team/repo.git"],
+                                                  destinationRef: "refs/heads/result"))
+        #expect(throws: ApprovalError.invalidRequest) { try fixture.request(actions: [invalid]) }
+        #expect(throws: TaskInterfaceError.graphNotAuthorized) {
+            try fixture.request(using: fixture.store.access(allowsGraph: { values, _ in
+                if case .detailLink = values { return false }
+                return true
+            }))
+        }
+        #expect(throws: TaskInterfaceError.detailsNotAuthorized) {
+            try fixture.request(using: fixture.store.access(allowsDetails: { _, details, _ in details.approvals.isEmpty }))
+        }
+        #expect(try fixture.store.detailData().filter { $0.key.hasSuffix(".json") } == initial)
+        let pending = try fixture.request()
+        #expect(throws: ApprovalError.unknownRequest) { try fixture.answer(UUID(), .approved) }
+        #expect(throws: BouncerError.reasonRequired) { try fixture.answer(pending.id, .rejected(reason: " \t\n")) }
+        #expect(try fixture.reload().details?.approvals == [pending])
+        try fixture.store.settings.update { $0.withdrawApproval(for: .organization(fixture.store.organizationID)) }
+        #expect(throws: TaskInterfaceError.storageNotReady) { try fixture.answer(pending.id, .approved) }
+        #expect(throws: TaskInterfaceError.storageNotReady) { try fixture.reload() }
+    }
+
+    @Test func localApprovalInvalidationSurvivesTheOriginalSnapshotReturning() throws {
+        let fixture = try ApprovalFixture()
+        let pending = try fixture.request()
+        try ApprovalFixture.git(fixture.checkout, "update-ref", "-d", fixture.sourceRef)
+        #expect(throws: ApprovalError.snapshotUnavailable) { try fixture.reload() }
+        #expect(throws: ApprovalError.snapshotUnavailable) { try fixture.answer(pending.id, .approved) }
+        #expect(try fixture.store.interface.read(fixture.taskID, using: fixture.store.access()).details?.approvals == [pending])
+        try ApprovalFixture.git(fixture.checkout, "update-ref", fixture.sourceRef, pending.request.snapshot.revision)
+        try ApprovalFixture.advanceRef(fixture.checkout)
+        #expect(throws: ApprovalError.stale) { try fixture.answer(pending.id, .approved) }
+        try ApprovalFixture.git(fixture.checkout, "update-ref", fixture.sourceRef, pending.request.snapshot.revision)
+        let stale = try fixture.reload()
+        let staleRecord = try #require(stale.details?.approvals.first)
+        #expect(staleRecord.invalidatedAt != nil && staleRecord.answer == nil)
+        #expect(!ApprovalCard(local: staleRecord).isOpen)
+        let fresh = try fixture.request(expecting: stale.task.detailReference)
+        #expect(fresh.id != pending.id && fresh.answer == nil)
+        #expect(try fixture.reload().details?.approvals == [staleRecord, fresh])
+    }
+
+    @Test func localApprovalResultEditsInvalidateEvenWhenRevertedBeforeReload() throws {
+        let fixture = try ApprovalFixture()
+        let pending = try fixture.request()
+        let record = try fixture.reload()
+        let result = try #require(record.details?.result)
+        try fixture.store.interface.revise(fixture.taskID, expecting: record.task.detailReference, using: fixture.store.access()) {
+            $0.result = nil
+        }
+        let changed = try fixture.store.interface.read(fixture.taskID, using: fixture.store.access())
+        try fixture.store.interface.revise(fixture.taskID, expecting: changed.task.detailReference, using: fixture.store.access()) {
+            $0.result = result
+        }
+        #expect(try fixture.reload().details?.approvals.first?.invalidatedAt != nil)
+        #expect(throws: ApprovalError.stale) { try fixture.answer(pending.id, .approved) }
+    }
+
+    @Test func oversizedAnswerDoesNotBlockAValidRetry() throws {
+        let fixture = try ApprovalFixture()
+        let pending = try fixture.request()
+        #expect(throws: TaskDetailStoreError.tooLarge) {
+            try fixture.answer(pending.id, .rejected(reason: String(repeating: "a", count: 1_200_000)))
+        }
+        #expect(try fixture.reload().details?.approvals == [pending])
+        #expect(try fixture.answer(pending.id, .approved).answer?.decision == .approved)
+    }
+
+    @Test func graphOnlyEditsCannotRestoreAnUnansweredRevision() throws {
+        let fixture = try ApprovalFixture()
+        let pending = try fixture.request()
+        let oldGraph = try fixture.store.graph.load()
+        let saved = try fixture.answer(pending.id, .approved)
+        #expect(throws: TaskGraphError.invalidGraph) {
+            try fixture.store.interface.updateGraph(using: fixture.store.access()) { $0 = oldGraph }
+        }
+        #expect(try fixture.reload().details?.approvals == [saved])
+    }
+
+    @Test func localApprovalRejectsAnAccountRelativeRemote() throws {
+        let fixture = try ApprovalFixture()
+        try ApprovalFixture.git(fixture.checkout, "config", "remote.origin.url", "fixture@example.invalid:team/repo.git")
+        #expect(throws: ApprovalError.snapshotUnavailable) { try fixture.request() }
+    }
+
+    @Test(arguments: [false, true])
+    func localApprovalInvalidatesWhenOnlySSHLoginChanges(usesURL: Bool) throws {
+        let fixture = try ApprovalFixture()
+        let originalLogin = "rounds-original-login", changedLogin = "rounds-changed-login"
+        let httpsLogin = "rounds-https-login", password = ApprovalFixture.password
+        let host = "example.invalid", path = "/team/repo.git"
+        let destination = usesURL ? "ssh://\(host)\(path)" : "\(host):\(path)"
+        func remoteURL(login: String) -> String {
+            usesURL ? "ssh://\(login)@\(host)\(path)" : "\(login)@\(destination)"
+        }
+        try ApprovalFixture.git(fixture.checkout, "config", "remote.backup.url", "https://%FF\(httpsLogin):%FF\(password)@\(host)\(path)")
+        let revision = try #require(fixture.initial.details?.result?.checkedRevisionOrWorkingTree)
+        let push = ApprovalAction(intent: .push(sourceRef: fixture.sourceRef, revision: revision, remote: "origin",
+                                               urls: [destination], destinationRef: "refs/heads/result"))
+        if usesURL {
+            try ApprovalFixture.git(fixture.checkout, "config", "remote.origin.url", "ssh://\(originalLogin):\(password)@\(host)\(path)")
+            #expect(throws: ApprovalError.snapshotUnavailable) { try fixture.request(actions: [push]) }
+        }
+        try ApprovalFixture.git(fixture.checkout, "config", "remote.origin.url", remoteURL(login: originalLogin))
+        let pending = try fixture.request(actions: [push])
+        try ApprovalFixture.git(fixture.checkout, "config", "remote.backup.url", "https://\(httpsLogin):\(password)@\(host)\(path)")
+        #expect(try fixture.reload().details?.approvals == [pending])
+        let actions = ApprovalCard(local: pending).actions.joined()
+        #expect(actions.contains(destination))
+
+        try ApprovalFixture.git(fixture.checkout, "config", "remote.origin.url", remoteURL(login: changedLogin))
+        if usesURL { #expect(try fixture.reload().details?.approvals.last?.invalidatedAt != nil) }
+        #expect(throws: ApprovalError.stale) { try fixture.answer(pending.id, .approved) }
+        let invalidated = try #require(try fixture.reload().details?.approvals.last)
+        #expect(invalidated.id == pending.id && invalidated.invalidatedAt != nil && invalidated.answer == nil)
+        #expect(!ApprovalCard(local: invalidated).isOpen)
+
+        let saved = try fixture.store.detailData().values.map { String(decoding: $0, as: UTF8.self) }
+            + [String(decoding: try fixture.store.graphData(), as: UTF8.self)]
+        for credential in [originalLogin, changedLogin, httpsLogin, password] {
+            #expect(!actions.contains(credential))
+            #expect(saved.allSatisfy { !$0.contains(credential) })
+        }
+    }
+
+    @Test func concurrentLocalAnswersKeepTheFirstSavedDecision() throws {
+        let fixture = try ApprovalFixture()
+        let pending = try fixture.request()
+        let interface = fixture.store.interface
+        let checkoutTask = fixture.taskID
+        let scope = fixture.store.organizationID
+        let graph = fixture.store.graph.directory, details = fixture.store.details.directory
+        let decisions: [ApprovalDecision] = [.approved, .rejected(reason: "Recheck the result.")]
+        let outcomes = OSAllocatedUnfairLock(initialState: [Result<ApprovalRecord, any Error>]())
+        DispatchQueue.concurrentPerform(iterations: decisions.count) { index in
+            let access = TaskStorageAuthorization(organizationID: scope, graphDirectory: graph, detailDirectory: details,
+                                                  allowsGraph: { _, _ in true }, allowsDetails: { _, _, _ in true })
+            let outcome = Result {
+                try interface.answerApproval(pending.id, for: checkoutTask, decision: decisions[index], using: access) {
+                    $0 == checkoutTask && $1 == pending.id && $2 == decisions[index]
+                }
+            }
+            outcomes.withLock { $0.append(outcome) }
+        }
+        let results = outcomes.withLock { $0 }
+        let saved = results.compactMap { try? $0.get() }
+        #expect(saved.count == 1)
+        #expect(results.contains {
+            if case .failure(let error) = $0 {
+                return error as? ApprovalError == .alreadyAnswered || error as? TaskGraphError == .changedOnDisk
+            }
+            return false
+        })
+        #expect(try fixture.reload().details?.approvals == saved)
+    }
+
+    @Test func localApprovalRechecksTheAnnotatedTagObject() throws {
+        let fixture = try ApprovalFixture()
+        let root = fixture.checkout
+        let tag = "refs/tags/result"
+        func tagResult(_ message: String) throws -> String {
+            try ApprovalFixture.git(root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                                    "tag", "--no-sign", "-f", "-a", "result", "-m", message)
+            return try ApprovalFixture.git(root, "rev-parse", tag)
+        }
+        let first = try tagResult("First tag object")
+        let before = try inspectApprovalSnapshot(repository: root, sourceRef: tag, remote: "origin")
+        func push(_ revision: String) -> ApprovalAction {
+            ApprovalAction(intent: .push(sourceRef: tag, revision: revision, remote: before.remote,
+                                         urls: before.pushURLs, destinationRef: tag))
+        }
+        #expect(before.pushRevision == first)
+        #expect(throws: ApprovalError.invalidRequest) { try fixture.request(actions: [push(before.revision)], sourceRef: tag) }
+        let pending = try fixture.request(expecting: fixture.reload().task.detailReference, actions: [push(first)], sourceRef: tag)
+        let second = try tagResult("Second tag object")
+        let after = try inspectApprovalSnapshot(repository: root, sourceRef: tag, remote: "origin")
+        #expect(first != second)
+        #expect(before.revision == after.revision && after.pushRevision == second)
+        #expect(throws: ApprovalError.stale) { try fixture.answer(pending.id, .approved) }
+        #expect(try fixture.reload().details?.approvals.last?.invalidatedAt != nil)
+    }
+
+    @Test func localApprovalComparesDestinationBytes() throws {
+        let fixture = try ApprovalFixture()
+        let composed = "https://example.invalid/team/caf\u{e9}.git"
+        let decomposed = "https://example.invalid/team/cafe\u{301}.git"
+        let config = fixture.checkout.appending(path: ".git/config")
+        let original = try Data(contentsOf: config)
+        func setPushURL(_ url: String) throws {
+            let credentialURL = url.replacingOccurrences(of: "https://", with: "https://fixture:\(ApprovalFixture.password)@")
+            try (original + Data("\n[remote \"origin\"]\npushurl = \(credentialURL)\n".utf8)).write(to: config, options: .atomic)
+        }
+        try setPushURL(composed)
+        let revision = try #require(fixture.initial.details?.result?.checkedRevisionOrWorkingTree)
+        func push(_ url: String) -> ApprovalAction {
+            ApprovalAction(intent: .push(sourceRef: fixture.sourceRef, revision: revision, remote: "origin",
+                                         urls: [url], destinationRef: "refs/heads/result"))
+        }
+        #expect(throws: ApprovalError.invalidRequest) { try fixture.request(actions: [push(decomposed)]) }
+        let pending = try fixture.request(expecting: fixture.reload().task.detailReference, actions: [push(composed)])
+        #expect(try #require(pending.request.snapshot.pushURLs.first).utf8.elementsEqual(composed.utf8))
+        try setPushURL(decomposed)
+        #expect(throws: ApprovalError.stale) { try fixture.answer(pending.id, .approved) }
+        let invalidated = try fixture.reload()
+        #expect(invalidated.details?.approvals.last?.invalidatedAt != nil)
+
+        // A direct branch address passes through the subprocess environment for Git rewrites.
+        try (original + Data("\n[branch \"main\"]\npushRemote = \(composed)\n".utf8)).write(to: config, options: .atomic)
+        #expect(throws: ApprovalError.snapshotUnavailable) {
+            try fixture.request(expecting: invalidated.task.detailReference)
+        }
+    }
+
+    @Test func localApprovalRejectsInvalidDestinationEncoding() throws {
+        let fixture = try ApprovalFixture()
+        let config = try FileHandle(forWritingTo: fixture.checkout.appending(path: ".git/config"))
+        defer { try? config.close() }
+        try config.seekToEnd()
+        try config.write(contentsOf: Data("\n[remote \"origin\"]\npushurl = https://example.invalid/".utf8) + Data([0xFF, 0x0A]))
+        #expect(throws: ApprovalError.snapshotUnavailable) { try fixture.request() }
+    }
+
+    @Test(arguments: [false, true])
+    func localApprovalRejectsLocalSymlinkDestinations(fileURL: Bool) throws {
+        let fixture = try ApprovalFixture()
+        let target = fixture.store.root.appending(path: "target.git")
+        let link = fixture.checkout.appending(path: "link.git")
+        try ApprovalFixture.git(fixture.store.root, "init", "--bare", target.path)
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+        let destination = fileURL ? link.absoluteString : "./link.git"
+        try ApprovalFixture.git(fixture.checkout, "config", "remote.origin.pushurl", destination)
+        let revision = try #require(fixture.initial.details?.result?.checkedRevisionOrWorkingTree)
+        let push = ApprovalAction(intent: .push(sourceRef: fixture.sourceRef, revision: revision, remote: "origin",
+                                               urls: [destination], destinationRef: "refs/heads/result"))
+        #expect(throws: ApprovalError.snapshotUnavailable) { try fixture.request(actions: [push]) }
+    }
+
+    @Test func localApprovalRejectsCredentialAddressesInFreeText() throws {
+        let fixture = try ApprovalFixture()
+        let revision = try #require(fixture.initial.details?.result?.checkedRevisionOrWorkingTree)
+        let address = "https://fixture:\(ApprovalFixture.password)@example.invalid/path"
+        let draft = ApprovalAction(intent: .draftPullRequest(repository: "example.invalid/team/repo", baseRef: "refs/heads/other",
+                                                             headRef: fixture.sourceRef, revision: revision,
+                                                             draft: ApprovalDraft(title: "Fixture", body: "See [this link](\(address)).")))
+        #expect(throws: ApprovalError.credentialAddressInText) { try fixture.request(actions: [draft]) }
+        let pending = try fixture.request(expecting: fixture.reload().task.detailReference)
+        #expect(throws: ApprovalError.credentialAddressInText) {
+            try fixture.answer(pending.id, .rejected(reason: "Review `\(address)` first."))
+        }
+        let reason = "  Review git@example.invalid and ssh://git@example.invalid/path.\nKeep this line.  "
+        let saved = try fixture.answer(pending.id, .rejected(reason: reason))
+        #expect(saved.answer?.decision == .rejected(reason: "Review git@example.invalid and ssh://git@example.invalid/path.\nKeep this line."))
+    }
+
+    @Test func localApprovalStorageGrantAloneCannotAnswer() throws {
+        let fixture = try ApprovalFixture()
+        let pending = try fixture.request()
+        #expect(throws: ApprovalError.userAnswerNotAuthorized) {
+            try fixture.store.interface.answerApproval(pending.id, for: fixture.taskID, decision: .approved, using: fixture.store.access())
+        }
+        #expect(throws: ApprovalError.userAnswerNotAuthorized) {
+            try fixture.store.interface.answerApproval(pending.id, for: fixture.taskID, decision: .approved, using: fixture.store.access()) {
+                $0 == fixture.taskID && $1 == pending.id && $2 == .rejected(reason: "A different answer")
+            }
+        }
+        #expect(try fixture.reload().details?.approvals == [pending])
+    }
+
+    @Test(arguments: [false, true])
+    func localApprovalSerializesProgressBeforeLinkingAnswer(directRecordWriter: Bool) throws {
+        let fixture = try ApprovalFixture()
+        let pending = try fixture.request()
+        let record = try fixture.reload()
+        let checkoutTask = fixture.taskID, reference = record.task.detailReference
+        let graph = fixture.store.graph, detailStore = fixture.store.details, settings = fixture.store.settings
+        let organizationID = fixture.store.organizationID
+        let progress = TaskProgress(summary: "Competing progress", actor: "Fixture", time: Date())
+        var interface = fixture.store.interface
+        let writer = interface.writeRecord
+        interface.writeRecord = { store, taskID, previous, details, at, identity, holdingLock, grant in
+            #expect(throws: TaskGraphError.changedOnDisk) {
+                if directRecordWriter {
+                    try TaskRecordStore(graph: graph, details: detailStore)
+                        .write(taskID: checkoutTask, expecting: reference, assignment: details.assignment, result: details.result,
+                               progress: [progress], at: at)
+                } else {
+                    let access = TaskStorageAuthorization(organizationID: organizationID, graphDirectory: graph.directory,
+                                                          detailDirectory: detailStore.directory,
+                                                          allowsGraph: { _, _ in true }, allowsDetails: { _, _, _ in true })
+                    try TaskInterface(workspace: settings).revise(checkoutTask, expecting: reference, using: access, at: at) {
+                        $0.progress.append(progress)
+                    }
+                }
+            }
+            return try writer(store, taskID, previous, details, at, identity, holdingLock, grant)
+        }
+        let saved = try fixture.answer(pending.id, .approved, using: interface)
+        let current = try fixture.reload()
+        #expect(current.details?.approvals == [saved] && current.details?.progress.isEmpty == true)
+        try fixture.store.interface.revise(checkoutTask, expecting: current.task.detailReference, using: fixture.store.access()) {
+            $0.progress.append(progress)
+        }
+        #expect(try fixture.reload().details?.approvals == [saved])
+    }
+
+    @Test func localApprovalRechecksRemoteOrderPushURLsAndOverrides() throws {
+        let fixture = try ApprovalFixture()
+        let root = fixture.checkout
+        try ApprovalFixture.git(root, "remote", "add", "backup", "https://example.invalid/archive/repo.git")
+        let pending = try fixture.request()
+        try ApprovalFixture.git(root, "config", "--remove-section", "remote.origin")
+        try ApprovalFixture.git(root, "remote", "add", "origin", "https://other-user@example.invalid/team/repo.git")
+        #expect(try fixture.reload().details?.approvals == [pending])
+
+        try ApprovalFixture.git(root, "config", "remote.backup.pushurl", "https://example.invalid/archive/other.git")
+        let changedPush = try fixture.reload()
+        #expect(changedPush.details?.approvals.last?.invalidatedAt != nil)
+        let second = try fixture.request(expecting: changedPush.task.detailReference)
+        try ApprovalFixture.git(root, "config", "branch.main.pushRemote", "backup")
+        let changedOverride = try fixture.reload()
+        #expect(changedOverride.details?.approvals.last?.id == second.id)
+        #expect(changedOverride.details?.approvals.last?.invalidatedAt != nil)
+        let third = try fixture.request(expecting: changedOverride.task.detailReference)
+        try ApprovalFixture.git(root, "config", "url.https://example.invalid/changed/.pushInsteadOf", "https://other-user@example.invalid/team/")
+        let changedRewrite = try fixture.reload()
+        #expect(changedRewrite.details?.approvals.last?.id == third.id)
+        #expect(changedRewrite.details?.approvals.last?.invalidatedAt != nil)
+    }
+
+    @Test(arguments: [false, true])
+    func localApprovalIncompleteSaveRequiresInspectionAfterReload(linked: Bool) throws {
+        let fixture = try ApprovalFixture()
+        let pending = try fixture.request()
+        let before = try fixture.reload()
+        var interface = fixture.store.interface
+        let writer = interface.writeRecord
+        interface.writeRecord = { store, taskID, reference, details, at, identity, holdingLock, grant in
+            if linked {
+                let outcome = try writer(store, taskID, reference, details, at, identity, holdingLock, grant)
+                guard case .saved(let revisionID) = outcome else { return outcome }
+                return .graphNeedsInspection(revisionID, .committedNotDurable)
+            }
+            let orphan = try store.details.write(taskID: taskID, assignment: details.assignment, result: details.result,
+                                                progress: details.progress, decisions: details.decisions, approvals: details.approvals,
+                                                resultRevisionID: before.details?.resultRevisionID)
+            throw TaskRecordLinkError(revisionID: orphan.revisionID, underlyingError: TaskGraphError.changedOnDisk)
+        }
+        #expect(throws: (any Error).self) { try fixture.answer(pending.id, .approved, using: interface) }
+        let stored = try fixture.store.interface.read(fixture.taskID, using: fixture.store.access())
+        #expect((stored.task.detailReference != before.task.detailReference) == linked)
+        #expect(throws: ApprovalError.needsInspection) { try fixture.reload() }
+        #expect(throws: ApprovalError.needsInspection) { try fixture.answer(pending.id, .approved) }
+        #expect(throws: ApprovalError.needsInspection) {
+            try fixture.store.interface.revise(fixture.taskID, expecting: stored.task.detailReference, using: fixture.store.access()) {
+                $0.progress.append(TaskProgress(summary: "Competing progress", actor: "Fixture", time: Date()))
+            }
+        }
+        let after = try fixture.store.interface.read(fixture.taskID, using: fixture.store.access())
+        #expect(after.task.detailReference == stored.task.detailReference && after.details == stored.details)
+    }
 
     @Test(arguments: ["missing workspace", "malformed settings", "changed remotes", "absent approval"])
     func incompleteSetupRejectsEveryWrite(problem: String) throws {
@@ -178,13 +877,13 @@ import Testing
         let original = f.root.appending(path: "original-graph")
         var interface = f.interface
         let writeRecord = interface.writeRecord
-        interface.writeRecord = { store, taskID, previous, details, at, identity, authorize in
+        interface.writeRecord = { store, taskID, previous, details, at, identity, holdingLock, authorize in
             try FileManager.default.moveItem(at: directory, to: original)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                     attributes: [.posixPermissions: 0o700])
             try FileManager.default.copyItem(at: original.appending(path: "graph.json"),
                                              to: directory.appending(path: "graph.json"))
-            return try writeRecord(store, taskID, previous, details, at, identity, authorize)
+            return try writeRecord(store, taskID, previous, details, at, identity, holdingLock, authorize)
         }
         do {
             _ = try interface.create(details: values, using: f.access())
@@ -543,7 +1242,7 @@ import Testing
     func detailInspectionRetainsThePublishedRevision(status: TaskDetailDurability) throws {
         let f = try Fixture()
         var interface = f.interface
-        interface.writeRecord = { store, taskID, _, details, _, _, _ in
+        interface.writeRecord = { store, taskID, _, details, _, _, _, _ in
             let published = try store.details.write(taskID: taskID, assignment: details.assignment,
                                                     result: details.result, progress: details.progress, decisions: details.decisions)
             #expect(published.durability == .saved)
@@ -573,7 +1272,7 @@ import Testing
     func linkedGraphInspectionRetainsTheRevision(status: TaskGraphWriteResult) throws {
         let f = try Fixture()
         var interface = f.interface
-        interface.writeRecord = { store, taskID, previous, details, at, _, _ in
+        interface.writeRecord = { store, taskID, previous, details, at, _, _, _ in
             let outcome = try store.write(taskID: taskID, expecting: previous, assignment: details.assignment,
                                           result: details.result, progress: details.progress, decisions: details.decisions, at: at)
             guard case .saved(let revisionID) = outcome else { Issue.record("Fixture write failed"); return outcome }
@@ -649,7 +1348,7 @@ import Testing
         let directory = f.details.directory
         let original = f.root.appending(path: "original")
         var interface = f.interface
-        interface.writeRecord = { store, taskID, previous, details, at, _, _ in
+        interface.writeRecord = { store, taskID, previous, details, at, _, _, _ in
             try FileManager.default.moveItem(at: directory, to: original)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                     attributes: [.posixPermissions: 0o700])
@@ -671,7 +1370,7 @@ import Testing
         let settings = f.settings
         let scope = WorkspaceScope.organization(f.organizationID)
         var interface = f.interface
-        interface.writeRecord = { store, taskID, previous, details, at, _, _ in
+        interface.writeRecord = { store, taskID, previous, details, at, _, _, _ in
             try settings.update { $0.withdrawApproval(for: scope) }
             return try store.write(taskID: taskID, expecting: previous, assignment: details.assignment,
                                    result: details.result, progress: details.progress, decisions: details.decisions, at: at)

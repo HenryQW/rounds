@@ -79,7 +79,7 @@ No new window design belongs here. Use the chosen slice 01 components. The Node 
 
 `TaskAssignment` holds `objective`, `scope`, `target`, `constraints` and `acceptanceConditions`. Parent and dependency links belong in the graph.
 
-`TaskResult` holds `changedLocations`, `validationOutcomes`, `checkedRevisionOrWorkingTree`, `risks` and `blockers`. `TaskProgress` and `TaskDecision` remain separate detail arrays.
+`TaskResult` holds `changedLocations`, `validationOutcomes`, `checkedRevisionOrWorkingTree`, `risks` and `blockers`. It can also hold an authorized repository identifier and folder identity. Local approval requests require both. `TaskProgress` and `TaskDecision` remain separate detail arrays.
 
 `TaskRecordStore.write` publishes details before updating the graph. Its error can identify a published orphan. It is not a transaction across both stores.
 

@@ -24,14 +24,18 @@ public struct TaskResult: Codable, Equatable, Sendable {
     public let checkedRevisionOrWorkingTree: String
     public let risks: [String]
     public let blockers: [String]
+    public let repositoryID: UUID?
+    public let repositoryFolder: FolderIdentity?
 
     public init(changedLocations: [String], validationOutcomes: [String], checkedRevisionOrWorkingTree: String,
-                risks: [String], blockers: [String]) {
+                risks: [String], blockers: [String], repositoryID: UUID? = nil, repositoryFolder: FolderIdentity? = nil) {
         self.changedLocations = changedLocations
         self.validationOutcomes = validationOutcomes
         self.checkedRevisionOrWorkingTree = checkedRevisionOrWorkingTree
         self.risks = risks
         self.blockers = blockers
+        self.repositoryID = repositoryID
+        self.repositoryFolder = repositoryFolder
     }
 }
 
@@ -64,10 +68,12 @@ public struct TaskDecision: Codable, Equatable, Sendable {
 public struct TaskDetailRevision: Codable, Equatable, Sendable {
     public let taskID: UUID
     public let revisionID: UUID
+    public let resultRevisionID: UUID?
     public let assignment: TaskAssignment
     public let result: TaskResult?
     public let progress: [TaskProgress]
     public let decisions: [TaskDecision]
+    public let approvals: [ApprovalRecord]
 }
 
 public enum TaskDetailStoreError: Error, Equatable {
@@ -110,8 +116,16 @@ public struct TaskDetailStore: Sendable {
     @discardableResult
     public func write(taskID: UUID, assignment: TaskAssignment, result: TaskResult? = nil,
                       progress: [TaskProgress] = [], decisions: [TaskDecision] = []) throws -> TaskDetailWriteResult {
-        let revision = TaskDetailRevision(taskID: taskID, revisionID: UUID(), assignment: assignment,
-                                          result: result, progress: progress, decisions: decisions)
+        try write(taskID: taskID, assignment: assignment, result: result, progress: progress, decisions: decisions, approvals: [])
+    }
+
+    func write(taskID: UUID, assignment: TaskAssignment, result: TaskResult?, progress: [TaskProgress],
+               decisions: [TaskDecision], approvals: [ApprovalRecord], resultRevisionID: UUID? = nil) throws -> TaskDetailWriteResult {
+        try ApprovalRecord.validate(approvals, taskID: taskID)
+        let revisionID = UUID()
+        let revision = TaskDetailRevision(taskID: taskID, revisionID: revisionID,
+                                          resultRevisionID: result.map { _ in resultRevisionID ?? revisionID }, assignment: assignment,
+                                          result: result, progress: progress, decisions: decisions, approvals: approvals)
         if let (workspace, scope) = approval {
             return try workspace.withTaskDetailApproval(for: scope) { identity in
                 guard identity == approvedIdentity else { throw TaskInterfaceError.storageNotReady }
@@ -131,10 +145,30 @@ public struct TaskDetailStore: Sendable {
         }
     }
 
-    private func publish(_ revision: TaskDetailRevision) throws -> TaskDetailWriteResult {
-        let taskID = revision.taskID
+    func checkRevisionSize(taskID: UUID, details: TaskDetails) throws {
+        try checkRevisionSize(taskID: taskID, assignment: details.assignment, result: details.result,
+                              progress: details.progress, decisions: details.decisions, approvals: details.approvals)
+    }
+
+    func checkRevisionSize(taskID: UUID, assignment: TaskAssignment, result: TaskResult?, progress: [TaskProgress],
+                           decisions: [TaskDecision], approvals: [ApprovalRecord]) throws {
+        try ApprovalRecord.validate(approvals, taskID: taskID)
+        let id = UUID()
+        let revision = TaskDetailRevision(taskID: taskID, revisionID: id, resultRevisionID: result.map { _ in id },
+                                          assignment: assignment, result: result, progress: progress,
+                                          decisions: decisions, approvals: approvals)
+        _ = try encodedRevision(revision)
+    }
+
+    private func encodedRevision(_ revision: TaskDetailRevision) throws -> Data {
         let data = try JSONEncoder().encode(DetailDocument(revision: revision))
         guard data.count <= Self.maximumBytes else { throw TaskDetailStoreError.tooLarge }
+        return data
+    }
+
+    private func publish(_ revision: TaskDetailRevision) throws -> TaskDetailWriteResult {
+        let taskID = revision.taskID
+        let data = try encodedRevision(revision)
         let dir = try openDirectory()
         defer { close(dir) }
         let name = filename(taskID, revision.revisionID)
@@ -194,7 +228,52 @@ public struct TaskDetailStore: Sendable {
         guard document.revision.taskID == taskID, document.revision.revisionID == revisionID else {
             throw TaskDetailStoreError.identityMismatch
         }
+        guard (document.revision.result == nil) == (document.revision.resultRevisionID == nil) else {
+            throw TaskDetailStoreError.malformedData
+        }
+        do { try ApprovalRecord.validate(document.revision.approvals, taskID: taskID) }
+        catch { throw TaskDetailStoreError.malformedData }
         return document.revision
+    }
+
+    // Detail links take the same lock as approvals. A nonempty lock file marks an uncertain approval save.
+    func withApprovalLock<T>(taskID: UUID, wait: Bool = true, _ body: (Int32, Int32) throws -> T) throws -> T {
+        let dir = try openDirectory()
+        defer { close(dir) }
+        let name = "\(taskID.uuidString).approval-lock"
+        let fd = openat(dir, name, O_RDWR | O_CREAT | O_NOFOLLOW | O_NONBLOCK, 0o600)
+        guard fd >= 0 else { throw ApprovalError.needsInspection }
+        defer { close(fd) }
+        try checkDetailFile(fd)
+        guard flock(fd, wait ? LOCK_EX : LOCK_EX | LOCK_NB) == 0 else {
+            if !wait && errno == EWOULDBLOCK { throw TaskGraphError.changedOnDisk }
+            throw ApprovalError.needsInspection
+        }
+        try checkIdentity(dir, name: name, fd: fd)
+        if wait { try checkApprovalDirectory(dir) }
+        var info = stat()
+        guard fstat(fd, &info) == 0, info.st_size == 0 else { throw ApprovalError.needsInspection }
+        return try body(dir, fd)
+    }
+
+    func checkApprovalDirectory(_ directory: Int32) throws {
+        try withPublicationApproval { try checkDirectoryIdentity(directory) }
+    }
+
+    func saveApproval(taskID: UUID, in directory: Int32, lock: Int32,
+                      _ write: () throws -> TaskRecordWriteResult) throws -> TaskRecordWriteResult {
+        try checkDirectoryIdentity(directory)
+        try checkIdentity(directory, name: "\(taskID.uuidString).approval-lock", fd: lock)
+        var marker: UInt8 = 1
+        guard pwrite(lock, &marker, 1, 0) == 1, fcntl(lock, F_FULLFSYNC) == 0,
+              fcntl(directory, F_FULLFSYNC) == 0 else { throw ApprovalError.needsInspection }
+        let outcome = try write()
+        guard case .saved = outcome else { throw ApprovalError.needsInspection }
+        try checkDirectoryIdentity(directory)
+        try checkIdentity(directory, name: "\(taskID.uuidString).approval-lock", fd: lock)
+        // Both references are durable. A failed marker sync can only keep a request blocked after restart.
+        guard ftruncate(lock, 0) == 0, fcntl(lock, F_FULLFSYNC) == 0 else { throw ApprovalError.needsInspection }
+        return outcome
     }
 
     private func filename(_ taskID: UUID, _ revisionID: UUID) -> String {
@@ -250,7 +329,7 @@ private struct DetailDocument: Codable {
     let checksum: String
 
     init(revision: TaskDetailRevision) throws {
-        version = 1
+        version = 2
         self.revision = revision
         checksum = try Self.digest(revision)
     }
@@ -258,13 +337,33 @@ private struct DetailDocument: Codable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         version = try container.decode(Int.self, forKey: .version)
-        guard version == 1 else { throw TaskDetailStoreError.unknownVersion }
-        revision = try container.decode(TaskDetailRevision.self, forKey: .revision)
+        guard version == 1 || version == 2 else { throw TaskDetailStoreError.unknownVersion }
         checksum = try container.decode(String.self, forKey: .checksum)
-        guard checksum == (try Self.digest(revision)) else { throw TaskDetailStoreError.integrityMismatch }
+        switch version {
+        case 1:
+            let original = try container.decode(OriginalRevision.self, forKey: .revision)
+            guard checksum == (try Self.digest(original)) else { throw TaskDetailStoreError.integrityMismatch }
+            revision = TaskDetailRevision(taskID: original.taskID, revisionID: original.revisionID,
+                                          resultRevisionID: original.result.map { _ in original.revisionID }, assignment: original.assignment,
+                                          result: original.result, progress: original.progress, decisions: original.decisions, approvals: [])
+        case 2:
+            revision = try container.decode(TaskDetailRevision.self, forKey: .revision)
+            guard checksum == (try Self.digest(revision)) else { throw TaskDetailStoreError.integrityMismatch }
+        default:
+            throw TaskDetailStoreError.unknownVersion
+        }
     }
 
-    private static func digest(_ revision: TaskDetailRevision) throws -> String {
+    private struct OriginalRevision: Codable {
+        let taskID: UUID
+        let revisionID: UUID
+        let assignment: TaskAssignment
+        let result: TaskResult?
+        let progress: [TaskProgress]
+        let decisions: [TaskDecision]
+    }
+
+    private static func digest(_ revision: some Encodable) throws -> String {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         return try SHA256.hash(data: encoder.encode(revision)).map { String(format: "%02x", $0) }.joined()
