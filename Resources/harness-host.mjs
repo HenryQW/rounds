@@ -79,7 +79,10 @@ process.stdin.on("data", (chunk) => {
                 conversation ??= bouncer(await opening, models, emit);
                 try { await conversation(request); } catch (error) {
                     response.ok = false;
-                    response.error = error instanceof BouncerRequestError ? error.message : "Rounds could not complete the Bouncer command.";
+                    const rejected = error instanceof BouncerRequestError;
+                    response.error = rejected ? error.message : "Rounds could not complete the Bouncer command.";
+                    // The Bouncer throws request errors before it submits the message.
+                    if (["bouncerSend", "bouncerAnswer"].includes(request.command) && rejected) response.rejected = true;
                 }
             }
             process.stdout.write(JSON.stringify(response) + "\n");

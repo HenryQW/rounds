@@ -82,6 +82,51 @@ class Host {
     }
 }
 
+test("recovery preserves an aborted partial reply without a user stop on later opens", async () => {
+    const source = (await readFile(new URL("../Resources/harness-bouncer.mjs", import.meta.url), "utf8"))
+        .split("\n").filter(line => !line.startsWith("import ")).join("\n");
+    globalThis.roundsFixture = {
+        context: {}, AssistantEntry: { is: entry => entry.kind === "assistant" },
+        UserEntry: { is: entry => entry.kind === "user" }, configure() {}, defineDoc: value => value,
+        LiveDoc: {}, BouncerRequestError: class extends Error {},
+        registerMagpie: async () => ({ resolve: () => null, models: [] }),
+    };
+    try {
+        const prefix = "const { context, AssistantEntry, UserEntry, configure, defineDoc, LiveDoc, BouncerRequestError, registerMagpie } = globalThis.roundsFixture;\n";
+        const { bouncer } = await import(`data:text/javascript;base64,${Buffer.from(prefix + source).toString("base64")}`);
+        const rows = [
+            { id: 1, kind: "user", model: [{ content: "Question" }] },
+            { id: 2, kind: "assistant", model: [{ content: "Partial reply", stopReason: "aborted" }] },
+        ];
+        const conversation = {
+            id: "root", commit: async callback => callback({ doc: async () => ({ model: null }),
+                appendEntry: async (_id, entry) => { rows.push({ ...entry, id: rows.length + 1 }); } }),
+            configure: async () => {}, abort: async () => {},
+            entries: async ({ minEntryId }) => ({ items: rows.filter(row => !minEntryId || row.id >= minEntryId) }),
+            submit: async ({ entry }) => { rows.push({ ...entry, id: rows.length + 1 }); },
+        };
+        let recovering = true;
+        let interruptAbort = true;
+        const harness = {
+            root: async () => conversation,
+            inspect: async () => ({ tasks: recovering ? [{ record: { id: "task", conversationId: "root" } }] : [], submissions: [] }),
+            abortTask: async () => { if (interruptAbort) { interruptAbort = false; throw new Error("simulated crash"); } },
+        };
+        await assert.rejects(bouncer(harness, {}, () => {})({ command: "bouncerOpen" }), /simulated crash/);
+        assert.ok(rows.some(row => row.kind === "rounds.interrupted" && row.data.afterID === 1));
+        recovering = false;
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const frames = [];
+            await bouncer(harness, {}, (event, fields) => frames.push({ event, ...fields }))({ command: "bouncerOpen" });
+            assert.ok(frames.some(frame => frame.event === "delta" && frame.text === "Partial reply"));
+            assert.equal(frames.some(frame => frame.event === "stopped"), false);
+            assert.ok(frames.some(frame => frame.event === "failed" && frame.text.includes("interrupted")));
+        }
+    } finally {
+        delete globalThis.roundsFixture;
+    }
+});
+
 test("Bouncer streams and stops, restores questions and model, and never exposes tools", { timeout: 25_000 }, async () => {
     const folder = await mkdtemp(join(tmpdir(), "rounds-bouncer-"));
     const requests = [];
@@ -108,7 +153,7 @@ test("Bouncer streams and stops, restores questions and model, and never exposes
         const send = (content, finish_reason = null) => res.write(`data: ${JSON.stringify({ id: "fixture", model: body.model,
             choices: [{ index: 0, delta: { content }, finish_reason }] })}\n\n`);
         if (["stream", "stop", "crash"].includes(prompt)) {
-            send(prompt === "stop" ? 'ROUNDS_QUESTION {"title":' : "First ");
+            send(prompt === "stop" ? 'ROUNDS_QUESTION {"title":' : prompt === "crash" ? "Interrupted partial" : "First ");
             await new Promise(resolve => { release = resolve; res.once("close", resolve); });
             if (res.destroyed) return;
             send("second");
@@ -157,6 +202,8 @@ test("Bouncer streams and stops, restores questions and model, and never exposes
         assert.equal(host.frames.slice(from).some(frame => frame.replying === false), false);
         const busy = await host.request("bouncerSend", { text: "must not run" });
         assert.equal(busy.ok, false);
+        assert.equal(busy.rejected, true);
+        assert.equal(busy.error, "Wait for the current Bouncer reply to finish.");
         release();
         await host.wait(frame => frame.replying === false, from);
         assert.ok(host.frames.slice(from).some(frame => frame.event === "delta" && frame.text === "First second"));
@@ -194,12 +241,22 @@ test("Bouncer streams and stops, restores questions and model, and never exposes
 
         from = host.frames.length;
         await host.command("bouncerSend", { text: "crash" });
-        await host.wait(frame => frame.event === "delta" && frame.text === "First ", from);
+        await host.wait(frame => frame.event === "delta" && frame.text === "Interrupted partial", from);
+        // Live progress is persisted within one second by the pinned Harness.
+        await new Promise(resolve => setTimeout(resolve, 1500));
         host.child.kill("SIGKILL");
         await host.exit;
         host = await open();
         assert.ok(host.frames.some(frame => frame.event === "failed" && frame.text.includes("interrupted")));
+        assert.equal(host.frames.filter(frame => frame.event === "stopped").length, 1);
+        const partial = host.frames.filter(frame => frame.event === "delta" && frame.text === "Interrupted partial");
+        assert.ok(partial.length > 0, JSON.stringify(host.frames));
         assert.ok(host.frames.some(frame => frame.event === "answered" && frame.questionID === question.itemID));
+        await host.close();
+        host = await open();
+        assert.equal(host.frames.filter(frame => frame.event === "stopped").length, 1);
+        assert.ok(host.frames.some(frame => frame.event === "failed" && frame.text.includes("interrupted")));
+        assert.ok(host.frames.some(frame => frame.event === "delta" && frame.text === "Interrupted partial"));
         assert.equal(requests.length, 5);
         from = host.frames.length;
         await host.command("bouncerSend", { text: "continue" });
@@ -254,5 +311,49 @@ test("Bouncer streams and stops, restores questions and model, and never exposes
         server.closeAllConnections();
         server.close();
         await rm(folder, { recursive: true, force: true });
+    }
+});
+
+test("pending recovery marks work before the pinned scheduler starts", async () => {
+    const path = join(payload, "host.mjs");
+    const original = await readFile(path, "utf8");
+    const source = original.split("// harness-host.mjs\nvar commit = ")[0]
+        .replace("__createRequire(import.meta.url)", `__createRequire(${JSON.stringify(path)})`);
+    assert.ok(source.length < original.length);
+    const exported = "Harness, openNodeSqliteStorage, createRegistry, createModels, BACKGROUND_CONTEXT, admitSubmission, resolveSettings, defineDoc, configure, LiveDoc, UserEntry, AssistantEntry";
+    const api = await import(`data:text/javascript;base64,${Buffer.from(source + `\nexport { ${exported} };`).toString("base64")}`);
+    const context = api.BACKGROUND_CONTEXT;
+    const storage = await api.openNodeSqliteStorage(":memory:");
+    const harness = await api.Harness.open(storage, { models: api.createModels(), registry: api.createRegistry() }, context);
+    const moduleSource = (await readFile(new URL("../Resources/harness-bouncer.mjs", import.meta.url), "utf8"))
+        .split("\n").filter(line => !line.startsWith("import ")).join("\n");
+    globalThis.roundsFixture = {
+        context, AssistantEntry: api.AssistantEntry, UserEntry: api.UserEntry,
+        configure: api.configure, defineDoc: api.defineDoc, LiveDoc: api.LiveDoc, BouncerRequestError: class extends Error {},
+        registerMagpie: async () => ({ resolve: () => null, models: [] }),
+    };
+    try {
+        const root = await harness.root(context);
+        await root.commit(tx => api.admitSubmission(tx, root.id, { type: "input", content: "Pending fixture" },
+            Date.now(), api.resolveSettings()), context);
+        const before = await harness.inspect(context);
+        assert.equal(before.scheduling, "paused");
+        assert.equal(before.tasks[0].record.state.status, "pending");
+        const prefix = "// pinned scheduler fixture\nconst { context, AssistantEntry, UserEntry, configure, defineDoc, LiveDoc, BouncerRequestError, registerMagpie } = globalThis.roundsFixture;\n";
+        const { bouncer } = await import(`data:text/javascript;base64,${Buffer.from(prefix + moduleSource).toString("base64")}`);
+        const abortTask = harness.abortTask.bind(harness);
+        harness.abortTask = async (...args) => {
+            const current = await harness.inspect(context);
+            assert.equal(current.scheduling, "paused");
+            assert.equal(current.tasks[0].record.state.status, "pending");
+            return abortTask(...args);
+        };
+        const events = [];
+        await bouncer(harness, {}, (event, fields) => events.push({ event, ...fields }))({ command: "bouncerOpen" });
+        assert.ok(events.some(event => event.event === "failed" && event.text.includes("interrupted")));
+        assert.equal((await harness.inspect(context)).tasks.length, 0);
+    } finally {
+        delete globalThis.roundsFixture;
+        await harness.close(context);
     }
 });

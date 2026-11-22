@@ -25,6 +25,7 @@ public actor NodeHarnessHost {
     public static let sourceCommit = "5a14e69c067d40dfbff4f2fff7d3b34c897e2dc9"
     private let executable: URL, script: URL, dataFolder: URL
     private let requestWait: Duration, exitWait: Duration
+    private let signalGroup: @Sendable (pid_t, Int32) -> Int32
     private var child: pid_t?
     private var exitStatus: Int32?
     private var monitorFailure: String?
@@ -41,9 +42,12 @@ public actor NodeHarnessHost {
                   requestWait: .seconds(10), exitWait: .seconds(2))
     }
 
-    init(executable: URL, script: URL, dataFolder: URL, requestWait: Duration, exitWait: Duration) {
+    init(executable: URL, script: URL, dataFolder: URL, requestWait: Duration, exitWait: Duration,
+         signalGroup: @escaping @Sendable (pid_t, Int32) -> Int32 = { pid, signal in
+             Darwin.kill(pid, signal) == 0 ? 0 : errno
+         }) {
         (self.executable, self.script, self.dataFolder) = (executable, script, dataFolder)
-        (self.requestWait, self.exitWait) = (requestWait, exitWait)
+        (self.requestWait, self.exitWait, self.signalGroup) = (requestWait, exitWait, signalGroup)
     }
 
     deinit {
@@ -137,10 +141,7 @@ public actor NodeHarnessHost {
         try await enter()
         defer { busy = false }
         bouncerEvents = events
-        do { try await bouncerRequest(.open) } catch {
-            if child != nil { try await cleanup(graceful: true) }
-            throw error
-        }
+        try await bouncerRequest(.open)
     }
 
     func bouncer(_ command: HarnessBouncerCommand) async throws {
@@ -156,19 +157,45 @@ public actor NodeHarnessHost {
         let data = try requestData(command, id: id, parameters: parameters)
         let task = Task.detached { try await self.exchange(command, id: id, data: data) }
         let response: HostResponse
-        do { response = try await task.value } catch {
-            // An unacknowledged request leaves the command stream out of sync.
-            try await cleanup(graceful: false)
+        do {
+            response = try await withTaskCancellationHandler {
+                try await task.value
+            } onCancel: {
+                if command == "bouncerOpen" { task.cancel() }
+            }
+            if ["bouncerSend", "bouncerAnswer"].contains(command), !response.ok, response.rejected != true {
+                throw BouncerSendUnconfirmed(detail: response.error ?? "Rounds could not complete the Bouncer command.", answer: command == "bouncerAnswer")
+            }
+        } catch {
+            // An unconfirmed send can leave the conversation or command stream out of sync.
+            do {
+                try await Task.detached { try await self.cleanup(graceful: false) }.value
+            } catch let cleanupError {
+                if let unconfirmed = error as? BouncerSendUnconfirmed {
+                    throw BouncerSendUnconfirmed(detail: "\(unconfirmed.detail)\n\(cleanupError.localizedDescription)", answer: unconfirmed.answer)
+                }
+                throw cleanupError
+            }
             if error is DecodingError { throw HarnessHostError("Invalid Harness conversation response.") }
             throw error
         }
-        guard response.ok else { throw HarnessHostError(response.error ?? "The Bouncer refused the command.") }
+        if !response.ok {
+            if command == "bouncerOpen" { try await Task.detached { try await self.cleanup(graceful: false) }.value }
+            throw HarnessHostError(response.error ?? "The Bouncer refused the command.")
+        }
     }
 
     private func exchange(_ command: String, id: String, data: Data) async throws -> HostResponse {
         let deadline = ContinuousClock.now + requestWait
         try await write(data, deadline: deadline)
-        return try await response(to: command, id: id, deadline: deadline)
+        do { return try await response(to: command, id: id, deadline: deadline) } catch {
+            // Node parses only complete lines. After the full write, a missing or invalid reply cannot prove refusal.
+            if ["bouncerSend", "bouncerAnswer"].contains(command) {
+                let detail = error is DecodingError ? "Invalid Harness conversation response." : error.localizedDescription
+                throw BouncerSendUnconfirmed(detail: detail, answer: command == "bouncerAnswer")
+            }
+            throw error
+        }
     }
 
     private func enter() async throws {
@@ -322,6 +349,7 @@ public actor NodeHarnessHost {
         var idleDeadline = deadline
         let replayDeadline = ContinuousClock.now + .seconds(60)
         while ContinuousClock.now < idleDeadline {
+            try Task.checkCancellation()
             guard let line = try pollLine() else {
                 try await Task.sleep(for: .milliseconds(20))
                 continue
@@ -397,7 +425,13 @@ public actor NodeHarnessHost {
         if graceful, try await waitForGroup(for: gracefulWait ?? exitWait, saveFailure: &saveFailure) { return }
         for signal in [SIGTERM, SIGKILL] {
             if try await refreshMembers(saveFailure: &saveFailure) { reap(); return }
-            if kill(-pid, signal) != 0, errno != ESRCH { try check(errno) }
+            let code = signalGroup(-pid, signal)
+            if code != 0 {
+                if code == EPERM, try await waitForGroup(for: exitWait, saveFailure: &saveFailure) { return }
+                if code != ESRCH {
+                    throw HarnessHostError("Cannot signal Harness group \(pid): \(String(cString: strerror(code))).")
+                }
+            }
             if try await waitForGroup(for: exitWait, saveFailure: &saveFailure) { return }
         }
         throw HarnessHostError("The Harness process group did not stop.")
@@ -567,6 +601,7 @@ private struct HostResponse: Decodable {
     let ok: Bool
     let commit: String
     let scheduling, error: String?
+    let rejected: Bool?
 }
 
 private struct HostInspectionPending: Error {}

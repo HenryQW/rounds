@@ -126,7 +126,7 @@ struct BouncerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let banner = model.thread.banner {
+            if let banner = model.banner {
                 bannerView(banner)
                     .onChange(of: model.thread.hostNotices, initial: true) { _, notices in model.hostNoticesShown(notices) }
             }
@@ -181,12 +181,20 @@ struct BouncerView: View {
         .padding(.vertical, 8)
     }
 
-    /// Pi stopped or did not start: the last error lines and Start Again; the thread stays.
     private func bannerView(_ text: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: "exclamationmark.triangle").foregroundStyle(.secondary)
             Text(text).font(.callout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-            if !model.running { Button("Start Again") { model.launch() } }
+            VStack(alignment: .trailing) {
+                if !model.running { Button("Start Again") { model.launch() } }
+                if let send = model.unconfirmedSend {
+                    Button("Copy Message") {
+                        NSPasteboard.general.clearContents()
+                        NSPasteboard.general.setString(send.text, forType: .string)
+                    }
+                    Button("Dismiss") { model.dismissUnconfirmedSend() }
+                }
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)

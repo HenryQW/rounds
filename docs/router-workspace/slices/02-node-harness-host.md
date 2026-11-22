@@ -113,7 +113,7 @@ flowchart LR
 
 | Boundary | Contract |
 |---|---|
-| Requests | `bouncerOpen`, `bouncerSend`, `bouncerStop`, `bouncerAnswer` and `bouncerModel` use the lifecycle envelope. A refused command returns `ok: false` and an error. |
+| Requests | `bouncerOpen`, `bouncerSend`, `bouncerStop`, `bouncerAnswer` and `bouncerModel` use the lifecycle envelope. A command error returns `ok: false` and an error. For `bouncerSend` and `bouncerAnswer`, `rejected: true` confirms validation failed before submission. A missing or invalid reply after a full request, or an error without confirmed rejection, leaves the outcome unknown. Rounds closes the host so Start Again can replay the conversation. |
 | Events | The host sends conversation events on separate lines. Message entries, text deltas, model choices, questions and answers share the stream with command replies. The protocol accepts tool-step events for later slices. The Bouncer offers no tools. |
 | Questions | A complete, valid `ROUNDS_QUESTION` reply becomes a question card. SQLite stores the question in the assistant entry. An answer entry refers to that question. Dismiss writes an answer entry without calling Magpie. |
 | Recovery | Reload committed entries and the saved model from the reserved root. Mark unfinished work before the scheduler starts. Report the interruption. |

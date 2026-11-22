@@ -8,6 +8,13 @@ import RoundsCore
 final class BouncerModel {
     static let shared = BouncerModel()
 
+    private init() {}
+
+    init(adapter: any BouncerAdapter) {
+        self.adapter = adapter
+        listen(to: adapter)
+    }
+
     /// Settings > General > Bouncer mode, off by default. On starts the adapter; off stops it and closes the window.
     var on = appDefaults.bool(forKey: "bouncerMode") {
         didSet {
@@ -28,14 +35,22 @@ final class BouncerModel {
     /// The selected sidebar row; nil is the Bouncer row (01c adds task rows).
     var selection: String?
     var draft = ""
+    private(set) var unconfirmedSend: (text: String, message: String)?
+    private(set) var unconfirmedAnswer: String?
+    var banner: String? {
+        let lines = [unconfirmedSend?.message, unconfirmedAnswer, thread.banner].compactMap { $0 }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
     /// Each change asks the window to put the focus on the first thing that waits (`BouncerView.focusFirst`).
     var focusToken = 0
     /// The adapter does not run until no setup step is missing; this watches the steps until then.
     private(set) var running = false
-    private(set) var commandPending = false
-    var canInteract: Bool { running && !commandPending && !thread.replying }
+    private var sendPending = false
+    private var otherCommandPending = false
+    var commandPending: Bool { sendPending || otherCommandPending }
+    var canInteract: Bool { running && !commandPending && !thread.replying && unconfirmedAnswer == nil }
     var canSend: Bool {
-        canInteract && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        canInteract && unconfirmedSend == nil && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !thread.items.contains { if case .question(let question) = $0 { question.isOpen } else { false } }
     }
     @ObservationIgnored private var adapter: (any BouncerAdapter)?
@@ -117,7 +132,7 @@ final class BouncerModel {
         running = false
         listener?.cancel()
         listener = nil
-        commandPending = false
+        otherCommandPending = false
         (thread, models, model, modelSelection) = (BouncerThread(), [], nil, nil)
         let id = UUID()
         shutdowns[id] = Task {
@@ -154,13 +169,12 @@ final class BouncerModel {
             do {
                 for task in earlierStops { await task.value }
                 try Task.checkCancellation()
-                if let host {
-                    try await adapter.start(with: host)
-                } else {
-                    try await adapter.start()
-                }
+                if let host { _ = try await host.start() }
+                try Task.checkCancellation()
+                try await adapter.start()
                 if self.adapter === adapter {
                     running = true
+                    unconfirmedAnswer = nil
                     hostFailureActive = false
                     if let host {
                         hostMonitor = Task {
@@ -179,17 +193,20 @@ final class BouncerModel {
                                 guard self.adapter === adapter else { return }
                                 let replacement = HarnessBouncer(host: host)
                                 self.adapter = replacement
-                                commandPending = false
+                                otherCommandPending = false
                                 listen(to: replacement)
                             }
                         }
                     }
                 }
             } catch {
-                let failure = error as? BouncerStartupCleanupFailure
-                if let failure { recordHostShutdownError(failure.cleanupMessage) }
-                fail("The Bouncer did not start: \(failure?.startupMessage ?? error.localizedDescription)", from: adapter, duringStartup: true)
+                if let host {
+                    do { try await Task.detached { try await host.stop() }.value } catch {
+                        recordHostShutdownError(error.localizedDescription)
+                    }
+                }
                 if !Task.isCancelled {
+                    fail("The Bouncer did not start: \(error.localizedDescription)", from: adapter, duringStartup: true)
                     startup = nil
                     windowShown()
                 }
@@ -197,20 +214,28 @@ final class BouncerModel {
         }
     }
 
-    /// Restore a rejected message to an empty composer.
+    /// Restore a rejected message to an empty composer. Keep an unconfirmed message separate.
     func send() {
         guard let adapter, canSend else { return }
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = draft
         draft = ""
-        commandPending = true
+        sendPending = true
         Task {
-            defer { if self.adapter === adapter { commandPending = false } }
-            do { try await adapter.send(text) } catch {
-                if self.adapter === adapter, draft.isEmpty { draft = text }
+            defer { sendPending = false }
+            do { try await adapter.send(text) } catch let error as BouncerSendUnconfirmed {
+                unconfirmedSend = (text, "\(error.localizedDescription)\nCheck the conversation before you send the message again.")
+            } catch {
+                let recovery = bouncerRejectedDraft(text, current: draft)
+                draft = recovery.draft
+                if let copy = recovery.copy {
+                    unconfirmedSend = (copy, "The message was rejected. Copy it before you dismiss this notice.")
+                }
                 fail(error.localizedDescription, from: adapter)
             }
         }
     }
+
+    func dismissUnconfirmedSend() { unconfirmedSend = nil }
 
     func stopReply() {
         guard let adapter, thread.replying, !commandPending else { return }
@@ -219,7 +244,14 @@ final class BouncerModel {
 
     func answer(_ questionID: String, _ answer: BouncerAnswer) {
         guard let adapter, canInteract else { return }
-        perform(on: adapter) { try await adapter.answer(questionID, answer) }
+        otherCommandPending = true
+        Task {
+            defer { if self.adapter === adapter { otherCommandPending = false } }
+            do { try await adapter.answer(questionID, answer) }
+            catch let error as BouncerSendUnconfirmed {
+                unconfirmedAnswer = "\(error.localizedDescription)\nStart Again and check the conversation."
+            } catch { fail(error.localizedDescription, from: adapter) }
+        }
     }
 
     func setModel(_ id: String?) {
@@ -228,9 +260,9 @@ final class BouncerModel {
     }
 
     private func perform(on adapter: any BouncerAdapter, _ command: @escaping @Sendable () async throws -> Void) {
-        commandPending = true
+        otherCommandPending = true
         Task {
-            defer { if self.adapter === adapter { commandPending = false } }
+            defer { if self.adapter === adapter { otherCommandPending = false } }
             do { try await command() } catch { fail(error.localizedDescription, from: adapter) }
         }
     }

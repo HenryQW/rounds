@@ -31,6 +31,7 @@ jobs:
         run: |
           scripts/build-harness-host.sh
           ROUNDS_HARNESS_PAYLOAD="$PWD/.build/harness-host" scripts/test-harness-node.sh
+          ROUNDS_HARNESS_PAYLOAD="$PWD/.build/harness-host" .build/harness-host/node --test scripts/test-harness-bouncer.mjs
 
       - uses: actions/upload-artifact@v6
         id: upload

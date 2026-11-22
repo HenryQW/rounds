@@ -27,9 +27,9 @@ private struct HarnessFixture {
         """.write(to: script, atomically: true, encoding: .utf8)
     }
 
-    func host(requestWait: Duration = .seconds(2)) -> NodeHarnessHost {
+    func host(requestWait: Duration = .seconds(2), exitWait: Duration = .milliseconds(150)) -> NodeHarnessHost {
         NodeHarnessHost(executable: URL(fileURLWithPath: "/bin/sh"), script: script, dataFolder: folder,
-                        requestWait: requestWait, exitWait: .milliseconds(150))
+                        requestWait: requestWait, exitWait: exitWait)
     }
 
     func record() throws -> HostProcessRecord {
@@ -40,8 +40,9 @@ private struct HarnessFixture {
 }
 
 private func withHarness(_ fixture: HarnessFixture, requestWait: Duration = .seconds(2),
+                         exitWait: Duration = .milliseconds(150),
                          _ body: (NodeHarnessHost) async throws -> Void) async throws {
-    let host = fixture.host(requestWait: requestWait)
+    let host = fixture.host(requestWait: requestWait, exitWait: exitWait)
     do {
         try await body(host)
         try await host.stop()
@@ -125,6 +126,62 @@ private func withHarness(_ fixture: HarnessFixture, requestWait: Duration = .sec
     }
 }
 
+@Test(arguments: ["lost reply", "unconfirmed error", "rejected"], ["send", "answer", "dismiss"])
+func harnessBouncerDistinguishesUnconfirmedSendsFromRejections(outcome: String, operation: String) async throws {
+    let fixture = try HarnessFixture("""
+        while IFS= read -r line; do
+            id=${line#*'"id":"'}
+            id=${id%%'"'*}
+            command=${line#*'"command":"'}
+            command=${command%%'"'*}
+            case "$command" in
+                bouncerSend|bouncerAnswer)
+                    printf '%s\\n' "$line" >> "$folder/received"
+                    case "\(outcome)" in
+                        'lost reply') exit 0 ;;
+                        'unconfirmed error') failure='"error":"Rounds could not complete the Bouncer command."' ;;
+                        rejected) failure='"rejected":true,"error":"Choose a Magpie model first."' ;;
+                    esac
+                    printf '{"version":1,"id":"%s","command":"%s","ok":false,"commit":"\(NodeHarnessHost.sourceCommit)",%s}\\n' "$id" "$command" "$failure"
+                    continue
+                    ;;
+            esac
+            printf '{"version":1,"id":"%s","command":"%s","ok":true,"commit":"\(NodeHarnessHost.sourceCommit)","scheduling":"paused"}\\n' "$id" "$command"
+            if [ "$command" = shutdown ]; then exit 0; fi
+        done
+        """)
+    try await withHarness(fixture, exitWait: .seconds(2)) { host in
+        _ = try await host.start()
+        let bouncer = HarnessBouncer(host: host)
+        try await bouncer.start()
+        let text = "  Keep this text.\n"
+        do {
+            if operation == "send" { try await bouncer.send(text) }
+            else { try await bouncer.answer("question", operation == "answer" ? .text(text) : .dismissed) }
+            Issue.record("The fixture returned no successful send reply.")
+        } catch {
+            #expect((error is BouncerSendUnconfirmed) == (outcome != "rejected"))
+            if outcome == "rejected" {
+                #expect(error.localizedDescription == "Choose a Magpie model first.")
+                #expect(try await host.health().scheduling == "paused")
+            } else {
+                let subject = operation == "send" ? "message was sent" : "answer was saved"
+                #expect(error.localizedDescription.hasPrefix("Rounds could not confirm that the \(subject)."))
+                #expect(!FileManager.default.fileExists(atPath: fixture.folder.appending(path: "host-process.json").path),
+                        "Send error: \(error.localizedDescription)")
+            }
+        }
+        let data = try Data(contentsOf: fixture.folder.appending(path: "received"))
+        let request = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        if operation == "send" { #expect(request["text"] as? String == text) }
+        else {
+            let answer = try #require(request["answer"] as? [String: Any])
+            #expect(answer["kind"] as? String == (operation == "answer" ? "text" : "dismissed"))
+            if operation == "answer" { #expect(answer["text"] as? String == text) }
+        }
+    }
+}
+
 @Test func harnessBouncerRestartsAfterAnUnansweredOpen() async throws {
     let fixture = try HarnessFixture("""
         while IFS= read -r line; do
@@ -150,6 +207,38 @@ private func withHarness(_ fixture: HarnessFixture, requestWait: Duration = .sec
         _ = try await host.start()
         #expect(try fixture.record().pid != first.pid)
         try await bouncer.start()
+    }
+}
+
+@Test func cancelledBouncerOpenCleansTheHostBeforeReturning() async throws {
+    let fixture = try HarnessFixture("""
+        while IFS= read -r line; do
+            id=${line#*'"id":"'}
+            id=${id%%'"'*}
+            command=${line#*'"command":"'}
+            command=${command%%'"'*}
+            if [ "$command" = bouncerOpen ]; then
+                : > "$folder/opening"
+                continue
+            fi
+            printf '{"version":1,"id":"%s","command":"%s","ok":true,"commit":"\(NodeHarnessHost.sourceCommit)","scheduling":"paused"}\\n' "$id" "$command"
+        done
+        """)
+    try await withHarness(fixture, requestWait: .seconds(10), exitWait: .seconds(2)) { host in
+        _ = try await host.start()
+        let record = try fixture.record()
+        let opening = Task { try await HarnessBouncer(host: host).start() }
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !FileManager.default.fileExists(atPath: fixture.folder.appending(path: "opening").path),
+              ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(FileManager.default.fileExists(atPath: fixture.folder.appending(path: "opening").path))
+        let cancelledAt = ContinuousClock.now
+        opening.cancel()
+        await #expect(throws: CancellationError.self) { try await opening.value }
+        #expect(cancelledAt.duration(to: .now) < .seconds(3))
+        #expect(try record.members().isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: fixture.folder.appending(path: "host-process.json").path))
+        try await host.stop()
     }
 }
 
@@ -509,5 +598,63 @@ func harnessHostRealHarnessLiveCheck() async throws {
     } catch {
         try? await host.stop()
         throw error
+    }
+}
+
+@Test func rejectedBouncerDraftPreservesBothTexts() {
+    let original = "  Original\n"
+    let restored = bouncerRejectedDraft(original, current: "")
+    #expect(restored.draft == original)
+    #expect(restored.copy == nil)
+    let edited = bouncerRejectedDraft(original, current: "New draft")
+    #expect(edited.draft == "New draft")
+    #expect(edited.copy == original)
+}
+
+@Test(arguments: [false, true])
+func harnessHostHandlesPermissionFailureDuringGroupSignal(groupExits: Bool) async throws {
+    let fixture = try HarnessFixture("""
+        trap '' TERM
+        while IFS= read -r line; do
+            id=${line#*'"id":"'}
+            id=${id%%'"'*}
+            case "$line" in
+                *health*) printf '{"version":1,"id":"%s","command":"health","ok":true,"commit":"\(NodeHarnessHost.sourceCommit)","scheduling":"paused"}\\n' "$id" ;;
+            esac
+        done
+        while :; do :; done
+        """)
+    let host = NodeHarnessHost(executable: URL(fileURLWithPath: "/bin/sh"), script: fixture.script,
+                               dataFolder: fixture.folder, requestWait: .seconds(2), exitWait: .milliseconds(200),
+                               signalGroup: { group, _ in
+        if groupExits { _ = Darwin.kill(group, SIGKILL) }
+        return EPERM
+    })
+    let recordURL = fixture.folder.appending(path: "host-process.json")
+    defer { fixture.remove() }
+    _ = try await host.start()
+    let record = try fixture.record()
+    defer {
+        if let members = try? record.members(), !members.isEmpty { _ = Darwin.kill(-record.pid, SIGKILL) }
+    }
+    do {
+        try await host.stop()
+        Issue.record("The unresponsive fixture should report its failed shutdown.")
+    } catch {
+        if groupExits {
+            #expect(!error.localizedDescription.contains("Cannot signal Harness group"))
+            #expect(try record.members().isEmpty)
+            #expect(!FileManager.default.fileExists(atPath: recordURL.path))
+        } else {
+            #expect(error.localizedDescription.contains("Cannot signal Harness group"))
+            #expect(FileManager.default.fileExists(atPath: recordURL.path))
+            #expect(try fixture.record().pid == record.pid)
+            #expect(try !record.members().isEmpty)
+            // The recorded group was verified above and belongs to this fixture.
+            _ = Darwin.kill(-record.pid, SIGKILL)
+            try? await host.stop()
+            #expect(try record.members().isEmpty)
+            #expect(!FileManager.default.fileExists(atPath: recordURL.path))
+        }
     }
 }

@@ -7,6 +7,7 @@ const instructions = `You are the Rounds Bouncer. Help the user understand and p
 When you need an ordinary answer, use one line that starts with ${marker}followed by a JSON object. Use title and either an options array of one to three strings or no options for a text answer. With options, use recommended for the zero-based index of the recommended option. Use this format for the whole reply. Do not use it for approval to perform an action.`;
 const answerKind = "rounds.answer";
 const stoppedKind = "rounds.stopped";
+const interruptedKind = "rounds.interrupted";
 const liveID = "live-reply";
 const Selection = defineDoc({
     kind: "rounds.model", version: 1, scope: "conversation", history: "rewindable", fork: "asOf",
@@ -45,6 +46,7 @@ function answerText(question, answer) {
 // The app owns this database and projects the reserved root into its window.
 export function bouncer(harness, models, emit) {
     let root, catalog, lastEntry, pending, active;
+    const interrupted = new Set();
 
     function delta(id, body) {
         let chunk = "";
@@ -55,7 +57,7 @@ export function bouncer(harness, models, emit) {
         if (chunk) emit("delta", { itemID: id, text: chunk });
     }
 
-    function project(entry) {
+    function project(entry, interrupted) {
         if (entry.kind === stoppedKind) {
             emit("stopped", { itemID: entry.id });
             return true;
@@ -77,11 +79,22 @@ export function bouncer(harness, models, emit) {
                 emit("reply", { itemID: entry.id });
                 delta(entry.id, body);
             }
-            if (message?.stopReason === "aborted") {
+            if (message?.stopReason === "aborted" && !interrupted.has(entry.id)) {
                 emit("stopped", { itemID: `stopped-${entry.id}` });
                 return true;
             }
         }
+    }
+
+    async function allEntries() {
+        let cursor;
+        const result = [];
+        do {
+            const page = await root.entries({ order: "ascending" }, 64, cursor, context);
+            result.push(...page.items);
+            cursor = page.next;
+        } while (cursor !== undefined);
+        return result;
     }
 
     async function entries() {
@@ -90,7 +103,7 @@ export function bouncer(harness, models, emit) {
             const page = await root.entries({ order: "ascending", minEntryId: lastEntry }, 64, cursor, context);
             for (const entry of page.items) {
                 if (entry.id === lastEntry) continue;
-                if (project(entry)) stopped = true;
+                if (project(entry, interrupted)) stopped = true;
                 lastEntry = entry.id;
             }
             cursor = page.next;
@@ -117,17 +130,34 @@ export function bouncer(harness, models, emit) {
             model: model ?? null, thinkingLevel: catalog.thinkingLevel, extensions: [], tools: [], modelTools: [],
             instructions, maxTurns: 1,
         }, context);
-        // Mark work before enabling the scheduler. A restart must never repeat a model request.
+        root = conversation;
+        const hasWork = state.tasks.length || state.submissions.length;
+        let recovered = await allEntries();
+        const isInput = entry => UserEntry.is(entry) || entry.kind === answerKind;
+        const lastInput = recovered.findLast(isInput);
+        if (hasWork && lastInput && !recovered.some(entry => entry.kind === interruptedKind && entry.data.afterID === lastInput.id)) {
+            await root.commit(tx => tx.appendEntry(root.id, { kind: interruptedKind, data: { afterID: lastInput.id } }), context);
+        }
+        // Save recovery intent before aborting work, so a second crash cannot turn it into a user stop.
         for (const submission of state.submissions) {
             if (submission.status === "queued") await harness.abortSubmission(submission.id, context, conversation.id);
         }
         for (const task of state.tasks) await harness.abortTask(task.record.id, context);
-        if (state.tasks.length || state.submissions.length) await conversation.abort(context);
+        if (hasWork) await conversation.abort(context);
+        recovered = await allEntries();
+        for (const marker of recovered.filter(entry => entry.kind === interruptedKind)) {
+            const start = recovered.findIndex(entry => entry.id === marker.data.afterID);
+            if (start < 0) continue;
+            const next = recovered.findIndex((entry, index) => index > start && isInput(entry));
+            const aborted = recovered.slice(start + 1, next < 0 ? undefined : next)
+                .findLast(entry => AssistantEntry.is(entry) && entry.model?.[0]?.stopReason === "aborted");
+            if (aborted) interrupted.add(aborted.id);
+        }
         emit("started", { model: model ? `magpie/${model.modelId}` : null, selection });
         root = conversation;
         for (const id of catalog.models) emit("model", { model: id });
         await entries();
-        if (state.tasks.length || state.submissions.length) {
+        if (hasWork || (lastInput && recovered.some(entry => entry.kind === interruptedKind && entry.data.afterID === lastInput.id))) {
             emit("failed", { text: "The previous Bouncer reply was interrupted. Send a message to continue." });
         }
         if (issue) emit("failed", { text: issue });

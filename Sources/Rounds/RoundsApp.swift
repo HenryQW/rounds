@@ -36,10 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         Task { @MainActor in
-            // `shutdown()` takes at most 15 s (stdin, SIGTERM, SIGKILL, 5 s each); the limit keeps quit from hanging.
-            let limit = Task { try? await Task.sleep(for: .seconds(20)); self.reply() }
             await BouncerModel.shared.quit()
-            limit.cancel()
             self.reply()
         }
         return .terminateLater
