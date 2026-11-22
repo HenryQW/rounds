@@ -36,6 +36,7 @@ final class BouncerWindowController: NSObject, NSWindowDelegate {
         let model = BouncerModel.shared
         // A setup step can have completed since the last check.
         model.start()
+        model.reloadLocalApprovals()
         let window = self.window ?? makeWindow()
         self.window = window
         NSApp.activate(ignoringOtherApps: true)
@@ -137,6 +138,9 @@ struct BouncerView: View {
                 bannerView(banner)
                     .onChange(of: model.thread.hostNotices, initial: true) { _, notices in model.hostNoticesShown(notices) }
             }
+            if let error = model.localApprovalError {
+                bannerView(error, localApproval: true)
+            }
             if Demo.isOn, !model.thread.tasks.isEmpty, state.factUnconfirmed { BouncerFactBanner(state: state) }
             HStack(spacing: 0) {
                 if state.sidebarShown && !state.narrow {
@@ -175,7 +179,7 @@ struct BouncerView: View {
         // Approval priority applies to the whole thread, even when an earlier question waits.
         var target = BouncerFocus.prompt
         if !model.focusOnPrompt {
-            if let item = model.thread.items.first(where: { if case .approval(let card) = $0 { card.decision == nil } else { false } }),
+            if let item = model.thread.items.first(where: { if case .approval(let card) = $0 { card.isOpen } else { false } }),
                case .approval(let card) = item {
                 if model.selection != nil { model.selection = card.taskID }
                 target = .approval(card.id)
@@ -220,18 +224,26 @@ struct BouncerView: View {
         .padding(.vertical, 8)
     }
 
-    private func bannerView(_ text: String) -> some View {
+    private func bannerView(_ text: String, localApproval: Bool = false) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             Image(systemName: "exclamationmark.triangle").foregroundStyle(.secondary)
             Text(text).font(.callout).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading)
-            VStack(alignment: .trailing) {
-                if !model.running { Button("Start Again") { model.launch() } }
-                if let send = model.unconfirmedSend {
-                    Button("Copy Message") {
-                        NSPasteboard.general.clearContents()
-                        NSPasteboard.general.setString(send.text, forType: .string)
+            if localApproval {
+                if model.localApprovalRetryAvailable {
+                    Button("Try Again") { model.retryLocalApproval() }
+                        .disabled(model.retryingLocalApproval)
+                        .bouncerHover("retry-local-approval", state: state)
+                }
+            } else {
+                VStack(alignment: .trailing) {
+                    if !model.running { Button("Start Again") { model.launch() } }
+                    if let send = model.unconfirmedSend {
+                        Button("Copy Message") {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(send.text, forType: .string)
+                        }
+                        Button("Dismiss") { model.dismissUnconfirmedSend() }
                     }
-                    Button("Dismiss") { model.dismissUnconfirmedSend() }
                 }
             }
         }
@@ -519,10 +531,13 @@ struct BouncerView: View {
             }
         case .question(let q): questionView(q)
         case .approval(let card):
-            if Demo.isOn, let task = model.thread.tasks.first(where: { $0.id == card.taskID }) {
+            if let result = card.result {
+                BouncerLocalResultCard(result: result)
+            } else if card.source == .demo, let task = model.thread.tasks.first(where: { $0.id == card.taskID }) {
                 BouncerResultCard(title: task.title, details: DemoBouncer.details(card.taskID))
             }
-            BouncerApprovalCard(card: card, focus: $focus, state: state) { model.decide(card.id, $0) }
+            BouncerApprovalCard(card: card, focus: $focus, state: state, saving: model.savingApproval(for: card),
+                                decide: model.decide)
                 .id("approval-\(card.id)")
         case .note(_, let text):
             Text(text).font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity)
