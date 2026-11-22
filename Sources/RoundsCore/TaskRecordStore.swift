@@ -29,19 +29,55 @@ public struct TaskRecordStore: Sendable {
     public func write(taskID: UUID, expecting previous: TaskDetailReference, assignment: TaskAssignment,
                       result: TaskResult? = nil, progress: [TaskProgress] = [],
                       decisions: [TaskDecision] = [], at: Date = Date()) throws -> TaskRecordWriteResult {
-        let identity = Result { try graph.pinDirectory() }
-        return try writeAuthorized(taskID: taskID, expecting: previous, assignment: assignment, result: result,
-                            progress: progress, decisions: decisions, at: at, graphIdentity: identity, authorizeTimestamp: { timestamp in
+        try writeAuthorized(taskID: taskID, expecting: previous, assignment: assignment, result: result,
+                            progress: progress, decisions: decisions, approvals: nil, at: at,
+                            graphIdentity: Result { try graph.pinDirectory() }, authorizeTimestamp: { timestamp in
             guard timestamp == at else { throw TaskGraphError.changedOnDisk }
         })
     }
 
     func writeAuthorized(taskID: UUID, expecting previous: TaskDetailReference, assignment: TaskAssignment,
-                         result: TaskResult?, progress: [TaskProgress], decisions: [TaskDecision], at: Date,
-                         graphIdentity: Result<GraphDirectoryIdentity, any Error>,
+                         result: TaskResult?, progress: [TaskProgress], decisions: [TaskDecision], approvals: [ApprovalRecord]?, at: Date,
+                         graphIdentity: Result<GraphDirectoryIdentity, any Error>, holdingApprovalLock: Bool = false,
                          authorizeTimestamp: (Date) throws -> Void) throws -> TaskRecordWriteResult {
+        if previous != .empty && !holdingApprovalLock {
+            return try details.withApprovalLock(taskID: taskID, wait: false) { directory, lock in
+                let original = Result { try previous.revisionID.map { try details.read(taskID: taskID, revisionID: $0) } }
+                if let prior = try? original.get(), prior.result != result,
+                   prior.approvals.last.map({ $0.invalidatedAt == nil }) == true {
+                    var nextApprovals = approvals ?? prior.approvals
+                    if let last = nextApprovals.indices.last { nextApprovals[last].invalidate(at: at) }
+                    try details.checkRevisionSize(taskID: taskID, assignment: assignment, result: result,
+                                                  progress: progress, decisions: decisions, approvals: nextApprovals)
+                    return try details.saveApproval(taskID: taskID, in: directory, lock: lock) {
+                        try writeLocked(taskID: taskID, expecting: previous, assignment: assignment, result: result,
+                                        progress: progress, decisions: decisions, approvals: approvals, at: at,
+                                        graphIdentity: graphIdentity, original: original, authorizeTimestamp: authorizeTimestamp)
+                    }
+                }
+                return try writeLocked(taskID: taskID, expecting: previous, assignment: assignment, result: result,
+                                       progress: progress, decisions: decisions, approvals: approvals, at: at,
+                                       graphIdentity: graphIdentity, original: original, authorizeTimestamp: authorizeTimestamp)
+            }
+        }
+        return try writeLocked(taskID: taskID, expecting: previous, assignment: assignment, result: result,
+                               progress: progress, decisions: decisions, approvals: approvals, at: at,
+                               graphIdentity: graphIdentity, authorizeTimestamp: authorizeTimestamp)
+    }
+
+    private func writeLocked(taskID: UUID, expecting previous: TaskDetailReference, assignment: TaskAssignment,
+                             result: TaskResult?, progress: [TaskProgress], decisions: [TaskDecision], approvals: [ApprovalRecord]?, at: Date,
+                             graphIdentity: Result<GraphDirectoryIdentity, any Error>,
+                             original: Result<TaskDetailRevision?, any Error>? = nil,
+                             authorizeTimestamp: (Date) throws -> Void) throws -> TaskRecordWriteResult {
+        let original = original ?? Result { try previous.revisionID.map { try details.read(taskID: taskID, revisionID: $0) } }
+        let prior = try? original.get()
+        let resultChanged = prior?.result != result
+        var nextApprovals = approvals ?? prior?.approvals ?? []
+        if resultChanged, let last = nextApprovals.indices.last { nextApprovals[last].invalidate(at: at) }
         let detail = try details.write(taskID: taskID, assignment: assignment, result: result,
-                                       progress: progress, decisions: decisions)
+                                       progress: progress, decisions: decisions, approvals: nextApprovals,
+                                       resultRevisionID: resultChanged ? nil : prior?.resultRevisionID)
         guard detail.durability == .saved else { return .detailNeedsInspection(detail) }
         let revisionID = detail.revisionID
         do {
@@ -49,20 +85,15 @@ public struct TaskRecordStore: Sendable {
             let snapshot = try graph.load(expectingDirectory: identity)
             guard let current = snapshot.tasks.first(where: { $0.id == taskID }) else { throw TaskGraphError.unknownTask }
             guard current.detailReference == previous else { throw TaskGraphError.changedOnDisk }
+            _ = try original.get()
             let timestamp = max(current.updatedAt, at)
             try authorizeTimestamp(timestamp)
             let outcome = try graph.update({ graph in
                 guard let task = graph.tasks.first(where: { $0.id == taskID }) else { throw TaskGraphError.unknownTask }
                 guard task.detailReference == previous else { throw TaskGraphError.changedOnDisk }
-                let previousResult: TaskResult?
-                if let previousID = previous.revisionID {
-                    previousResult = try details.read(taskID: taskID, revisionID: previousID).result
-                } else {
-                    previousResult = nil
-                }
                 guard max(task.updatedAt, at) == timestamp else { throw TaskGraphError.changedOnDisk }
                 try graph.setDetailRevision(revisionID, for: taskID, expecting: previous,
-                                            resultChanged: previousResult != result, at: at)
+                                            resultChanged: resultChanged, at: at)
             }, expectingDirectory: identity, commit: { try details.withPublicationApproval($0) })
             switch outcome {
             case .saved: return .saved(revisionID)

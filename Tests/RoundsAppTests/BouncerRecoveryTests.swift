@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-import RoundsCore
+@testable import RoundsCore
 @testable import Rounds
 
 private actor UnconfirmedAnswerAdapter: BouncerAdapter {
@@ -62,6 +62,41 @@ func demoCanSendFromATaskWhileAnotherTaskHasAnOpenQuestion() async {
     })
     #expect(model.selection == nil)
     #expect(model.thread.waitingCount == 2)
+    await adapter.shutdown()
+}
+
+@Test(arguments: [TaskInterfaceError.detailsNotAuthorized, ApprovalError.snapshotUnavailable,
+                  TaskDetailStoreError.tooLarge] as [any Error])
+@MainActor
+func failedLocalApprovalSaveKeepsAttentionAndHidesCards(error: any Error) async {
+    let taskID = UUID()
+    let now = Date()
+    let folder = FolderIdentity(path: "/fixture", device: 1, inode: 1)
+    let revision = String(repeating: "a", count: 40)
+    let sourceRef = "refs/heads/main"
+    let urls = ["https://example.invalid/team/fixture.git"]
+    let remote = ApprovalSnapshot.Remote(name: "origin", fetch: urls, push: urls)
+    let snapshot = ApprovalSnapshot(folder: folder, sourceRef: sourceRef, revision: revision,
+                                    annotatedSourceObject: nil, remote: remote.name, remotes: [remote],
+                                    overrides: [], sshLoginDigest: nil)
+    let action = ApprovalAction(intent: .push(sourceRef: sourceRef, revision: revision, remote: remote.name,
+                                              urls: urls, destinationRef: "refs/heads/result"))
+    let request = ApprovalRequest(id: UUID(), taskID: taskID, repositoryID: UUID(), organizationID: nil,
+                                  resultRevisionID: UUID(), resultDigest: String(repeating: "b", count: 64),
+                                  snapshot: snapshot, actions: [action], createdAt: now, checkedAt: now)
+    let card = ApprovalCard(local: ApprovalRecord(request: request))
+    var thread = BouncerThread()
+    thread.replaceLocalApprovals(for: taskID, with: [card])
+    let adapter = UnconfirmedAnswerAdapter(committed: false)
+    let model = BouncerModel(adapter: adapter, thread: thread)
+    #expect(model.pillWaiting == 1)
+
+    model.completeLocalApprovalAnswer(.failure(error), card: card, taskID: taskID)
+
+    #expect(model.pillWaiting == 1)
+    #expect(model.thread.items.isEmpty)
+    #expect(model.localApprovalError != nil)
+    #expect(model.localApprovalRetryAvailable)
     await adapter.shutdown()
 }
 

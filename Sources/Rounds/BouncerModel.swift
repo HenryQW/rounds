@@ -10,8 +10,10 @@ final class BouncerModel {
 
     private init() {}
 
-    init(adapter: any BouncerAdapter) {
+    init(adapter: any BouncerAdapter, thread: BouncerThread = BouncerThread()) {
         self.adapter = adapter
+        self.thread = thread
+        pillWaiting = thread.waitingCount
         listen(to: adapter)
     }
 
@@ -64,6 +66,26 @@ final class BouncerModel {
             && (adapter is DemoBouncer || !thread.items.contains { if case .question(let question) = $0 { question.isOpen } else { false } })
     }
     @ObservationIgnored private var adapter: (any BouncerAdapter)?
+    @ObservationIgnored private var localApprovalAccess: [UUID: @Sendable () -> TaskStorageAuthorization] = [:]
+    private var checkingApprovals: Set<UUID> = []
+    private var localApprovalErrors: [UUID: String] = [:]
+    private var localApprovalErrorTask: UUID? {
+        if let selection, let taskID = UUID(uuidString: selection) {
+            return localApprovalErrors[taskID] == nil ? nil : taskID
+        }
+        return localApprovalErrors.keys.sorted { $0.uuidString < $1.uuidString }.first
+    }
+    var localApprovalError: String? { localApprovalErrorTask.flatMap { localApprovalErrors[$0] } }
+    var localApprovalRetryAvailable: Bool {
+        localApprovalErrorTask.map { thread.localApprovalRetries.contains($0) } ?? false
+    }
+    var retryingLocalApproval: Bool {
+        localApprovalErrorTask.map { checkingApprovals.contains($0) } ?? false
+    }
+    func retryLocalApproval() {
+        guard let taskID = localApprovalErrorTask, thread.localApprovalRetries.contains(taskID) else { return }
+        reloadLocalApprovals(for: taskID)
+    }
     @ObservationIgnored private var listener: Task<Void, Never>?
     @ObservationIgnored private var host: NodeHarnessHost?
     @ObservationIgnored private var startup: Task<Void, Never>?
@@ -91,6 +113,7 @@ final class BouncerModel {
     /// Called once the app has finished launching, and when the mode turns on.
     func start() {
         guard on, adapter == nil else { return }
+        reloadLocalApprovals()
         guard setupSteps.isEmpty else { return watchSetup() }
         let made: any BouncerAdapter
         if Demo.isOn {
@@ -131,6 +154,8 @@ final class BouncerModel {
 
     private func shutDown() {
         BouncerWindowController.shared.close()
+        (thread, models, model, modelSelection) = (BouncerThread(), [], nil, nil)
+        localApprovalErrors.removeAll()
         guard let adapter else { return }
         let host = self.host, startup = self.startup, monitor = self.hostMonitor
         startup?.cancel()
@@ -143,7 +168,6 @@ final class BouncerModel {
         listener?.cancel()
         listener = nil
         otherCommandPending = false
-        (thread, models, model, modelSelection) = (BouncerThread(), [], nil, nil)
         let id = UUID()
         shutdowns[id] = Task {
             async let adapterStop: Void = adapter.shutdown()
@@ -271,15 +295,103 @@ final class BouncerModel {
         }
     }
 
-    /// Slice 01 changes only the demo. Real approval enforcement comes in slice 04.
-    func decide(_ id: String, _ decision: ApprovalDecision) {
-        guard Demo.isOn else { return }
-        do {
-            try thread.decide(id, decision)
-            if let taskID = thread.items.first(where: { $0.id == id })?.taskID {
-                updateDemoTask(taskID, state: decision == .approved ? .finished : .stopped)
+    /// Registers a task from the local host. The caller supplies a fresh storage grant for every operation.
+    func showLocalApprovals(for taskID: UUID, using access: @escaping @Sendable () -> TaskStorageAuthorization) {
+        guard !Demo.isOn, !checkingApprovals.contains(taskID) else { return }
+        localApprovalAccess[taskID] = access
+        reloadLocalApprovals(for: taskID)
+    }
+
+    func reloadLocalApprovals() {
+        for taskID in localApprovalAccess.keys { reloadLocalApprovals(for: taskID) }
+    }
+
+    private func reloadLocalApprovals(for taskID: UUID) {
+        guard let access = localApprovalAccess[taskID], checkingApprovals.insert(taskID).inserted else { return }
+        thread.beginLocalApprovalReload(for: taskID)
+        let interface = TaskInterface(workspace: WorkspaceSettingsState.shared.store)
+        Task {
+            defer { checkingApprovals.remove(taskID) }
+            let loaded = await Task.detached { Result { try interface.reloadApprovals(for: taskID, using: access()) } }.value
+            guard on else { return }
+            switch loaded {
+            case .success(let record):
+                let approvals = record.details?.approvals ?? []
+                let cards = approvals.map { approval in
+                    let showResult = approval.id == approvals.last?.id && record.details?.resultRevisionID == approval.request.resultRevisionID
+                    return ApprovalCard(local: approval, result: showResult ? record.details?.result : nil)
+                }
+                thread.replaceLocalApprovals(for: taskID, with: cards)
+                localApprovalErrors[taskID] = nil
+                if cards.contains(where: \.isOpen) { focusToken += 1 }
+            case .failure(TaskGraphError.changedOnDisk):
+                thread.localApprovalReloadNeedsRetry(for: taskID)
+                localApprovalErrors[taskID] = "The task changed. Try again."
+            case .failure(let error):
+                localApprovalRecheckFailed(for: taskID, error: error)
             }
-        } catch { thread.apply(.failed(error.localizedDescription)) }
+        }
+    }
+
+    private func localApprovalRecheckFailed(for taskID: UUID, error: Error) {
+        thread.localApprovalReloadNeedsRetry(for: taskID, discardCards: true)
+        localApprovalErrors[taskID] = localApprovalMessage(error)
+    }
+
+    func savingApproval(for card: ApprovalCard) -> Bool {
+        guard card.source == .local, let taskID = UUID(uuidString: card.taskID) else { return false }
+        return checkingApprovals.contains(taskID)
+    }
+
+    func decide(_ response: BouncerApprovalResponse) {
+        let id = response.cardID, decision = response.decision
+        guard let item = thread.items.first(where: { $0.id == id }), case .approval(let card) = item,
+              card.taskID == response.taskID, card.isOpen else { return }
+        if card.source == .demo {
+            guard Demo.isOn else { return }
+            do {
+                try thread.decide(id, decision)
+                updateDemoTask(card.taskID, state: decision == .approved ? .finished : .stopped)
+            } catch { thread.apply(.failed(error.localizedDescription)) }
+            return
+        }
+        guard let taskID = UUID(uuidString: card.taskID), let requestID = UUID(uuidString: id),
+              let access = localApprovalAccess[taskID], checkingApprovals.insert(taskID).inserted else { return }
+        let interface = TaskInterface(workspace: WorkspaceSettingsState.shared.store)
+        Task {
+            defer { checkingApprovals.remove(taskID) }
+            let saved = await Task.detached {
+                Result {
+                    try interface.answerApproval(requestID, for: taskID, decision: decision, using: access(),
+                                                 authorizeAnswer: response.authorizes)
+                }
+            }.value
+            guard on, thread.items.contains(where: { $0.id == id }) else { return }
+            completeLocalApprovalAnswer(saved, card: card, taskID: taskID)
+        }
+    }
+
+    func completeLocalApprovalAnswer(_ saved: Result<ApprovalRecord, Error>, card: ApprovalCard, taskID: UUID) {
+        switch saved {
+        case .success(let record):
+            localApprovalErrors[taskID] = nil
+            thread.apply(.item(.approval(ApprovalCard(local: record, result: card.result))))
+        case .failure(ApprovalError.credentialAddressInText):
+            localApprovalErrors[taskID] = ApprovalError.credentialAddressInText.localizedDescription
+        case .failure(TaskGraphError.changedOnDisk):
+            thread.localApprovalReloadNeedsRetry(for: taskID)
+            localApprovalErrors[taskID] = "The task changed. Try again."
+            Task { reloadLocalApprovals(for: taskID) }
+        case .failure(let error):
+            localApprovalRecheckFailed(for: taskID, error: error)
+        }
+    }
+
+    private func localApprovalMessage(_ error: Error) -> String {
+        if let error = error as? ApprovalError { return error.localizedDescription }
+        if let error = error as? BouncerError, error == .reasonRequired { return "Enter a reason to reject this request." }
+        if let error = error as? TaskDetailStoreError, error == .tooLarge { return "The local task record exceeds its size limit." }
+        return "Rounds could not verify or save the local approval. Check task storage."
     }
 
     private func updateDemoTask(_ id: String, state: BouncerTaskState) {
@@ -348,6 +460,7 @@ final class BouncerModel {
 
     private func apply(_ event: BouncerEvent) {
         switch event {
+        case .item(.approval) where !(adapter is DemoBouncer): return
         case .started(let current, let selection):
             (model, modelSelection) = (current, selection)
             models = []

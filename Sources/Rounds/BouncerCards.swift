@@ -1,12 +1,35 @@
 import RoundsCore
 import SwiftUI
 
+/// The card buttons create responses. Adapter events cannot construct them.
+struct BouncerApprovalResponse: Sendable {
+    let cardID: String
+    let taskID: String
+    let decision: ApprovalDecision
+
+    fileprivate init(card: ApprovalCard, decision: ApprovalDecision) {
+        self.cardID = card.id
+        self.taskID = card.taskID
+        self.decision = decision
+    }
+
+    func authorizes(_ taskID: UUID, _ requestID: UUID, _ decision: ApprovalDecision) -> Bool {
+        guard UUID(uuidString: self.taskID) == taskID, UUID(uuidString: cardID) == requestID else { return false }
+        switch (self.decision, decision) {
+        case (.approved, .approved): return true
+        case (.rejected(let entered), .rejected(let normalized)): return entered.utf8.elementsEqual(normalized.utf8)
+        default: return false
+        }
+    }
+}
+
 /// Only a structured host ApprovalCard enters this view. Agent text stays in the conversation renderer.
 struct BouncerApprovalCard: View {
     let card: ApprovalCard
     let focus: FocusState<BouncerFocus?>.Binding
     @Bindable var state: BouncerWindowState
-    let decide: (ApprovalDecision) -> Void
+    let saving: Bool
+    let decide: (BouncerApprovalResponse) -> Void
 
     private var reason: Binding<String> {
         Binding(get: { state.rejectionReasons[card.id] ?? "" }, set: { state.rejectionReasons[card.id] = $0 })
@@ -39,14 +62,21 @@ struct BouncerApprovalCard: View {
                 }
                 .accessibilityLabel("\(card.actions.count) actions, in order")
             }
-            Text("Demo check: \(card.checkedAt.formatted(date: .omitted, time: .shortened)). No action will run.")
+            let time = card.checkedAt.formatted(date: .omitted, time: .shortened)
+            Text(card.source == .demo ? "Demo check: \(time). No action will run." :
+                "Local check at \(time). Rounds saves your decision on this Mac. No action will run.")
                 .font(.callout).foregroundStyle(.secondary)
+            if let error = card.localError { Text(error).foregroundStyle(.secondary) }
             if let decision = card.decision {
                 switch decision {
-                case .approved: Label("Approved in this demo", systemImage: "checkmark.circle").foregroundStyle(.green)
-                case .rejected(let reason): Text("Rejected: \(reason)").foregroundStyle(.secondary)
+                case .approved:
+                    Label(card.source == .demo ? "Approved in this demo" : "Approval saved locally",
+                          systemImage: "checkmark.circle").foregroundStyle(.green)
+                case .rejected(let reason):
+                    Text(card.source == .demo ? "Rejected: \(reason)" : "Rejection saved locally: \(reason)")
+                        .foregroundStyle(.secondary)
                 }
-            } else {
+            } else if card.isOpen {
                 Divider()
                 TextField("Reason to reject (required)", text: reason, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
@@ -54,12 +84,16 @@ struct BouncerApprovalCard: View {
                 HStack {
                     Text("Needs input").font(.callout).foregroundStyle(.secondary)
                     Spacer()
-                    Button("Reject") { decide(.rejected(reason: reason.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines))) }
+                    Button("Reject") {
+                        let text = reason.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                        decide(BouncerApprovalResponse(card: card, decision: .rejected(reason: text)))
+                    }
                         .disabled(reason.wrappedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         .bouncerHover("reject-\(card.id)", state: state)
-                    Button("Approve") { decide(.approved) }
+                    Button("Approve") { decide(BouncerApprovalResponse(card: card, decision: .approved)) }
                         .bouncerHover("approve-\(card.id)", state: state)
                 }
+                .disabled(saving)
             }
         }
         .padding(12)
@@ -102,6 +136,31 @@ struct BouncerResultCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .bouncerCard()
+    }
+}
+
+struct BouncerLocalResultCard: View {
+    let result: TaskResult
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Local Result", systemImage: "checkmark.square")
+                .font(.headline).accessibilityAddTraits(.isHeader)
+            Text(result.checkedRevisionOrWorkingTree).font(.callout.monospaced()).textSelection(.enabled)
+            facts("Changes", result.changedLocations)
+            facts("Checks", result.validationOutcomes)
+            facts("Risks", result.risks)
+            facts("Blockers", result.blockers)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .bouncerCard()
+    }
+
+    @ViewBuilder private func facts(_ title: String, _ values: [String]) -> some View {
+        if !values.isEmpty {
+            Text(title).font(.callout.weight(.semibold))
+            ForEach(Array(values.enumerated()), id: \.offset) { _, value in Text(value).textSelection(.enabled) }
+        }
     }
 }
 
