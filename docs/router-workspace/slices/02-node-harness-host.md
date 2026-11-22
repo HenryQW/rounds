@@ -6,7 +6,7 @@ Rounds starts and stops one Node Host that runs a pi-durable Harness. The Bounce
 
 ## State
 
-Details, 2026-11-22. Parts 02a (lifecycle) and 02b (Bouncer) are built. Part 02c (container tool bridge) remains open.
+Details, 2026-11-22. Parts 02a (lifecycle) and 02b (Bouncer) are built. Part 02c (container tool bridge) remains open. The [container configuration contract](#container-configuration-contract) records the verified input paths and the first bridge checks.
 
 Built files and checks are in the [02a walkthrough](02/walkthrough/README.md).
 
@@ -77,6 +77,33 @@ Read these files in the pi source at commit `5a14e69c067d40dfbff4f2fff7d3b34c897
 | 02a | `docs/spec.md`, this brief, `docs/router-workspace/slices/README.md` | Current behavior and remaining parts |
 | 02b | `Sources/RoundsCore/HarnessBouncer.swift`, `Sources/Rounds/BouncerModel.swift`, `Resources/harness-bouncer.mjs`, `Resources/harness-magpie.mjs` | Open, project and control the durable conversation |
 | 02c | `Resources/harness-host.mjs` and a new adjacent container tool wrapper | Add the pinned container tool bridge after its open requirements are settled |
+
+## Container configuration contract
+
+The container-use v0.4.2 tag points to `89ebe7765ec067a07c51de104822056eb217c1b9`. These reads supply configuration independently of the selected source revision.
+
+| Operation | Configuration read in v0.4.2 |
+|---|---|
+| Create environment | The selected Git ref supplies the source tree. The host source checkout supplies `.container-use/environment.json`. [Creation] and [file loader] |
+| Reopen environment | Saved Git notes supply the config and container identity. If saved config is absent, the environment worktree supplies `.container-use/environment.json`. [State lookup] and [reopen] |
+| Build a container | A `secrets` entry goes to the Dagger client's secret resolver. The Dagger engine associates the request with the calling client. [Container config] and [client association] |
+
+*Default for the first bridge fixture*: Use a Rounds-owned disposable source checkout with fresh Git metadata and an isolated state directory. Pin the source revision. Keep the checkout and state inaccessible to agents. Use the built-in configuration. Refuse a configuration file or symbolic link at `.container-use/environment.json`, or a linked `.container-use` directory, before a creation request. This keeps the first check independent of repository setup commands, images and secret references.
+
+A selected Git ref does not pin the configuration that the host reads. Keep the validated checkout and state under Rounds control from the check through the upstream read. The bridge supplies the source path and environment identifier. It uses a Rounds-owned local fork and rejects inherited `container-use` remotes or Git notes. [Repository open]
+
+Before any call that loads an existing environment, verify its identifier, source revision and stored state against the run record. Refuse missing, foreign or unverified state before calling the tool. This includes records without config, which otherwise let the upstream loader read the environment worktree. [Tool load]
+
+The local probes used the release source with different markers in the selected revision, host `HEAD` and host working file. The host loader read the working file. The reopen loader used saved configuration when present. With configuration absent from the saved record, it followed a linked directory in the environment worktree. The probes reached the source and state loaders without running Dagger.
+
+[Creation]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/repository/repository.go#L185-L239
+[file loader]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/environment/config.go#L146-L160
+[State lookup]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/repository/git.go#L323-L340
+[reopen]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/environment/environment.go#L90-L110
+[Container config]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/environment/environment.go#L131-L151
+[client association]: https://github.com/dagger/dagger/blob/v0.18.14/core/schema/secret.go#L66-L98
+[Repository open]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/repository/repository.go#L78-L118
+[Tool load]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/mcpserver/tools.go#L59-L97
 
 ## Lifecycle contract
 
@@ -199,6 +226,6 @@ The main review checked both new failure paths and their regression tests.
 - Define restart behavior for model requests made by Bartenders and Barbacks. The Bouncer aborts interrupted requests before it resumes scheduling.
 - The shared engine version must match the container-use release. Nesting still lets code in a container start normal containers on that engine.
 - Choose the one egress allowlist for version one. An allowed domain can still receive data from the container. The proxy address must be an IP address, because the engine DNS does not resolve Docker aliases.
-- Check whether secret references in a repository's `.container-use/environment.json` resolve on the host when an environment starts from an agent branch.
+- Implement the [container configuration contract](#container-configuration-contract). Check refusal before an upstream tool call for a dirty host config, a linked config and unverified reopen state.
 - Verify the identity of a process before Rounds signals it. A detached descendant can escape process-group cleanup.
 - After a restart, reconcile run identity, process state, checkout ownership and local-only records before work resumes.
