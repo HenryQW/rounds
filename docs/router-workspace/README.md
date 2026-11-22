@@ -1,6 +1,6 @@
 # Bouncer mode docs
 
-This folder holds the design of Bouncer mode: one user-facing Bouncer in Rounds that coordinates Bartenders and their Barbacks across repositories. It is a plan. Only organization rules, outbound checks and workspace setup are built (see [overview](overview.md#built-so-far)). Do not treat a router doc as proof that the app has a capability.
+This folder holds the design of Bouncer mode: one user-facing Bouncer in Rounds that coordinates Bartenders and their Barbacks across repositories. The plan includes built and future behavior. See [overview](overview.md#built-so-far) for the current app.
 
 The [Rounds specification](../spec.md), [glossary](../../GLOSSARY.md) and [design](../../DESIGN.md) describe the current app. Update them when the corresponding behavior or product terms are agreed and built.
 

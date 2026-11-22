@@ -6,7 +6,7 @@ Rounds starts and stops one Node Host that runs a pi-durable Harness. The Bounce
 
 ## State
 
-Details, 2026-11-22. Built: 02a lifecycle. The items under Open remain open. Parts 02b and 02c remain planned.
+Details, 2026-11-22. Parts 02a (lifecycle) and 02b (Bouncer) are built. Part 02c (container tool bridge) remains open.
 
 Built files and checks are in the [02a walkthrough](02/walkthrough/README.md).
 
@@ -51,7 +51,7 @@ Slice 01: the `BouncerAdapter` protocol and the Bouncer Window.
 | This brief and [slices/README.md](README.md) | Scope and build order |
 | [decisions.md](../decisions.md) | The four decisions cited under Decided |
 | [overview.md](../overview.md), [archive/reuse-review.md](../archive/reuse-review.md) | Structure and source evidence |
-| `Sources/RoundsCore/BouncerAdapter.swift` | `BouncerAdapter` and `PiRPCBouncer` |
+| `Sources/RoundsCore/BouncerAdapter.swift`, `Sources/RoundsCore/HarnessBouncer.swift` | Adapter interface and durable Bouncer |
 | `Sources/Rounds/BouncerModel.swift`, `Sources/Rounds/RoundsApp.swift` | Start, mode off and quit callers |
 | `Package.swift`, `scripts/test.sh`, `scripts/bundle.sh` | Build, tests and app packaging |
 
@@ -75,17 +75,17 @@ Read these files in the pi source at commit `5a14e69c067d40dfbff4f2fff7d3b34c897
 | 02a | `Sources/Rounds/BouncerModel.swift` | Own the host with Bouncer mode; await health before the existing adapter starts; stop on off and quit |
 | 02a | `Tests/RoundsCoreTests/NodeHarnessHostTests.swift` | Lifecycle and ownership regressions with local child fixtures |
 | 02a | `docs/spec.md`, this brief, `docs/router-workspace/slices/README.md` | Current behavior and remaining parts |
-| 02b | `Sources/RoundsCore/BouncerAdapter.swift`, `Sources/Rounds/BouncerModel.swift`, `Tests/RoundsCoreTests/BouncerTests.swift`, `Tests/RoundsCoreTests/PiRPCTests.swift`, `Resources/harness-host.mjs` | Replace the adapter with Harness conversation messages; remove the obsolete adapter and its tests |
+| 02b | `Sources/RoundsCore/HarnessBouncer.swift`, `Sources/Rounds/BouncerModel.swift`, `Resources/harness-bouncer.mjs`, `Resources/harness-magpie.mjs` | Open, project and control the durable conversation |
 | 02c | `Resources/harness-host.mjs` and a new adjacent container tool wrapper | Add the pinned container tool bridge after its open requirements are settled |
 
-## Contracts
+## Lifecycle contract
 
-| Boundary | 02a contract |
+| Boundary | Contract |
 |---|---|
 | Swift owner | `NodeHarnessHost.start() async throws -> HarnessHostHealth` starts at most one host. `health() async throws -> HarnessHostHealth` checks it. `stop() async throws` waits for cleanup. |
 | Configuration | Absolute Node, host script and data folder URLs. Production uses the app bundle and the Rounds application support folder. Tests supply temporary paths. |
-| Protocol | One JSON object per line, protocol `1`, matching string `id` and `command`. Commands are `health` and `shutdown`. Health returns `ok`, pinned `commit` and `scheduling`. |
-| Harness | `Harness.open(storage, {models: createModels(), registry: createRegistry()}, BACKGROUND_CONTEXT)`. Health calls `inspect`. Shutdown calls `close`. No `root`, `submit` or `resume`. |
+| Protocol | One JSON object per line, protocol `1`, matching string `id` and `command`. Lifecycle commands are `health` and `shutdown`. Health returns `ok`, pinned `commit` and `scheduling`. |
+| Harness | Open the Harness with an empty registry. Health calls `inspect`. Shutdown calls `close`. Scheduling starts only when the conversation needs work. |
 | Storage | `harness.sqlite` under the configured folder. A per-folder lock rejects a second owner. An atomic process record supports cleanup after an abrupt parent exit. |
 | Process group | Create a fresh group before the host executes. Record its leader, birth time and argument marker. Validate live members and save newly verified descendant births before shutdown and before each group signal. If a record write fails, continue verified cleanup with the in-memory record and report the write failure. |
 | Failure | Startup, invalid health, timeout, early exit and unsafe cleanup throw a clear error. Keep a record when cleanup fails. Never resume work after failed cleanup. |
@@ -99,7 +99,7 @@ Read these files in the pi source at commit `5a14e69c067d40dfbff4f2fff7d3b34c897
 | Start | Create the data folder and acquire its lock. Check and clean a recorded leftover group before starting a new host. |
 | Launch | Spawn Node in its own process group, with pipes and an argument marker. Save the record before the first health request. Input closure exits an interrupted launch. |
 | Ready | Open SQLite, then open the Harness. Return health only after both succeed. Swift checks the protocol version, request identity, source commit and paused state. |
-| Running | Keep one host for this mode lifetime. Health reports real Harness inspection. Keep the existing Bouncer adapter separate until 02b. |
+| Running | Keep one host for this mode lifetime. Health reports real Harness inspection. The Bouncer shares the host pipes with lifecycle commands. |
 | Stop | Ask for shutdown and close input. Wait for graceful exit, then send `SIGTERM`, then `SIGKILL` after bounded waits. Reap the child and check group members. |
 | Restart | Clean only the verified recorded group. A mismatched process identity blocks startup. Detached descendants and work reconciliation remain Open. |
 
@@ -108,6 +108,17 @@ flowchart LR
     Start[Mode start] --> Check[Check ownership] --> Node --> SQLite --> Harness --> Health
     Stop[Mode stop] --> Close[Close Harness] --> Term[SIGTERM if needed] --> Kill[SIGKILL if needed]
 ```
+
+## Bouncer contract
+
+| Boundary | Contract |
+|---|---|
+| Requests | `bouncerOpen`, `bouncerSend`, `bouncerStop`, `bouncerAnswer` and `bouncerModel` use the lifecycle envelope. A refused command returns `ok: false` and an error. |
+| Events | The host sends conversation events on separate lines. Message entries, text deltas, model choices, questions and answers share the stream with command replies. The protocol accepts tool-step events for later slices. The Bouncer offers no tools. |
+| Questions | A complete, valid `ROUNDS_QUESTION` reply becomes a question card. SQLite stores the question in the assistant entry. An answer entry refers to that question. Dismiss writes an answer entry without calling Magpie. |
+| Recovery | Reload committed entries and the saved model from the reserved root. Mark unfinished work before the scheduler starts. Report the interruption. |
+| Model configuration | Read Pi `models.json` and `settings.json`, using only the Magpie provider. Support literal keys and headers. An explicit selection persists in SQLite. |
+| Fixture | Set `ROUNDS_HARNESS_PAYLOAD` to the built host folder and `ROUNDS_HARNESS_SCRATCH` to a temporary folder. Run `scripts/test.sh` to include the bundled conversation and lifecycle fixtures. The loopback provider exercises the `openai-completions`, `openai-responses` and `anthropic-messages` routes. |
 
 ## Tests
 
@@ -137,7 +148,8 @@ flowchart LR
 |---|---|
 | Host count | At most 1 per Rounds data folder |
 | Protocol version | 1 |
-| Maximum response line | 65,536 bytes |
+| Maximum request or response line | 65,536 bytes |
+| Transcript replay deadline | 10 seconds without an event, 60 seconds total |
 | Health deadline | 10 seconds |
 | Shutdown waits | 2 seconds graceful, 2 seconds after termination, 2 seconds after forced termination |
 | Poll interval | 20 milliseconds |
@@ -149,7 +161,6 @@ flowchart LR
 
 | Part | Remaining work | Takes it |
 |---|---|---|
-| 02b | Model resolution, Bouncer conversation protocol and removal of `PiRPCBouncer` | Slice 02b |
 | 02c | Pinned container tool bridge and its unresolved requirements | Slice 02c |
 
 ## Review round 1
@@ -184,8 +195,8 @@ The main review checked both new failure paths and their regression tests.
 
 ## Open
 
-- Magpie models that do not use `openAICompletionsApi` were not tested in the Harness. Resolve the selected model and protocol at launch.
-- A `kill -9` during a model request sends the request again on resume, so the provider can bill it twice.
+- Check the live Magpie service before release. The conversation fixture uses a loopback provider.
+- Define restart behavior for model requests made by Bartenders and Barbacks. The Bouncer aborts interrupted requests before it resumes scheduling.
 - The shared engine version must match the container-use release. Nesting still lets code in a container start normal containers on that engine.
 - Choose the one egress allowlist for version one. An allowed domain can still receive data from the container. The proxy address must be an IP address, because the engine DNS does not resolve Docker aliases.
 - Check whether secret references in a repository's `.container-use/environment.json` resolve on the host when an environment starts from an agent branch.

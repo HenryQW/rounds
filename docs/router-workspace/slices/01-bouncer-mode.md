@@ -6,7 +6,7 @@ Rounds gets a Bouncer mode. The pill is the Bouncer, and a click on it opens the
 
 ## State
 
-Details, 2026-11-19. No open owner decision. Sub-steps 01a (RoundsCore) and 01b (mode switch, pill, Bouncer Window) are built. Next step: build sub-step 01c.
+Details, 2026-11-19. No open owner decision. Sub-steps 01a (RoundsCore) and 01b (mode switch, pill, Bouncer Window) are built. Next step: build sub-step 01c. The Pi remote procedure call (RPC) contracts and checks below record the original slice. [Slice 02b](02-node-harness-host.md) replaces that adapter, setup step and storage.
 
 ## Depends
 
@@ -17,7 +17,7 @@ None. Organization rules and workspace setup are built ([overview](../overview.m
 - The mode switch.
 - The pill as the Bouncer: it stays still while nothing waits, and bounces only when the Bouncer asks for an approval or an answer.
 - The Bouncer Window: the conversation, results and decisions. Approvals show as inline cards that host code draws, never as model text.
-- The window talks to the Bouncer through one adapter. Demo data until dispatch exists ([slice 03](03-dispatch-and-results.md)). The `pi --mode rpc` adapter is temporary: [slice 02](02-node-harness-host.md) replaces it (decision "Bouncer on pi-durable").
+- The window talks to the Bouncer through one adapter. Demo data until dispatch exists ([slice 03](03-dispatch-and-results.md)). [Slice 02b](02-node-harness-host.md) replaced the temporary Pi adapter with the Node Host.
 
 ## Decided
 

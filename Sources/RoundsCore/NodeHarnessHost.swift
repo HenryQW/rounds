@@ -20,7 +20,7 @@ public struct HarnessMonitorFailure: LocalizedError, Sendable {
     init(_ message: String) { errorDescription = "The Harness health check failed: \(message)" }
 }
 
-/// One paused Harness in a Node process group. No conversation or tool runs in slice 02a.
+/// One Harness in a verified Node process group.
 public actor NodeHarnessHost {
     public static let sourceCommit = "5a14e69c067d40dfbff4f2fff7d3b34c897e2dc9"
     private let executable: URL, script: URL, dataFolder: URL
@@ -32,6 +32,9 @@ public actor NodeHarnessHost {
     private var lock: Int32 = -1
     private var record: HostProcessRecord?
     private var busy = false
+    private var buffered = Data()
+    private var bouncerEvents: AsyncStream<BouncerEvent>.Continuation?
+    private let frameLimit = 65_536
 
     public init(executable: URL, script: URL, dataFolder: URL) {
         self.init(executable: executable, script: script, dataFolder: dataFolder,
@@ -69,7 +72,7 @@ public actor NodeHarnessHost {
                 if let saveFailure { throw saveFailure }
             }
             try spawn()
-            return try await checkedHealth()
+            return try await checkedHealth(startup: true)
         } catch {
             let original = error
             // A failed cleanup keeps its ownership record and lock until stop is retried.
@@ -97,17 +100,75 @@ public actor NodeHarnessHost {
     /// Clears a health failure after the caller shows it to the user.
     public func acknowledgeMonitorFailure() { monitorFailure = nil }
 
-    /// Checks the running host until it fails or the caller cancels the monitor.
+    /// Checks process ownership periodically and reads conversation events between health checks.
     public func monitor(interval: Duration = .seconds(1)) async throws {
+        var nextHealth = ContinuousClock.now + interval
         while true {
-            try await Task.sleep(for: interval)
-            let check = Task.detached { try await self.health() }
-            do { _ = try await check.value } catch {
+            try await Task.sleep(for: bouncerEvents == nil ? interval : .milliseconds(20))
+            let checkHealth = ContinuousClock.now >= nextHealth
+            let check = Task.detached { try await self.monitorHost(checkHealth: checkHealth) }
+            do { try await check.value } catch {
                 monitorFailure = error.localizedDescription
                 throw error
             }
+            if checkHealth { nextHealth = ContinuousClock.now + interval }
             try Task.checkCancellation()
         }
+    }
+
+    private func monitorHost(checkHealth: Bool) async throws {
+        if checkHealth { _ = try await health(); return }
+        guard !busy else { return }
+        busy = true
+        defer { busy = false }
+        do {
+            for _ in 0..<128 {
+                guard let line = try pollLine() else { return }
+                guard try handleEvent(line) else { throw HarnessHostError("Unexpected Harness response.") }
+            }
+        } catch {
+            let original = error
+            try await cleanup(graceful: false)
+            throw original
+        }
+    }
+
+    func openBouncer(events: AsyncStream<BouncerEvent>.Continuation) async throws {
+        try await enter()
+        defer { busy = false }
+        bouncerEvents = events
+        do { try await bouncerRequest(.open) } catch {
+            if child != nil { try await cleanup(graceful: true) }
+            throw error
+        }
+    }
+
+    func bouncer(_ command: HarnessBouncerCommand) async throws {
+        try await enter()
+        defer { busy = false }
+        try await bouncerRequest(command)
+    }
+
+    private func bouncerRequest(_ request: HarnessBouncerCommand) async throws {
+        let (command, parameters) = request.fields
+        let id = UUID().uuidString
+        // Drain the reply even if the caller cancels. Later health and shutdown share this stream.
+        let data = try requestData(command, id: id, parameters: parameters)
+        let task = Task.detached { try await self.exchange(command, id: id, data: data) }
+        let response: HostResponse
+        do { response = try await task.value } catch {
+            // An unacknowledged request leaves the command stream out of sync.
+            try await cleanup(graceful: false)
+            if error is DecodingError { throw HarnessHostError("Invalid Harness conversation response.") }
+            throw error
+        }
+        guard response.ok else { throw HarnessHostError(response.error ?? "The Bouncer refused the command.") }
+    }
+
+    private func exchange(_ command: String, id: String, data: Data) async throws -> HostResponse {
+        let deadline = ContinuousClock.now + requestWait
+        try await write(data, deadline: deadline)
+        return try await response(to: command, id: id, deadline: deadline)
     }
 
     private func enter() async throws {
@@ -168,6 +229,7 @@ public actor NodeHarnessHost {
         try stdin.fileHandleForReading.close()
         try stdout.fileHandleForWriting.close()
         try check(fcntl(input!.fileDescriptor, F_SETNOSIGPIPE, 1) == 0 ? 0 : errno)
+        try check(fcntl(input!.fileDescriptor, F_SETFL, O_NONBLOCK) == 0 ? 0 : errno)
         try check(fcntl(output!.fileDescriptor, F_SETFL, O_NONBLOCK) == 0 ? 0 : errno)
         guard let info = HostProcessRecord.info(pid) else {
             // This PID is our unreaped child, so it cannot have been reused.
@@ -183,29 +245,43 @@ public actor NodeHarnessHost {
         guard code == 0 else { throw HarnessHostError("Harness process error: \(String(cString: strerror(code))).") }
     }
 
-    private func write(_ command: String, id: String) throws {
-        guard let input, child != nil else { throw HarnessHostError("The Harness host is not running.") }
-        let data = try JSONSerialization.data(withJSONObject: ["version": 1, "id": id, "command": command]) + Data([10])
-        let count = data.withUnsafeBytes { Darwin.write(input.fileDescriptor, $0.baseAddress, $0.count) }
-        guard count == data.count else {
-            if count < 0, errno == EPIPE { throw HostExited() }
-            throw HarnessHostError("Cannot write the Harness request.")
-        }
+    private func requestData(_ command: String, id: String, parameters: [String: Any] = [:]) throws -> Data {
+        var fields = parameters
+        fields["version"] = 1
+        fields["id"] = id
+        fields["command"] = command
+        let data = try JSONSerialization.data(withJSONObject: fields, options: [.withoutEscapingSlashes])
+        guard data.count <= frameLimit else { throw HarnessHostError("The Bouncer message is too long.") }
+        return data + Data([10])
     }
 
-    private func checkedHealth() async throws -> HarnessHostHealth {
+    private func write(_ data: Data, deadline: ContinuousClock.Instant) async throws {
+        guard let input, child != nil else { throw HostExited() }
+        var offset = 0
+        while offset < data.count, ContinuousClock.now < deadline {
+            let count = data.withUnsafeBytes { Darwin.write(input.fileDescriptor, $0.baseAddress! + offset, $0.count - offset) }
+            if count > 0 { offset += count }
+            else if count < 0, errno == EPIPE { throw HostExited() }
+            else if count < 0, errno != EAGAIN && errno != EINTR { throw HarnessHostError("Cannot write the Harness request.") }
+            else { try await Task.sleep(for: .milliseconds(20)) }
+        }
+        guard offset == data.count else { throw HarnessHostError("The Harness host did not read the request in time.") }
+    }
+
+    private func checkedHealth(startup: Bool = false) async throws -> HarnessHostHealth {
         do {
             let id = UUID().uuidString
-            try write("health", id: id)
-            let response = try JSONDecoder().decode(HarnessHostHealth.self, from: await readLine())
-            guard response.version == 1, response.id == id, response.command == "health", response.ok,
-                  response.commit == Self.sourceCommit, response.scheduling == "paused" else {
+            let data = try requestData("health", id: id)
+            let response = try await exchange("health", id: id, data: data)
+            guard response.ok, let scheduling = response.scheduling,
+                  scheduling == "paused" || (!startup && scheduling == "running") else {
                 throw HarnessHostError("Invalid Harness health response.")
             }
             var saveFailure: Error?
             _ = try await refreshMembers(saveFailure: &saveFailure)
             if let saveFailure { throw saveFailure }
-            return response
+            return HarnessHostHealth(version: response.version, id: response.id, command: response.command,
+                                     ok: response.ok, commit: response.commit, scheduling: scheduling)
         } catch {
             let original = error
             try await cleanup(graceful: false)
@@ -213,25 +289,53 @@ public actor NodeHarnessHost {
         }
     }
 
-    private func readLine(wait: Duration? = nil) async throws -> Data {
-        guard let output else { throw HarnessHostError("The Harness output is closed.") }
-        let deadline = ContinuousClock.now + (wait ?? requestWait)
-        var result = Data(), bytes = [UInt8](repeating: 0, count: 4096)
-        while ContinuousClock.now < deadline {
-            let count = read(output.fileDescriptor, &bytes, bytes.count)
-            if count > 0 {
-                result.append(contentsOf: bytes.prefix(count))
-                if result.count > 65_536 { throw HarnessHostError("Harness response exceeds 65536 bytes.") }
-                if let end = result.firstIndex(of: 10) {
-                    guard end == result.count - 1 else { throw HarnessHostError("Unexpected Harness output.") }
-                    return result.prefix(upTo: end)
+    private func pollLine() throws -> Data? {
+        guard let output else { throw HostExited() }
+        var bytes = [UInt8](repeating: 0, count: 4096)
+        while true {
+            if let end = buffered.firstIndex(of: 10) {
+                guard buffered.distance(from: buffered.startIndex, to: end) <= frameLimit else {
+                    throw HarnessHostError("Harness response exceeds 65536 bytes.")
                 }
-            } else if count == 0 {
-                throw HostExited()
-            } else if errno != EAGAIN && errno != EINTR {
-                throw HarnessHostError("Cannot read the Harness response.")
+                let line = buffered.prefix(upTo: end)
+                buffered.removeSubrange(...end)
+                return line
             }
-            try await Task.sleep(for: .milliseconds(20))
+            guard buffered.count <= frameLimit else { throw HarnessHostError("Harness response exceeds 65536 bytes.") }
+            let count = read(output.fileDescriptor, &bytes, bytes.count)
+            if count > 0 { buffered.append(contentsOf: bytes.prefix(count)) }
+            else if count == 0 { throw HostExited() }
+            else if errno == EAGAIN { return nil }
+            else if errno != EINTR { throw HarnessHostError("Cannot read the Harness response.") }
+        }
+    }
+
+    private func handleEvent(_ line: Data) throws -> Bool {
+        let kind = try JSONDecoder().decode(HostFrame.self, from: line)
+        guard kind.event != nil else { return false }
+        guard let bouncerEvents else { throw HarnessHostError("Unexpected Harness conversation event.") }
+        bouncerEvents.yield(try JSONDecoder().decode(HarnessBouncerEvent.self, from: line).decode())
+        return true
+    }
+
+    private func response(to command: String, id: String, deadline: ContinuousClock.Instant) async throws -> HostResponse {
+        var idleDeadline = deadline
+        let replayDeadline = ContinuousClock.now + .seconds(60)
+        while ContinuousClock.now < idleDeadline {
+            guard let line = try pollLine() else {
+                try await Task.sleep(for: .milliseconds(20))
+                continue
+            }
+            if try handleEvent(line) {
+                // Replay can take longer than one request timeout. Allow another interval while entries arrive.
+                if command == "bouncerOpen" { idleDeadline = min(ContinuousClock.now + requestWait, replayDeadline) }
+                continue
+            }
+            let response = try JSONDecoder().decode(HostResponse.self, from: line)
+            guard response.version == 1, response.id == id, response.command == command, response.commit == Self.sourceCommit else {
+                throw HarnessHostError("Invalid Harness \(command) response.")
+            }
+            return response
         }
         throw HarnessHostError("The Harness host did not answer in time.")
     }
@@ -243,12 +347,9 @@ public actor NodeHarnessHost {
             do {
                 _ = try await refreshMembers(saveFailure: &saveFailure)
                 let id = UUID().uuidString
-                try write("shutdown", id: id)
-                let response = try JSONDecoder().decode(ShutdownResponse.self, from: await readLine(wait: exitWait))
-                guard response.version == 1, response.id == id, response.command == "shutdown", response.ok,
-                      response.commit == Self.sourceCommit else {
-                    throw HarnessHostError("Invalid Harness shutdown response.")
-                }
+                try await write(requestData("shutdown", id: id), deadline: closeDeadline)
+                let reply = try await response(to: "shutdown", id: id, deadline: closeDeadline)
+                guard reply.ok else { throw HarnessHostError("Invalid Harness shutdown response.") }
             } catch { closeFailure = error }
         }
         try input?.close()
@@ -269,6 +370,8 @@ public actor NodeHarnessHost {
         }
         try output?.close()
         output = nil
+        buffered.removeAll()
+        bouncerEvents = nil
         if lock >= 0 {
             try check(flock(lock, LOCK_UN) == 0 ? 0 : errno)
             close(lock)
@@ -456,11 +559,14 @@ struct HostProcessIdentity: Codable, Equatable, Sendable {
     let microseconds: UInt64
 }
 
-private struct ShutdownResponse: Decodable {
+private struct HostFrame: Decodable { let event: String? }
+
+private struct HostResponse: Decodable {
     let version: Int
     let id, command: String
     let ok: Bool
     let commit: String
+    let scheduling, error: String?
 }
 
 private struct HostInspectionPending: Error {}

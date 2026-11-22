@@ -70,15 +70,86 @@ private func withHarness(_ fixture: HarnessFixture, requestWait: Duration = .sec
     }
 }
 
-@Test func failedPiLaunchStopsTheHealthyHarness() async throws {
-    let fixture = try HarnessFixture()
+@Test func harnessBouncerReadsEventsBetweenResponses() async throws {
+    let fixture = try HarnessFixture("""
+        while IFS= read -r line; do
+            id=${line#*'"id":"'}
+            id=${id%%'"'*}
+            command=${line#*'"command":"'}
+            command=${command%%'"'*}
+            case "$command" in
+                bouncerOpen)
+                    printf '%s\\n' '{"version":1,"event":"started","model":"magpie/team/model"}' \\
+                        '{"version":1,"event":"model","model":"magpie/team/model"}'
+                    ;;
+                bouncerSend)
+                    [ "${#line}" -gt 32000 ] || exit 1
+                    printf '%s\\n' '{"version":1,"event":"reply","itemID":"r"}' \\
+                        '{"version":1,"event":"replying","replying":true}'
+                    ;;
+            esac
+            printf '{"version":1,"id":"%s","command":"%s","ok":true,"commit":"\(NodeHarnessHost.sourceCommit)","scheduling":"paused"}\\n' "$id" "$command"
+            case "$command" in
+                bouncerSend)
+                    sleep 0.05
+                    printf '%s\\n' '{"version":1,"event":"delta","itemID":"r","text":"Streamed"}'
+                    ;;
+                shutdown) exit 0 ;;
+            esac
+        done
+        exit 0
+        """)
     try await withHarness(fixture) { host in
-        let pi = PiRPCBouncer(executable: fixture.folder.appending(path: "missing-pi"), folder: fixture.folder,
-                              sessionFile: nil, sessionDir: fixture.folder.path)
-        await #expect(throws: CocoaError.self) { try await pi.start(with: host) }
-        let stopped = try String(contentsOf: fixture.folder.appending(path: "stopped"), encoding: .utf8)
-        #expect(stopped == "shutdown\n")
-        #expect(!FileManager.default.fileExists(atPath: fixture.folder.appending(path: "host-process.json").path))
+        _ = try await host.start()
+        let bouncer = HarnessBouncer(host: host)
+        try await bouncer.start()
+        let monitor = Task { try await host.monitor(interval: .seconds(10)) }
+        defer { monitor.cancel() }
+        try await bouncer.send(String(repeating: "a", count: 40_000))
+        let events = await withTaskGroup(of: [BouncerEvent].self) { group in
+            group.addTask {
+                var events: [BouncerEvent] = []
+                for await event in bouncer.events {
+                    events.append(event)
+                    if case .textDelta = event { break }
+                }
+                return events
+            }
+            group.addTask { try? await Task.sleep(for: .seconds(2)); return [] }
+            let result = await group.next() ?? []
+            group.cancelAll()
+            return result
+        }
+        #expect(events == [.started(model: "magpie/team/model", selection: nil), .availableModel("magpie/team/model"),
+                           .item(.reply(id: "r", text: "", toolSteps: 0)), .replying(true), .textDelta(id: "r", text: "Streamed")])
+    }
+}
+
+@Test func harnessBouncerRestartsAfterAnUnansweredOpen() async throws {
+    let fixture = try HarnessFixture("""
+        while IFS= read -r line; do
+            id=${line#*'"id":"'}
+            id=${id%%'"'*}
+            command=${line#*'"command":"'}
+            command=${command%%'"'*}
+            if [ "$command" = bouncerOpen ] && [ ! -f "$folder/opened" ]; then
+                : > "$folder/opened"
+                continue
+            fi
+            printf '{"version":1,"id":"%s","command":"%s","ok":true,"commit":"\(NodeHarnessHost.sourceCommit)","scheduling":"paused"}\\n' "$id" "$command"
+            if [ "$command" = shutdown ]; then exit 0; fi
+        done
+        exit 0
+        """)
+    try await withHarness(fixture) { host in
+        _ = try await host.start()
+        let first = try fixture.record()
+        let bouncer = HarnessBouncer(host: host)
+        await #expect(throws: HarnessHostError.self) { try await bouncer.start() }
+        #expect(HostProcessRecord.info(first.pid) == nil)
+        _ = try await host.start()
+        #expect(try fixture.record().pid != first.pid)
+        try await bouncer.start()
     }
 }
 

@@ -14,8 +14,8 @@ actor DemoBouncer: BouncerAdapter {
     }
 
     func start() async throws {
-        output.yield(.started(sessionFile: nil, isNew: false, model: nil))
-        output.yield(.models(["example/small-model", "example/large-model"]))
+        output.yield(.started(model: nil, selection: nil))
+        for id in ["example/small-model", "example/large-model"] { output.yield(.availableModel(id)) }
         for item in Self.thread { output.yield(.item(item)) }
     }
 
@@ -29,7 +29,7 @@ actor DemoBouncer: BouncerAdapter {
             for word in "Noted. This is a demo, so no agent starts. In a real run I plan the work and ask you before any push.".split(separator: " ") {
                 try? await Task.sleep(for: .milliseconds(120))
                 if Task.isCancelled { return }
-                output.yield(.textDelta(word + " "))
+                output.yield(.textDelta(id: "demo-reply-\(n)", text: word + " "))
             }
             output.yield(.replying(false))
         }
@@ -44,10 +44,10 @@ actor DemoBouncer: BouncerAdapter {
         output.yield(.item(.stopped(id: "demo-stopped-\(count)")))
     }
 
-    func answer(_ questionID: String, _ answer: BouncerAnswer) async throws {}
+    func answer(_ questionID: String, _ answer: BouncerAnswer) async throws { output.yield(.answered(questionID, answer)) }
     func decide(_ approvalID: String, _ decision: ApprovalDecision) async throws {}
     func checkAgain() async {}
-    func setModel(_ id: String?) async throws {}
+    func setModel(_ id: String?) async throws { output.yield(.selectedModel(model: id, selection: id)) }
 
     func shutdown() async {
         reply?.cancel()

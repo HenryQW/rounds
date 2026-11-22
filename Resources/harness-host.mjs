@@ -3,6 +3,8 @@ import { resolve, join } from "node:path";
 import { BACKGROUND_CONTEXT } from "@earendil-works/chord/context";
 import { createModels } from "@earendil-works/pi-ai/models";
 import { Harness, createRegistry } from "@earendil-works/pi-durable";
+import { bouncer } from "./harness-bouncer.mjs";
+import { BouncerRequestError } from "./harness-magpie.mjs";
 import { openNodeSqliteStorage } from "@earendil-works/pi-durable/storage/sqlite/node";
 
 const commit = "5a14e69c067d40dfbff4f2fff7d3b34c897e2dc9";
@@ -13,13 +15,21 @@ if (!folder || resolve(folder) !== folder || process.argv.length !== 4
 }
 // The first health request is also the startup handshake. Swift persists ownership before sending it.
 // If Swift exits before that write, input closes and this process exits without opening storage.
-let opening;
+const models = createModels();
+let opening, conversation;
+const conversationCommands = ["bouncerOpen", "bouncerSend", "bouncerStop", "bouncerAnswer", "bouncerModel"];
+function emit(event, data) {
+    if (!closing) process.stdout.write(JSON.stringify({ version: 1, event, ...data }) + "\n");
+}
 function open() {
     opening ??= (async () => {
         await mkdir(folder, { recursive: true, mode: 0o700 });
         const storage = await openNodeSqliteStorage(join(folder, "harness.sqlite"));
         try {
-            return await Harness.open(storage, { models: createModels(), registry: createRegistry() }, BACKGROUND_CONTEXT);
+            return await Harness.open(storage, {
+                models, registry: createRegistry(),
+                settings: { retry: { enabled: false }, stream: { maxRetries: 0 }, compaction: { enabled: false }, afterFailedRun: "withdraw" },
+            }, BACKGROUND_CONTEXT);
         } catch (error) {
             await storage.close(BACKGROUND_CONTEXT);
             throw error;
@@ -58,12 +68,19 @@ process.stdin.on("data", (chunk) => {
             if (closing) return;
             const request = JSON.parse(line.toString("utf8"));
             if (request === null || request.version !== 1 || typeof request.id !== "string"
-                || !["health", "shutdown"].includes(request.command)) throw new Error("Invalid lifecycle request.");
+                || !["health", "shutdown", ...conversationCommands].includes(request.command)) throw new Error("Invalid Harness request.");
             const response = { version: 1, id: request.id, command: request.command, ok: true, commit };
             if (request.command === "health") {
                 response.scheduling = (await (await open()).inspect(BACKGROUND_CONTEXT)).scheduling;
-            } else {
+            } else if (request.command === "shutdown") {
                 await close();
+            } else {
+                if (!opening) throw new Error("The first Harness request must be health.");
+                conversation ??= bouncer(await opening, models, emit);
+                try { await conversation(request); } catch (error) {
+                    response.ok = false;
+                    response.error = error instanceof BouncerRequestError ? error.message : "Rounds could not complete the Bouncer command.";
+                }
             }
             process.stdout.write(JSON.stringify(response) + "\n");
         }).catch(fail);

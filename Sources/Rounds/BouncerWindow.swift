@@ -293,7 +293,6 @@ struct BouncerView: View {
         let (text, page): (String, SettingsPage) = switch step {
         case .chooseWorkspace: ("Choose a workspace folder", .workspace)
         case .confirmRemotes: ("Confirm the workspace remotes", .workspace)
-        case .installPi: ("Install pi", .agents)
         }
         return Button {
             SettingsState.shared.page = page
@@ -402,7 +401,7 @@ struct BouncerView: View {
         (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(text)
     }
 
-    /// A question from the Bouncer: numbered options (a Pi `select`), Yes and No (`confirm`) or a text field (`input`).
+    /// A question from the Bouncer with options or a text answer.
     private func questionView(_ q: BouncerQuestion) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
@@ -417,10 +416,10 @@ struct BouncerView: View {
                             .textFieldStyle(.roundedBorder)
                             .focused($focus, equals: .text(q.id))
                             .onSubmit { model.answer(q.id, .text(answers[q.id] ?? "")) }
+                            .disabled(!model.canInteract)
                     } else {
-                        let options = q.confirms && q.options.isEmpty ? ["Yes", "No"] : q.options
                         VStack(alignment: .leading, spacing: 4) {
-                            ForEach(Array(options.enumerated()), id: \.offset) { i, option in
+                            ForEach(Array(q.options.enumerated()), id: \.offset) { i, option in
                                 optionButton(q, i, option)
                             }
                         }
@@ -429,7 +428,7 @@ struct BouncerView: View {
                     }
                     HStack {
                         Spacer()
-                        Button("Dismiss") { model.answer(q.id, .dismissed) }
+                        Button("Dismiss") { model.answer(q.id, .dismissed) }.disabled(!model.canInteract)
                     }
                 } else {
                     Text(answered(q)).font(.callout).foregroundStyle(.secondary)
@@ -449,7 +448,7 @@ struct BouncerView: View {
     private func optionButton(_ q: BouncerQuestion, _ i: Int, _ option: String) -> some View {
         let id = "\(q.id)-\(i)"
         return Button {
-            model.answer(q.id, q.confirms ? .confirmed(i == 0) : .option(i))
+            model.answer(q.id, .option(i))
         } label: {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("\(i + 1)").monospacedDigit().foregroundStyle(.secondary)
@@ -466,14 +465,13 @@ struct BouncerView: View {
         .focusable()
         .focused($focus, equals: .option(q.id, i))
         .onHover { hover(id, $0) }
+        .disabled(!model.canInteract)
         .accessibilityLabel("\(i + 1): \(option)" + (q.recommended == i ? ", recommended" : ""))
     }
 
     private func answered(_ q: BouncerQuestion) -> String {
-        if q.closedByPi { return "Pi closed this question." }
         switch q.answer {
         case .option(let i): return q.options.indices.contains(i) ? "You chose \(i + 1): \(q.options[i])." : "You answered."
-        case .confirmed(let yes): return yes ? "You said Yes." : "You said No."
         case .text(let text): return "You answered: \(text)"
         case .dismissed: return "You dismissed this question."
         case nil: return ""
@@ -544,7 +542,7 @@ struct BouncerView: View {
 
     private var modelMenu: some View {
         Menu {
-            Picker("Model", selection: Binding(get: { model.model }, set: { model.setModel($0) })) {
+            Picker("Model", selection: Binding(get: { model.modelSelection }, set: { model.setModel($0) })) {
                 Text("Default Model").tag(String?.none)
                 ForEach(model.models, id: \.self) { Text($0).tag(Optional($0)) }
             }
@@ -559,15 +557,15 @@ struct BouncerView: View {
         .padding(.vertical, 2)
         .background(Color.primary.opacity(state.hovered == "model" ? 0.08 : 0), in: .rect(cornerRadius: 6))
         .onHover { hover("model", $0) }
-        .disabled(!model.running)
+        .disabled(!model.canInteract)
         .accessibilityLabel("Model")
-        .help("The model for the next messages. Default is the model that pi starts with.")
+        .help("The model for the next messages. Default follows the Magpie model in Pi settings.")
     }
 
-    /// Send, or stop while the Bouncer replies: Pi takes no prompt during a reply.
+    /// Send a message or stop the current reply.
     private var sendButton: some View {
         let replying = model.thread.replying
-        let canSend = model.running && !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let canSend = model.canSend
         return Button { replying ? model.stopReply() : model.send() } label: {
             Image(systemName: replying ? "stop.fill" : "arrow.up")
                 .font(.system(size: 12, weight: .bold))
@@ -577,7 +575,7 @@ struct BouncerView: View {
                 .overlay { if state.hovered == "send" { Circle().fill(Color.primary.opacity(0.08)) } }
         }
         .buttonStyle(.plain)
-        .disabled(!replying && !canSend)
+        .disabled(model.commandPending || (!replying && !canSend))
         .onHover { hover("send", $0) }
         .accessibilityLabel(replying ? "Stop the reply" : "Send")
     }

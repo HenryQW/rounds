@@ -21,9 +21,10 @@ final class BouncerModel {
     }
     /// The pill's count: open questions and undecided approvals. Set only when it changes, so the pill reads only this.
     private(set) var pillWaiting = 0
-    /// The Model menu: Default (nil) and the models that Pi lists, each "provider/id".
+    /// The Model menu: Default (nil) and the configured Magpie models, each "provider/id".
     private(set) var models: [String] = []
     private(set) var model: String?
+    private(set) var modelSelection: String?
     /// The selected sidebar row; nil is the Bouncer row (01c adds task rows).
     var selection: String?
     var draft = ""
@@ -31,41 +32,32 @@ final class BouncerModel {
     var focusToken = 0
     /// The adapter does not run until no setup step is missing; this watches the steps until then.
     private(set) var running = false
+    private(set) var commandPending = false
+    var canInteract: Bool { running && !commandPending && !thread.replying }
+    var canSend: Bool {
+        canInteract && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !thread.items.contains { if case .question(let question) = $0 { question.isOpen } else { false } }
+    }
     @ObservationIgnored private var adapter: (any BouncerAdapter)?
     @ObservationIgnored private var listener: Task<Void, Never>?
     @ObservationIgnored private var host: NodeHarnessHost?
     @ObservationIgnored private var startup: Task<Void, Never>?
     @ObservationIgnored private var hostMonitor: Task<Void, Never>?
     @ObservationIgnored private var hostFailureActive = false
-    @ObservationIgnored private var piLaunchState = PiLaunchState.awaitingState
-    private enum PiLaunchState { case awaitingState, ready, exitedBeforeState }
     private let hostNoticeKeys = ["bouncerHostShutdownError", "bouncerHostHealthError"]
-    /// Shutdowns that have not ended, from each Off and quit, so quit waits for a Pi that an earlier Off stops.
+    /// Quit also waits for an earlier mode-off shutdown.
     @ObservationIgnored private var shutdowns: [UUID: Task<Void, Never>] = [:]
-    /// The session file that Pi reported at start; `sessionFile` once it exists.
-    @ObservationIgnored private var reportedFile: String?
-
-    /// The Bouncer session file that Pi last reported, to reopen it at the next start and to leave it out of the host note.
-    private(set) var sessionFile = appDefaults.string(forKey: "bouncerSessionFile") {
-        didSet { appDefaults.set(sessionFile, forKey: "bouncerSessionFile") }
-    }
-
-    /// The `pi` executable. An app started from Finder has no shell PATH, so Rounds looks in the usual install places.
-    var piPath: String? {
-        if Demo.isOn { return Demo.bouncerSetup ? nil : "/usr/local/bin/pi" }
-        let home = URL.homeDirectory.path
-        return [home + "/.pi/agent/bin/pi", "/opt/homebrew/bin/pi", "/usr/local/bin/pi", home + "/.local/bin/pi"]
-            .first { FileManager.default.isExecutableFile(atPath: $0) }
-    }
+    /// The former Bouncer is still excluded from the host note.
+    private let sessionFile = appDefaults.string(forKey: "bouncerSessionFile")
 
     /// What the user must set up before the Bouncer can start; the Set Up row shows them.
     var setupSteps: [BouncerSetupStep] {
         let workspace = WorkspaceSettingsState.shared
-        if Demo.isOn { return Demo.bouncerSetup ? [.installPi] : [] }
-        // At launch the check of the recorded folder runs off the main thread; Pi waits for its remotes.
+        if Demo.isOn { return Demo.bouncerSetup ? [.chooseWorkspace] : [] }
+        // At launch the check of the recorded folder runs off the main thread; the Bouncer waits for its remotes.
         var remotes: [WorkspaceRemote]?
         if case .repository(_, let found) = workspace.inspection { remotes = found }
-        return bouncerSetupSteps(workspace: workspace.settings, isWorkspace: workspace.isWorkspace, remotes: remotes, piPath: piPath)
+        return bouncerSetupSteps(workspace: workspace.settings, isWorkspace: workspace.isWorkspace, remotes: remotes)
     }
 
     /// Sessions that need input or failed, without the Bouncer's own: the host note.
@@ -74,16 +66,21 @@ final class BouncerModel {
     /// Called once the app has finished launching, and when the mode turns on.
     func start() {
         guard on, adapter == nil else { return }
-        guard setupSteps.isEmpty, let made = makeAdapter() else { return watchSetup() }
-        if !Demo.isOn {
+        guard setupSteps.isEmpty else { return watchSetup() }
+        let made: any BouncerAdapter
+        if Demo.isOn {
+            made = DemoBouncer()
+        } else {
             let helpers = Bundle.main.bundleURL.appending(path: "Contents/Helpers/harness-host")
             guard FileManager.default.isExecutableFile(atPath: helpers.appending(path: "node").path),
                   FileManager.default.fileExists(atPath: helpers.appending(path: "host.mjs").path) else {
                 thread.apply(.failed("The Harness host is missing. Build the app with its host resources."))
                 return
             }
-            host = NodeHarnessHost(executable: helpers.appending(path: "node"), script: helpers.appending(path: "host.mjs"),
+            let host = NodeHarnessHost(executable: helpers.appending(path: "node"), script: helpers.appending(path: "host.mjs"),
                                    dataFolder: URL.applicationSupportDirectory.appending(path: "Rounds/harness"))
+            self.host = host
+            made = HarnessBouncer(host: host)
         }
         adapter = made
         hostFailureActive = false
@@ -98,10 +95,10 @@ final class BouncerModel {
         }
     }
 
-    /// Mode off: the adapter closes Pi (stdin, then signals), and the window closes.
+    /// Mode off closes the host and the window.
     func stop() { shutDown() }
 
-    /// Quit: Pi stops as at mode off, and the mode stays on for the next launch. Returns once every Pi has exited.
+    /// Quit waits for the host to stop and preserves the mode for the next launch.
     func quit() async {
         shutDown()
         for task in shutdowns.values { await task.value }
@@ -120,8 +117,8 @@ final class BouncerModel {
         running = false
         listener?.cancel()
         listener = nil
-        reportedFile = nil
-        (thread, models, model) = (BouncerThread(), [], nil)
+        commandPending = false
+        (thread, models, model, modelSelection) = (BouncerThread(), [], nil, nil)
         let id = UUID()
         shutdowns[id] = Task {
             async let adapterStop: Void = adapter.shutdown()
@@ -143,11 +140,11 @@ final class BouncerModel {
 
     /// Start Again in the exit banner.
     func launch() {
-        guard adapter != nil, startup == nil else { return }
+        guard !running, startup == nil else { return }
+        guard adapter != nil else { start(); return }
         let host = self.host, earlierStops = Array(shutdowns.values), monitor = hostMonitor
         hostMonitor = nil
         monitor?.cancel()
-        piLaunchState = .awaitingState
         thread.clearHostNotices()
         windowShown()
         startup = Task {
@@ -162,7 +159,7 @@ final class BouncerModel {
                 } else {
                     try await adapter.start()
                 }
-                if self.adapter === adapter, piLaunchState != .exitedBeforeState {
+                if self.adapter === adapter {
                     running = true
                     hostFailureActive = false
                     if let host {
@@ -178,14 +175,12 @@ final class BouncerModel {
                                 thread.apply(.exited(text))
                                 windowShown()
                                 await host.acknowledgeMonitorFailure()
-                                await adapter.shutdownAfterHostFailure()
+                                await adapter.shutdown()
                                 guard self.adapter === adapter else { return }
-                                if let replacement = makeAdapter() {
-                                    self.adapter = replacement
-                                    listen(to: replacement)
-                                } else {
-                                    self.adapter = nil
-                                }
+                                let replacement = HarnessBouncer(host: host)
+                                self.adapter = replacement
+                                commandPending = false
+                                listen(to: replacement)
                             }
                         }
                     }
@@ -202,43 +197,41 @@ final class BouncerModel {
         }
     }
 
-    /// Sends the draft. No send while Pi is stopped or a reply runs: Pi rejects a prompt then. A failed send puts the
-    /// text back in an empty prompt box.
+    /// Restore a rejected message to an empty composer.
     func send() {
+        guard let adapter, canSend else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let adapter, running, !text.isEmpty, !thread.replying else { return }
         draft = ""
+        commandPending = true
         Task {
+            defer { if self.adapter === adapter { commandPending = false } }
             do { try await adapter.send(text) } catch {
                 if self.adapter === adapter, draft.isEmpty { draft = text }
-                fail(message(error), from: adapter)
+                fail(error.localizedDescription, from: adapter)
             }
         }
     }
 
     func stopReply() {
-        guard let adapter, thread.replying else { return }
-        Task { await adapter.stop() }
+        guard let adapter, thread.replying, !commandPending else { return }
+        perform(on: adapter) { try await adapter.stop() }
     }
 
     func answer(_ questionID: String, _ answer: BouncerAnswer) {
-        guard let adapter else { return }
-        thread.answer(questionID, answer)
-        Task {
-            do { try await adapter.answer(questionID, answer) } catch { fail(message(error), from: adapter) }
-        }
+        guard let adapter, canInteract else { return }
+        perform(on: adapter) { try await adapter.answer(questionID, answer) }
     }
 
     func setModel(_ id: String?) {
-        guard let adapter, id != model else { return }
-        let previous = model
-        model = id
+        guard let adapter, canInteract, id != modelSelection else { return }
+        perform(on: adapter) { try await adapter.setModel(id) }
+    }
+
+    private func perform(on adapter: any BouncerAdapter, _ command: @escaping @Sendable () async throws -> Void) {
+        commandPending = true
         Task {
-            do { try await adapter.setModel(id) } catch {
-                guard self.adapter === adapter else { return }
-                model = previous
-                if !hostFailureActive { thread.apply(.failed(message(error))) }
-            }
+            defer { if self.adapter === adapter { commandPending = false } }
+            do { try await command() } catch { fail(error.localizedDescription, from: adapter) }
         }
     }
 
@@ -277,31 +270,12 @@ final class BouncerModel {
 
     private func apply(_ event: BouncerEvent) {
         switch event {
-        case .started(let file, let isNew, let current):
-            piLaunchState = .ready
-            if let old = missingBouncerSession(recorded: sessionFile, reported: file, isNew: isNew) {
-                thread.apply(.item(.note(id: "missing-\(old)", text: "New conversation. The earlier Bouncer session file is missing.")))
-            }
-            reportedFile = file
-            // A reopened session keeps its own model, so the menu shows Pi's model, not Default.
-            model = current
-            recordSessionFile()
-        case .replying(false): recordSessionFile()
-        case .models(let list): models = list
-        case .exited:
-            running = false
-            if piLaunchState == .awaitingState, let host {
-                piLaunchState = .exitedBeforeState
-                let monitor = hostMonitor
-                monitor?.cancel()
-                hostMonitor = Task {
-                    await monitor?.value
-                    do { try await Task.detached { try await host.stop() }.value } catch {
-                        recordHostShutdownError(error.localizedDescription)
-                        windowShown()
-                    }
-                }
-            }
+        case .started(let current, let selection):
+            (model, modelSelection) = (current, selection)
+            models = []
+        case .availableModel(let id): models.append(id)
+        case .selectedModel(let id, let selection): (model, modelSelection) = (id, selection)
+        case .exited: running = false
         default: break
         }
         thread.apply(event)
@@ -311,43 +285,15 @@ final class BouncerModel {
         }
     }
 
-    private func recordSessionFile() {
-        sessionFile = bouncerSessionToRecord(reported: reportedFile, recorded: sessionFile,
-                                             exists: { FileManager.default.fileExists(atPath: $0) })
-    }
-
     /// An error of an adapter that `stop()` replaced does not reach the current thread.
     private func fail(_ text: String, from adapter: any BouncerAdapter, duringStartup: Bool = false) {
         if self.adapter === adapter, !hostFailureActive || duringStartup { thread.apply(.failed(text)) }
-    }
-
-    private func makeAdapter() -> (any BouncerAdapter)? {
-        if Demo.isOn { return DemoBouncer() }
-        guard let pi = piPath, let folder = WorkspaceSettingsState.shared.settings.workspace?.path else { return nil }
-        let sessions = URL.applicationSupportDirectory.appending(path: "Rounds/bouncer-sessions")
-        do {
-            try FileManager.default.createDirectory(at: sessions, withIntermediateDirectories: true)
-        } catch {
-            thread.apply(.failed("Rounds cannot make the Bouncer session folder: \(error.localizedDescription)"))
-            return nil
-        }
-        return PiRPCBouncer(executable: URL(fileURLWithPath: pi), folder: URL(fileURLWithPath: folder), sessionFile: sessionFile,
-                            sessionDir: sessions.path)
     }
 
     /// Starts the adapter once the last setup step is done.
     private func watchSetup() {
         withObservationTracking { _ = setupSteps } onChange: { [weak self] in
             Task { @MainActor in self?.start() }
-        }
-    }
-
-    private func message(_ error: Error) -> String {
-        switch error as? BouncerError {
-        case .notRunning: "Pi is not running."
-        case .noAnswer: "Pi did not answer in 10 s."
-        case .rejected(let text): text.isEmpty ? "Pi refused the command." : text
-        default: error.localizedDescription
         }
     }
 }

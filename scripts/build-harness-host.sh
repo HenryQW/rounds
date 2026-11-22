@@ -34,8 +34,8 @@ npm run hydrate-model-data --workspace packages/ai
 npm run build:offline --workspace packages/ai
 npm run build --workspace packages/durable
 mkdir -p "$ROOT/.build/harness-host"
-cp "$ROOT/Resources/harness-host.mjs" host.mjs
-node_modules/.bin/esbuild host.mjs --bundle --platform=node --format=esm \
+cp "$ROOT"/Resources/harness-*.mjs .
+node_modules/.bin/esbuild harness-host.mjs --bundle --platform=node --format=esm \
     --outfile="$ROOT/.build/harness-host/host.mjs" \
     --banner:js='import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);'
 cp "$NODE" "$ROOT/.build/harness-host/node"
