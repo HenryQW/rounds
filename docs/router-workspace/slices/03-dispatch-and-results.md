@@ -6,7 +6,7 @@ The Bouncer gives a task to a Bartender and gets its result back. The result arr
 
 ## State
 
-Details, 2026-11-22. Open decisions: see Open. This brief specifies future work; dispatch is not built.
+Built 2026-11-22 for sub-step 1, local task records. Sub-steps 2 and 3 remain planned. See [Open](#open) for their blockers.
 
 ## Read first, in full
 
@@ -31,24 +31,20 @@ Sub-step 1 can merge before slice 02. Sub-steps 2 and 3 require its completed ho
 
 ## Builds
 
-| Sub-step | Deliverable | Why it can merge alone |
-|---|---|---|
-| 1 | Task interface over the existing graph and detail stores; first production caller of `mayStoreTaskDetails(for:)` | Local calls and temporary test folders prove storage behavior without a container, model, session mapping or new window |
-| 2 | Bouncer dispatch and result tools; Bartender execution and Blocked continuation through the slice 02 host | Depends on 1; proves one repository run and a durable result before any result fetch into the real repository |
-| 3 | Result branch intake, result presentation and the two-repository acceptance scenario | Depends on 2; adds verified local fetch and cross-repository coordination without publication |
-
-The split keeps local storage usable while dispatch questions remain open. Each sub-step includes its own tests and the corresponding specification update.
+| Sub-step | State | Deliverable | Validation |
+|---|---|---|---|
+| 1 | Built | Local task interface over the existing graph and detail stores | Calls with temporary stores exercise storage and authorization without a runtime host |
+| 2 | Planned | Bouncer dispatch and result tools, Bartender execution, and Blocked continuation through the slice 02 host | Prove one repository run and a durable result before result intake |
+| 3 | Planned | Result branch intake, result presentation and the two-repository acceptance scenario | Verify local fetch and cross-repository coordination without publication |
 
 ## Files
 
-Paths marked new are proposed files. Existing stores keep their formats unless a later owner decision requires a separate change.
-
-| Path or boundary | Sub-step | Change |
+| Path or boundary | Sub-step | Role |
 |---|---|---|
-| `Sources/RoundsCore/TaskInterface.swift` (new) | 1 | Add the local task interface and call the workspace storage check before writes |
-| [Workspace.swift](../../../Sources/RoundsCore/Workspace.swift) | 1 | Reuse `WorkspaceSettingsStore`; do not replace its fresh destination checks |
-| [TaskGraph.swift](../../../Sources/RoundsCore/TaskGraph.swift), [TaskDetailStore.swift](../../../Sources/RoundsCore/TaskDetailStore.swift), [TaskRecordStore.swift](../../../Sources/RoundsCore/TaskRecordStore.swift) | 1 | Reuse graph mutations, immutable revisions and detail-first linking |
-| `Tests/RoundsCoreTests/TaskInterfaceTests.swift` (new) | 1 | Exercise the caller boundary with real temporary stores and no runtime host |
+| [TaskInterface.swift](../../../Sources/RoundsCore/TaskInterface.swift) | 1 | Implements local task operations through the workspace storage check |
+| [Workspace.swift](../../../Sources/RoundsCore/Workspace.swift) | 1 | Checks folder readiness and resolves the approved detail folder |
+| [TaskGraph.swift](../../../Sources/RoundsCore/TaskGraph.swift), [TaskDetailStore.swift](../../../Sources/RoundsCore/TaskDetailStore.swift), [TaskRecordStore.swift](../../../Sources/RoundsCore/TaskRecordStore.swift) | 1 | Own graph validation, immutable revisions and detail-first linking |
+| [TaskInterfaceTests.swift](../../../Tests/RoundsCoreTests/TaskInterfaceTests.swift) | 1 | Exercises local calls with temporary stores |
 | Node Host entry, extension registry, wrapper and tests delivered by slice 02 | 2, 3 | Extend those files; record their actual paths here after slice 02, before implementation |
 | [BouncerAdapter.swift](../../../Sources/RoundsCore/BouncerAdapter.swift), [Bouncer.swift](../../../Sources/RoundsCore/Bouncer.swift), [BouncerModel.swift](../../../Sources/Rounds/BouncerModel.swift) | 2, 3 | Extend the durable adapter and project records into existing task/report/question events |
 | [Bouncer tests](../../../Tests/RoundsCoreTests/BouncerTests.swift) and slice 02 host tests | 2, 3 | Check protocol boundaries and real branch intake; do not restore the removed Pi process adapter |
@@ -63,14 +59,14 @@ No new window design belongs here. Use the chosen slice 01 components. The Node 
 | Boundary | Contract |
 |---|---|
 | Scope | Each call supplies its organization scope and exact authorized graph/detail destinations. Do not infer authority from assignment text or a Git remote. |
-| First check | Call `WorkspaceSettingsStore.mayStoreTaskDetails(for:)` before creating a task or publishing details. False means no graph or detail write. |
-| Destination | Reacquire `taskDetailFolder(for:)` for the operation. A previous true result is not a reusable storage grant. |
-| Authorization | The setup check establishes folder readiness only. The caller must separately authorize every graph value and detail value for its exact destination. |
+| First check | Each `TaskInterface` call checks `WorkspaceSettingsStore.mayStoreTaskDetails(for:)`. A false result stops the operation before it accesses the stores. |
+| Destination | The interface resolves the approved folder with `taskDetailFolder(for:)` and checks it against the caller's detail destination. |
+| Authorization | The caller supplies separate authority for graph values and detail values at their exact destinations. A detail link grant covers its reference, generation, timestamp and viewed-status reset. |
 | Unclassified input | A nil organization selects the existing unclassified folder. It grants no model transmission. Do not convert a conflicting classification into an unclassified permission. |
-| Create | Use `TaskGraphStore.update` and `TaskGraph.createTask`, then `TaskRecordStore.write` with `TaskDetailReference.empty`. New tasks use the existing `queued` state. |
-| Read and revise | Read the graph reference and its exact `TaskDetailRevision`. Supply that reference to a revision write. Preserve assignment, result, progress and decisions unless the request changes them. |
-| Concurrent change | Return the existing conflict or link error. Do not silently overwrite a newer reference or retry a write with a new reference. |
-| Publication | Only `TaskRecordWriteResult.saved` confirms durable detail publication and graph linking. Other results require inspection. |
+| Create | `create` authorizes and saves the graph candidate, then publishes and links assignment details. New tasks start in `queued` with an empty detail reference. |
+| Read and revise | `read` loads the authorized graph and its linked revision. `revise` checks the expected reference and starts from the current detail values. |
+| Concurrent change | The stores reject a stale graph update or detail reference. If the link timestamp changes, the interface requires authority for the effective time before linking. |
+| Publication | `TaskCreationResult.saved` confirms creation and linkage. `TaskRecordWriteResult.saved` confirms revision publication and linkage. Other outcomes require inspection. |
 | Partial write | A graph task without details or an unlinked detail revision can remain after failure. Report it; do not dispatch, delete it or recreate missing data. |
 | Viewed result | Only completed or cancelled graph tasks accept acknowledgement. Call `markResultViewed(_:expecting:at:)` with the displayed reference. A stale view cannot acknowledge a newer result. |
 | States | Preserve `TaskGraph` validation. Sub-step 1 adds no run-state transition policy or mapping from a Pi conversation to a Rounds task. |
@@ -134,12 +130,10 @@ flowchart TD
 
 ### Sub-step 1: local task records
 
-- Check folder readiness and the caller's authority before writing either store.
-- Use only explicitly supplied local scope and authorized stores. This step needs no repository registry or conversation identifier.
-- Create or load the graph through its existing store. Only an explicit setup action can initialize a missing graph.
-- Publish assignment details and link their revision through `TaskRecordStore`. Return partial outcomes with enough identity for inspection.
-- Load a task by its graph identifier and current detail reference. Keep the existing graph/detail separation.
-- Exercise the interface directly in tests. Do not add a container, model call or user-interface redesign to prove it works.
+- `TaskInterface` takes an explicit workspace scope and exact store destinations. An explicit setup call initializes the graph.
+- Creation publishes and links assignment details after the graph save. Inspection outcomes carry the task identifier.
+- Reads authorize the graph snapshot and any linked details. Revisions preserve each value that the edit leaves unchanged.
+- The caller can update graph state and acknowledge a viewed result through the existing graph validation.
 
 ### Sub-step 2: dispatch and continuation
 
@@ -167,7 +161,7 @@ This brief defines no clone deletion schedule, checkpoint replacement or new Dec
 
 ## Tests
 
-These are implementation cases, not tests run for this documentation change. Run Rounds tests through `scripts/test.sh`. Use the host test tooling delivered by slice 02.
+[Local task tests](../../../Tests/RoundsCoreTests/TaskInterfaceTests.swift) exercise sub-step 1. The rows for sub-steps 2 and 3 are acceptance cases for future work. Run Rounds tests through `scripts/test.sh`.
 
 | Sub-step | Case, boundary first | Required observation |
 |---|---|---|
@@ -196,28 +190,25 @@ These are implementation cases, not tests run for this documentation change. Run
 
 ## Numbers
 
-Baseline values below come from source inspection on 2026-11-22. Targets describe future implementation checks, not measured runtime performance.
+The local task measures describe the built interface. Dispatch and intake measures are targets.
 
-| Measure | Baseline | Target and method |
+| Measure | Current state or target | Verification |
 |---|---|---|
-| Production callers of `mayStoreTaskDetails(for:)` | 0; declaration and tests only | 1 task-interface boundary; inspect `Sources` and exercise both allow and deny paths |
+| Source callers of `mayStoreTaskDetails(for:)` | 1 local task interface | Inspect `TaskInterface.checkedStores` and run its allow and deny tests |
 | Graph and detail formats | Graph version 3; detail version 1 | Reuse both formats; reopen written records with the existing stores |
 | Encoded detail revision size | Maximum 1,048,576 bytes | Preserve the limit; an oversized assignment fails without a linked replacement |
-| Runtime dependencies for sub-step 1 | Existing local stores | 0 containers and 0 model requests; run its fixture tests without a host |
+| Runtime dependencies for sub-step 1 | 0 containers and 0 model requests | Run the fixture tests without a host |
 | Blocked options | Agreed maximum 3 | Accept at most 3; reject 4 at the result boundary |
 | Concurrent writers per checkout | Agreed maximum 1 | Reject a second writer; assert ownership in dispatch and restart tests |
 | Initial workflow repositories | Agreed minimum 2 | Complete one dependency workflow across 2 registered repositories |
 | Protected actions in this slice | None permitted | 0; inspect exposed tools and assert no publication calls during acceptance |
-| Sub-steps | Not implemented | 3 separately mergeable changes; complete each row's relevant cases before merge |
+| Sub-steps | 1 built, 2 planned | Complete the relevant acceptance cases for each planned sub-step |
 
 ## Decided
 
 - Decision "Option 3: container-use for all agent work" ([decisions.md](../decisions.md)).
 - Handoff and result contents: the Handoff row of the [agreed scope](../overview.md#agreed-scope).
-- *default*: Use the three sub-steps above. Local records can proceed while dispatch and integration questions remain open.
-- *default*: Add one task-interface file over the existing stores. Keep storage formats and validation in their current owners.
-- *default*: Prove sub-step 1 through direct local calls and temporary folders. Add no model, container or new window dependency.
-- *default*: Reuse slice 02's host and registry. Configure each role's tools explicitly before input instead of relying on inherited defaults.
+- *default*: Reuse slice 02's host and registry for sub-steps 2 and 3. Configure each role's tools explicitly before input.
 - *default*: Stop on uncertain publication, correlation or recovery outcomes. Keep evidence for inspection instead of automatically retrying side effects.
 
 These defaults are implementation proposals. They do not answer Open items or add owner decisions to the decision log.
@@ -236,4 +227,6 @@ Each item remains open. Blockers are direct; later sub-steps also inherit their 
 | Resolve cross-organization links and separate local-only records before integration. | blocks sub-step 3 |
 | Before dispatch, check agent transcripts, output, logs and temporary files against organization storage rules. | blocks sub-step 2 |
 
-No item blocks sub-step 1. Do not mark a blocked sub-step ready because its local tests pass.
+## Carried
+
+Sub-step 2 takes dispatch and Blocked continuation after the host and recovery checks. Sub-step 3 takes branch intake after dispatch and result recording.
