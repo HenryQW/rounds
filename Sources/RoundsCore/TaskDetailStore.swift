@@ -95,15 +95,44 @@ public struct TaskDetailWriteResult: Equatable, Sendable {
 /// it does not authenticate the file against someone who can modify it.
 public struct TaskDetailStore: Sendable {
     public let directory: URL
+    private let approvedIdentity: FolderIdentity?
+    private let approval: (WorkspaceSettingsStore, WorkspaceScope)?
     private static let maximumBytes = 1_048_576
 
-    public init(directory: URL) { self.directory = directory }
+    public init(directory: URL) { self.directory = directory; self.approvedIdentity = nil; self.approval = nil }
+
+    init(directory: URL, approvedIdentity: FolderIdentity, workspace: WorkspaceSettingsStore, scope: WorkspaceScope) {
+        self.directory = directory
+        self.approvedIdentity = approvedIdentity
+        self.approval = (workspace, scope)
+    }
 
     @discardableResult
     public func write(taskID: UUID, assignment: TaskAssignment, result: TaskResult? = nil,
                       progress: [TaskProgress] = [], decisions: [TaskDecision] = []) throws -> TaskDetailWriteResult {
         let revision = TaskDetailRevision(taskID: taskID, revisionID: UUID(), assignment: assignment,
                                           result: result, progress: progress, decisions: decisions)
+        if let (workspace, scope) = approval {
+            return try workspace.withTaskDetailApproval(for: scope) { identity in
+                guard identity == approvedIdentity else { throw TaskInterfaceError.storageNotReady }
+                return try publish(revision)
+            }
+        }
+        return try publish(revision)
+    }
+
+    func withPublicationApproval<T>(_ body: () throws -> T) throws -> T {
+        guard let (workspace, scope) = approval else { return try body() }
+        return try workspace.withTaskDetailApproval(for: scope, wait: false) { identity in
+            guard identity == approvedIdentity else { throw TaskInterfaceError.storageNotReady }
+            let dir = try openDirectory()
+            defer { close(dir) }
+            return try body()
+        }
+    }
+
+    private func publish(_ revision: TaskDetailRevision) throws -> TaskDetailWriteResult {
+        let taskID = revision.taskID
         let data = try JSONEncoder().encode(DetailDocument(revision: revision))
         guard data.count <= Self.maximumBytes else { throw TaskDetailStoreError.tooLarge }
         let dir = try openDirectory()
@@ -194,6 +223,11 @@ public struct TaskDetailStore: Sendable {
             guard fstat(current, &info) == 0, info.st_mode & S_IFMT == S_IFDIR,
                   info.st_uid == geteuid(), info.st_mode & 0o077 == 0,
                   try detailNoACL(current) else { throw TaskDetailStoreError.invalidDirectory }
+            if let approvedIdentity {
+                guard Int64(info.st_dev) == approvedIdentity.device, UInt64(info.st_ino) == approvedIdentity.inode else {
+                    throw TaskDetailStoreError.changedOnDisk
+                }
+            }
             return current
         } catch {
             close(current)
