@@ -10,8 +10,10 @@ final class BouncerModel {
 
     private init() {}
 
-    init(adapter: any BouncerAdapter) {
+    init(adapter: any BouncerAdapter, thread: BouncerThread = BouncerThread()) {
         self.adapter = adapter
+        self.thread = thread
+        pillWaiting = thread.waitingCount
         listen(to: adapter)
     }
 
@@ -326,10 +328,14 @@ final class BouncerModel {
                 thread.localApprovalReloadNeedsRetry(for: taskID)
                 localApprovalErrors[taskID] = "The task changed. Try again."
             case .failure(let error):
-                thread.localApprovalReloadNeedsRetry(for: taskID, discardCards: true)
-                localApprovalErrors[taskID] = localApprovalMessage(error)
+                localApprovalRecheckFailed(for: taskID, error: error)
             }
         }
+    }
+
+    private func localApprovalRecheckFailed(for taskID: UUID, error: Error) {
+        thread.localApprovalReloadNeedsRetry(for: taskID, discardCards: true)
+        localApprovalErrors[taskID] = localApprovalMessage(error)
     }
 
     func savingApproval(for card: ApprovalCard) -> Bool {
@@ -339,7 +345,7 @@ final class BouncerModel {
 
     func decide(_ response: BouncerApprovalResponse) {
         let id = response.cardID, decision = response.decision
-        guard let item = thread.items.first(where: { $0.id == id }), case .approval(var card) = item,
+        guard let item = thread.items.first(where: { $0.id == id }), case .approval(let card) = item,
               card.taskID == response.taskID, card.isOpen else { return }
         if card.source == .demo {
             guard Demo.isOn else { return }
@@ -361,30 +367,30 @@ final class BouncerModel {
                 }
             }.value
             guard on, thread.items.contains(where: { $0.id == id }) else { return }
-            switch saved {
-            case .success(let record):
-                localApprovalErrors[taskID] = nil
-                thread.apply(.item(.approval(ApprovalCard(local: record, result: card.result))))
-            case .failure(ApprovalError.credentialAddressInText):
-                localApprovalErrors[taskID] = ApprovalError.credentialAddressInText.localizedDescription
-            case .failure(TaskDetailStoreError.tooLarge):
-                localApprovalErrors[taskID] = localApprovalMessage(TaskDetailStoreError.tooLarge)
-            case .failure(TaskGraphError.changedOnDisk):
-                thread.localApprovalReloadNeedsRetry(for: taskID)
-                localApprovalErrors[taskID] = "The task changed. Try again."
-                Task { reloadLocalApprovals(for: taskID) }
-            case .failure(let error):
-                localApprovalErrors[taskID] = nil
-                card.localError = localApprovalMessage(error)
-                thread.apply(.item(.approval(card)))
-            }
+            completeLocalApprovalAnswer(saved, card: card, taskID: taskID)
+        }
+    }
+
+    func completeLocalApprovalAnswer(_ saved: Result<ApprovalRecord, Error>, card: ApprovalCard, taskID: UUID) {
+        switch saved {
+        case .success(let record):
+            localApprovalErrors[taskID] = nil
+            thread.apply(.item(.approval(ApprovalCard(local: record, result: card.result))))
+        case .failure(ApprovalError.credentialAddressInText):
+            localApprovalErrors[taskID] = ApprovalError.credentialAddressInText.localizedDescription
+        case .failure(TaskGraphError.changedOnDisk):
+            thread.localApprovalReloadNeedsRetry(for: taskID)
+            localApprovalErrors[taskID] = "The task changed. Try again."
+            Task { reloadLocalApprovals(for: taskID) }
+        case .failure(let error):
+            localApprovalRecheckFailed(for: taskID, error: error)
         }
     }
 
     private func localApprovalMessage(_ error: Error) -> String {
         if let error = error as? ApprovalError { return error.localizedDescription }
         if let error = error as? BouncerError, error == .reasonRequired { return "Enter a reason to reject this request." }
-        if let error = error as? TaskDetailStoreError, error == .tooLarge { return "The local task record is too large to save this decision." }
+        if let error = error as? TaskDetailStoreError, error == .tooLarge { return "The local task record exceeds its size limit." }
         return "Rounds could not verify or save the local approval. Check task storage."
     }
 
