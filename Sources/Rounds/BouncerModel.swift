@@ -61,7 +61,7 @@ final class BouncerModel {
     var canInteract: Bool { running && !commandPending && !thread.replying && unconfirmedAnswer == nil }
     var canSend: Bool {
         canInteract && unconfirmedSend == nil && !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !thread.items.contains { if case .question(let question) = $0 { question.isOpen } else { false } }
+            && (adapter is DemoBouncer || !thread.items.contains { if case .question(let question) = $0 { question.isOpen } else { false } })
     }
     @ObservationIgnored private var adapter: (any BouncerAdapter)?
     @ObservationIgnored private var listener: Task<Void, Never>?

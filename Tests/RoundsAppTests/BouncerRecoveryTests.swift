@@ -43,6 +43,28 @@ private func waitFor(_ predicate: () -> Bool) async -> Bool {
     return predicate()
 }
 
+@Test
+@MainActor
+func demoCanSendFromATaskWhileAnotherTaskHasAnOpenQuestion() async {
+    let adapter = DemoBouncer()
+    let model = BouncerModel(adapter: adapter)
+    model.launch()
+    #expect(await waitFor { model.running && model.thread.waitingCount == 2 })
+    model.selection = "t3"
+    let text = "Show the build result."
+    model.draft = text
+    model.send()
+    #expect(await waitFor {
+        model.thread.items.contains { item in
+            if case .user(_, let message) = item { return message == text }
+            return false
+        }
+    })
+    #expect(model.selection == nil)
+    #expect(model.thread.waitingCount == 2)
+    await adapter.shutdown()
+}
+
 @Test(arguments: [BouncerAnswer.text("Original answer"), .dismissed], [false, true])
 @MainActor
 func unconfirmedAnswerBlocksUntilReplay(answer: BouncerAnswer, committed: Bool) async throws {
