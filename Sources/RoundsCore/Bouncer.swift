@@ -5,16 +5,8 @@ import Foundation
 public enum BouncerError: Error, Equatable {
     /// A rejection needs a reason.
     case reasonRequired
-    /// The adapter has no such action: Pi never makes an approval card.
+    /// The adapter does not offer this action.
     case notAvailable
-    /// The Bouncer process does not run.
-    case notRunning
-    /// The question is answered or closed, or Pi never asked it.
-    case unknownQuestion
-    /// Pi did not accept the command; Pi's error text.
-    case rejected(String)
-    /// Pi runs but did not answer the command in time.
-    case noAnswer
 }
 
 public enum BouncerTaskState: String, Sendable { case working, needsInput, failed, finished, stopped }
@@ -66,7 +58,7 @@ public func bouncerTaskGroups(_ tasks: [BouncerTask], archived: Bool, grouping: 
     return keys.map { ($0, groups[$0]!) }
 }
 
-public enum BouncerAnswer: Equatable, Sendable { case option(Int), text(String), confirmed(Bool), dismissed }
+public enum BouncerAnswer: Equatable, Sendable { case option(Int), text(String), dismissed }
 
 public struct BouncerQuestion: Identifiable, Equatable, Sendable {
     public let id: String
@@ -75,24 +67,20 @@ public struct BouncerQuestion: Identifiable, Equatable, Sendable {
     public let options: [String]
     public let recommended: Int?
     public let takesText: Bool
-    /// A Pi `confirm` dialog: option 0 is Yes and option 1 is No, and Pi wants `confirmed`, not the option text.
-    public let confirms: Bool
     public var answer: BouncerAnswer?
-    /// Pi resolved the question itself (its timeout), or Pi stopped.
-    public var closedByPi: Bool
 
     public init(id: String, taskID: String? = nil, title: String, options: [String] = [], recommended: Int? = nil,
-                takesText: Bool = false, confirms: Bool = false, answer: BouncerAnswer? = nil, closedByPi: Bool = false) {
+                takesText: Bool = false, answer: BouncerAnswer? = nil) {
         (self.id, self.taskID, self.title, self.options, self.recommended) = (id, taskID, title, options, recommended)
-        (self.takesText, self.confirms, self.answer, self.closedByPi) = (takesText, confirms, answer, closedByPi)
+        (self.takesText, self.answer) = (takesText, answer)
     }
 
-    public var isOpen: Bool { answer == nil && !closedByPi }
+    public var isOpen: Bool { answer == nil }
 }
 
 public enum ApprovalDecision: Equatable, Sendable { case approved, rejected(reason: String) }
 
-/// An approval request that host code draws; never made from model text or a Pi dialog.
+/// An approval request that host code draws; never made from model text.
 public struct ApprovalCard: Identifiable, Equatable, Sendable {
     public let id: String
     public let taskID: String
@@ -131,45 +119,63 @@ public enum BouncerItem: Identifiable, Equatable, Sendable {
 }
 
 public enum BouncerEvent: Equatable, Sendable {
-    /// `model`: the model that Pi runs, "provider/id"; a reopened session keeps its own.
-    case started(sessionFile: String?, isNew: Bool, model: String?), item(BouncerItem), textDelta(String), toolStep(String)
-    case replying(Bool), closed(questionID: String), tasks([BouncerTask]), banner(String?), failed(String), exited(String)
-    /// The models for the Model menu, each "provider/id", from `get_available_models`.
-    case models([String])
+    case started(model: String?, selection: String?), item(BouncerItem), textDelta(id: String, text: String), toolStep(id: String)
+    case remove(id: String)
+    case replying(Bool), answered(String, BouncerAnswer), tasks([BouncerTask]), banner(String?), failed(String), exited(String)
+    case availableModel(String), selectedModel(model: String?, selection: String?)
 }
 
 /// The Bouncer conversation: what the window shows and what the pill counts.
 public struct BouncerThread: Equatable, Sendable {
     public private(set) var items: [BouncerItem]
     public private(set) var tasks: [BouncerTask]
-    public private(set) var banner: String?
+    public var banner: String? {
+        let lines = [eventBanner].compactMap { $0 } + hostNotices.filter { $0 != eventBanner }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+    public private(set) var hostNotices: [String] = []
     public private(set) var replying: Bool
+    private var eventBanner: String?
 
     public init(items: [BouncerItem] = [], tasks: [BouncerTask] = []) {
-        (self.items, self.tasks, banner, replying) = (items, tasks, nil, false)
+        (self.items, self.tasks, replying) = (items, tasks, false)
     }
 
     public mutating func apply(_ event: BouncerEvent) {
         switch event {
-        case .started: banner = nil
-        // An item with a known id replaces it: `get_messages` after a restart gives the ids of the live stream.
+        case .started: (items, eventBanner, replying) = ([], nil, false)
+        // An item with a known id replaces it during replay or streaming.
         case .item(let item):
             if let i = items.firstIndex(where: { $0.id == item.id }) { items[i] = item } else { items.append(item) }
-        case .textDelta(let text): growReply { $0.text += text }
-        case .toolStep: growReply { $0.steps += 1 }
-        // Only `agent_settled` ends a reply; `agent_end` can be followed by a retry.
+        case .textDelta(let id, let delta):
+            guard let i = items.lastIndex(where: { $0.id == id }) else { return }
+            switch items[i] {
+            case .user(_, let text): items[i] = .user(id: id, text: text + delta)
+            case .reply(_, let text, let steps): items[i] = .reply(id: id, text: text + delta, toolSteps: steps)
+            default: break
+            }
+        case .toolStep(let id):
+            guard let i = items.lastIndex(where: { $0.id == id }), case .reply(_, let text, let steps) = items[i] else { return }
+            items[i] = .reply(id: id, text: text, toolSteps: steps + 1)
+        case .remove(let id): items.removeAll { $0.id == id }
         case .replying(let on): replying = on
-        case .closed(let id): closeQuestions { $0.id == id }
+        case .answered(let id, let response): answer(id, response)
         case .tasks(let list): tasks = list
-        case .banner(let text): banner = text
-        case .failed(let text): banner = text
+        case .banner(let text): eventBanner = text
+        case .failed(let text): eventBanner = text
         case .exited(let text):
-            (banner, replying) = (text, false)
-            closeQuestions { _ in true }
+            (eventBanner, replying) = (text, false)
         // The window keeps the model list; the thread does not show it.
-        case .models: break
+        case .availableModel, .selectedModel: break
         }
     }
+
+    public mutating func showHostNotices(_ notices: [String], windowIsVisible: Bool) {
+        guard windowIsVisible else { return }
+        for notice in notices where !hostNotices.contains(notice) { hostNotices.append(notice) }
+    }
+
+    public mutating func clearHostNotices() { hostNotices.removeAll() }
 
     public mutating func answer(_ questionID: String, _ answer: BouncerAnswer) {
         guard let i = items.firstIndex(where: { $0.id == questionID }), case .question(var q) = items[i], q.isOpen else { return }
@@ -211,37 +217,18 @@ public struct BouncerThread: Equatable, Sendable {
         }
     }
 
-    /// The last reply grows; without one, a new reply starts.
-    private mutating func growReply(_ change: (inout (text: String, steps: Int)) -> Void) {
-        let last = items.lastIndex { if case .reply = $0 { true } else { false } }
-        var reply: (id: String, text: String, steps: Int) = ("reply-\(items.count)", "", 0)
-        if let last, case .reply(let id, let text, let steps) = items[last] { reply = (id, text, steps) }
-        var body = (text: reply.text, steps: reply.steps)
-        change(&body)
-        let item = BouncerItem.reply(id: reply.id, text: body.text, toolSteps: body.steps)
-        if let last { items[last] = item } else { items.append(item) }
-    }
-
-    private mutating func closeQuestions(_ matches: (BouncerQuestion) -> Bool) {
-        for i in items.indices {
-            guard case .question(var q) = items[i], q.isOpen, matches(q) else { continue }
-            q.closedByPi = true
-            items[i] = .question(q)
-        }
-    }
 }
 
-public enum BouncerSetupStep: Equatable, Sendable { case chooseWorkspace, confirmRemotes, installPi }
+public enum BouncerSetupStep: Equatable, Sendable { case chooseWorkspace, confirmRemotes }
 
 /// The steps that the Set Up row shows, in order; empty when the Bouncer can start.
 /// `isWorkspace`: the recorded folder is the workspace repository now (`WorkspaceSettings.workspaceProblem`).
 /// `remotes`: nil until a check of the folder finds a repository, so no remote is confirmed before the check ends.
-public func bouncerSetupSteps(workspace: WorkspaceSettings, isWorkspace: Bool, remotes: [WorkspaceRemote]?, piPath: String?) -> [BouncerSetupStep] {
+public func bouncerSetupSteps(workspace: WorkspaceSettings, isWorkspace: Bool, remotes: [WorkspaceRemote]?) -> [BouncerSetupStep] {
     var steps: [BouncerSetupStep] = []
     if workspace.workspace == nil || !isWorkspace { steps.append(.chooseWorkspace) }
     else if let remotes { if !workspace.acknowledges(remotes) { steps.append(.confirmRemotes) } }
     else { steps.append(.chooseWorkspace) }
-    if piPath?.isEmpty ?? true { steps.append(.installPi) }
     return steps
 }
 
@@ -255,18 +242,4 @@ public func otherWaits(_ sessions: [SessionRow], bouncerSessionFile: String?) ->
         return (!isOwn && (state == .needsInput || state == .failed) ? [row] : []) + row.children.flatMap(waits)
     }
     return sessions.flatMap(waits)
-}
-
-/// The Bouncer session file to record. Pi writes a new session file after the first reply, not at start, so only a file
-/// that exists replaces the recorded one: recording it before would call an unused session missing at the next start.
-public func bouncerSessionToRecord(reported: String?, recorded: String?, exists: (String) -> Bool) -> String? {
-    guard let reported, reported != recorded, exists(reported) else { return recorded }
-    return reported
-}
-
-/// The recorded file that is gone, for the "missing" note: only a file that exists is recorded, so a recorded file that
-/// Pi did not reopen (`isNew`) was removed.
-public func missingBouncerSession(recorded: String?, reported: String?, isNew: Bool) -> String? {
-    guard isNew, let recorded, recorded != reported else { return nil }
-    return recorded
 }

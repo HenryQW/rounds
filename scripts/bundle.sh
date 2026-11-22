@@ -1,7 +1,23 @@
 #!/bin/sh
-# Build "build/Rounds.app". --install also copies it to /Applications.
+# Build or package a checked host payload. --install also copies the app to /Applications.
 set -e
-cd "$(dirname "$0")/.."
+cd -P "$(dirname "$0")/.."
+INSTALL=false
+case "${1:-}" in
+    --harness-payload)
+        PAYLOAD="${2:?Expected the checked Harness payload directory.}"
+        ;;
+    ''|--install)
+        [ "${1:-}" != --install ] || INSTALL=true
+        scripts/build-harness-host.sh
+        PAYLOAD=.build/harness-host
+        ;;
+    *) echo "Usage: $0 [--install | --harness-payload directory]" >&2; exit 1 ;;
+esac
+if [ "$(cat "$PAYLOAD/commit")" != 5a14e69c067d40dfbff4f2fff7d3b34c897e2dc9 ]; then
+    echo 'Wrong Harness payload commit.' >&2
+    exit 1
+fi
 swift build -c release
 BIN="$(swift build -c release --show-bin-path)"
 APP="build/Rounds.app"
@@ -9,6 +25,10 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN/Rounds" "$APP/Contents/MacOS/Rounds"
 cp "$BIN/rounds-hook" "$APP/Contents/Helpers/rounds-hook"
+HOST="$APP/Contents/Helpers/harness-host"
+mkdir "$HOST"
+cp "$PAYLOAD/node" "$PAYLOAD/host.mjs" "$PAYLOAD/commit" "$HOST/"
+chmod 755 "$HOST/node"
 ditto "$BIN/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 # VERSION is the one place the version lives; Settings reads it from there, and Sparkle compares CFBundleVersion. A beta
@@ -22,7 +42,7 @@ cp Resources/AppIcon.icns Resources/henry.png "$APP/Contents/Resources/"
 IDENTITY="Rounds Self-Signed"
 security find-identity -p codesigning | grep -q "\"$IDENTITY\"" || IDENTITY=-
 codesign --force --deep -s "$IDENTITY" "$APP"
-if [ "$1" = "--install" ]; then
+if [ "$INSTALL" = true ]; then
     rm -rf "/Applications/Rounds.app"
     cp -R "$APP" /Applications/
     APP="/Applications/Rounds.app"
