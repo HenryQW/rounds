@@ -86,21 +86,21 @@ export function bouncer(harness, models, emit) {
         }
     }
 
-    async function allEntries() {
+    async function allEntries(conversation) {
         let cursor;
         const result = [];
         do {
-            const page = await root.entries({ order: "ascending" }, 64, cursor, context);
+            const page = await conversation.entries({ order: "ascending" }, 64, cursor, context);
             result.push(...page.items);
             cursor = page.next;
         } while (cursor !== undefined);
         return result;
     }
 
-    async function entries() {
+    async function entries(conversation = root) {
         let cursor, stopped = false;
         do {
-            const page = await root.entries({ order: "ascending", minEntryId: lastEntry }, 64, cursor, context);
+            const page = await conversation.entries({ order: "ascending", minEntryId: lastEntry }, 64, cursor, context);
             for (const entry of page.items) {
                 if (entry.id === lastEntry) continue;
                 if (project(entry, interrupted)) stopped = true;
@@ -130,13 +130,12 @@ export function bouncer(harness, models, emit) {
             model: model ?? null, thinkingLevel: catalog.thinkingLevel, extensions: [], tools: [], modelTools: [],
             instructions, maxTurns: 1,
         }, context);
-        root = conversation;
         const hasWork = state.tasks.length || state.submissions.length;
-        let recovered = await allEntries();
+        let recovered = await allEntries(conversation);
         const isInput = entry => UserEntry.is(entry) || entry.kind === answerKind;
         const lastInput = recovered.findLast(isInput);
         if (hasWork && lastInput && !recovered.some(entry => entry.kind === interruptedKind && entry.data.afterID === lastInput.id)) {
-            await root.commit(tx => tx.appendEntry(root.id, { kind: interruptedKind, data: { afterID: lastInput.id } }), context);
+            await conversation.commit(tx => tx.appendEntry(conversation.id, { kind: interruptedKind, data: { afterID: lastInput.id } }), context);
         }
         // Save recovery intent before aborting work, so a second crash cannot turn it into a user stop.
         for (const submission of state.submissions) {
@@ -144,7 +143,7 @@ export function bouncer(harness, models, emit) {
         }
         for (const task of state.tasks) await harness.abortTask(task.record.id, context);
         if (hasWork) await conversation.abort(context);
-        recovered = await allEntries();
+        recovered = await allEntries(conversation);
         for (const marker of recovered.filter(entry => entry.kind === interruptedKind)) {
             const start = recovered.findIndex(entry => entry.id === marker.data.afterID);
             if (start < 0) continue;
@@ -154,13 +153,13 @@ export function bouncer(harness, models, emit) {
             if (aborted) interrupted.add(aborted.id);
         }
         emit("started", { model: model ? `magpie/${model.modelId}` : null, selection });
-        root = conversation;
         for (const id of catalog.models) emit("model", { model: id });
-        await entries();
+        await entries(conversation);
         if (hasWork || (lastInput && recovered.some(entry => entry.kind === interruptedKind && entry.data.afterID === lastInput.id))) {
             emit("failed", { text: "The previous Bouncer reply was interrupted. Send a message to continue." });
         }
         if (issue) emit("failed", { text: issue });
+        root = conversation;
     }
 
     async function finish(turn) {

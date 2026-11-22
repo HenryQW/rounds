@@ -112,7 +112,9 @@ test("recovery preserves an aborted partial reply without a user stop on later o
             inspect: async () => ({ tasks: recovering ? [{ record: { id: "task", conversationId: "root" } }] : [], submissions: [] }),
             abortTask: async () => { if (interruptAbort) { interruptAbort = false; throw new Error("simulated crash"); } },
         };
-        await assert.rejects(bouncer(harness, {}, () => {})({ command: "bouncerOpen" }), /simulated crash/);
+        const failedOpen = bouncer(harness, {}, () => {});
+        await assert.rejects(failedOpen({ command: "bouncerOpen" }), /simulated crash/);
+        await assert.rejects(failedOpen({ command: "bouncerSend", text: "Do not schedule" }), /conversation is not open/);
         assert.ok(rows.some(row => row.kind === "rounds.interrupted" && row.data.afterID === 1));
         recovering = false;
         for (let attempt = 0; attempt < 2; attempt++) {
