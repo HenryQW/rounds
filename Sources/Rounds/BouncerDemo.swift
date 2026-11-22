@@ -16,6 +16,7 @@ actor DemoBouncer: BouncerAdapter {
     func start() async throws {
         output.yield(.started(model: nil, selection: nil))
         for id in ["example/small-model", "example/large-model"] { output.yield(.availableModel(id)) }
+        output.yield(.tasks(Self.tasks))
         for item in Self.thread { output.yield(.item(item)) }
     }
 
@@ -54,7 +55,62 @@ actor DemoBouncer: BouncerAdapter {
         output.finish()
     }
 
-    /// Neutral names only (`example`), as in the rest of the demo.
+    static let tasks: [BouncerTask] = [
+        BouncerTask(id: "t1", title: "Add rate limit headers", repository: "acme/api + acme/web", organization: "Acme",
+                    state: .needsInput, updatedAt: Date(timeIntervalSince1970: 1_800_000_000)),
+        BouncerTask(id: "t2", title: "Update login copy", repository: "acme/web", organization: "Acme",
+                    state: .needsInput, updatedAt: Date(timeIntervalSince1970: 1_799_999_940)),
+        BouncerTask(id: "t3", title: "Upgrade logger", repository: "acme/api", organization: "Acme",
+                    state: .working, updatedAt: Date(timeIntervalSince1970: 1_799_999_880)),
+        BouncerTask(id: "t4", title: "Tidy shell aliases", repository: "me/dotfiles", organization: "Personal",
+                    state: .finished, updatedAt: Date(timeIntervalSince1970: 1_799_999_820)),
+        BouncerTask(id: "t5", title: "Bump test runner", repository: "acme/web", organization: "Acme",
+                    state: .finished, updatedAt: Date(timeIntervalSince1970: 1_799_999_760), archived: true),
+        BouncerTask(id: "t6", title: "Refresh icons", repository: "acme/web", organization: "Acme",
+                    state: .stopped, updatedAt: Date(timeIntervalSince1970: 1_799_999_700)),
+    ]
+
+    static func details(_ id: String, factUnconfirmed: Bool = true) -> BouncerTaskDetails {
+        if id == "t1" {
+            return BouncerTaskDetails(
+                summary: "Both repositories now use the rate limit headers. The status page shows the remaining count.",
+                risks: ["Older X-RateLimit header names are no longer supported.",
+                        "The remaining count stays a placeholder until the API change is deployed."],
+                changes: [
+                    .init(repository: "acme/api", path: "src/middleware/rateLimit.ts", added: 38, removed: 4),
+                    .init(repository: "acme/api", path: "src/middleware/rateLimit.test.ts", added: 61, removed: 0),
+                    .init(repository: "acme/web", path: "src/RemainingCount.tsx", added: 22, removed: 0),
+                    .init(repository: "acme/web", path: "src/api.ts", added: 6, removed: 1),
+                ],
+                checks: [
+                    .init(repository: "acme/api", name: "212 unit tests", result: "Passed", passed: true),
+                    .init(repository: "acme/api", name: "Lint", result: "Passed", passed: true),
+                    .init(repository: "acme/web", name: "88 unit tests", result: "Passed", passed: true),
+                    .init(repository: "acme/web", name: "Browser unavailable", result: "Not run", passed: false),
+                ],
+                agents: [
+                    .init(role: "Bartender", name: "acme/api", state: "Finished", child: false),
+                    .init(role: "Barback", name: "Add headers", state: "Finished", child: true),
+                    .init(role: "Barback", name: "Test headers", state: "Finished", child: true),
+                    .init(role: "Bartender", name: "acme/web", state: "Finished", child: false),
+                    .init(role: "Barback", name: "Show remaining count", state: "Finished", child: true),
+                ],
+                environments: [
+                    .init(repository: "acme/api", name: "container-use/brave-otter", branch: "rounds/rate-limit-headers", revision: "4f1c2a9e"),
+                    .init(repository: "acme/web", name: "container-use/calm-heron", branch: "rounds/rate-limit-headers", revision: "b83e0171"),
+                ])
+        }
+        let finished = id == "t4" || id == "t5"
+        return BouncerTaskDetails(
+            summary: finished ? "The requested changes are complete. The result stays local." : nil,
+            risks: [], changes: [], checks: [],
+            agents: [.init(role: "Bartender", name: tasks.first { $0.id == id }?.repository ?? "Task",
+                           state: finished ? "Finished" : id == "t6" ? "Stopped" : "Working", child: false)] +
+                    (id == "t3" ? [.init(role: "Barback", name: "Update call sites", state: factUnconfirmed ? "Not confirmed" : "Stopped", child: true)] : []),
+            environments: [])
+    }
+
+    /// Neutral names only, as in the rest of the demo.
     private static let thread: [BouncerItem] = [
         .user(id: "demo-1", text: "Add rate limit headers to the acme/api responses, and show the remaining count on the acme/web status page."),
         .reply(id: "demo-2", text: "I split this into two repository tasks: one Bartender for acme/api and one for acme/web. I will ask you before any push or pull request.", toolSteps: 0),
@@ -64,10 +120,22 @@ actor DemoBouncer: BouncerAdapter {
                                   options: ["Shorten the heading to the new name only", "Keep the full heading and allow two lines",
                                             "Keep the old name on the login page for now"],
                                   recommended: 0)),
-        .report(id: "demo-4", taskID: "t1", role: "Bartender",
+        .report(id: "demo-4", taskID: "t1", role: "Bartender · acme/api",
                 text: "Responses now carry RateLimit-Limit, RateLimit-Remaining and RateLimit-Reset. Unit tests and lint pass.",
                 toolSteps: ["Read src/middleware/rateLimit.ts", "Edited src/middleware/rateLimit.ts (+38 -4)",
                             "Wrote src/middleware/rateLimit.test.ts (+61)", "Ran npm test (212 passed)", "Ran npm run lint (passed)"]),
+        .report(id: "demo-web", taskID: "t1", role: "Bartender · acme/web",
+                text: "The status page reads RateLimit-Remaining and shows the remaining count. Browser checks were not run.",
+                toolSteps: ["Read src/api.ts", "Edited src/RemainingCount.tsx (+22)", "Ran npm test (88 passed)"]),
+        .report(id: "demo-logger", taskID: "t3", role: "Bartender · acme/api",
+                text: "The logger upgrade is in progress. The state of the Barback “Update call sites” is not confirmed.",
+                toolSteps: ["Read package.json", "Updated the logger dependency"]),
+        .report(id: "demo-aliases", taskID: "t4", role: "Bartender · me/dotfiles",
+                text: "The unused aliases are removed. Shell syntax checks passed.", toolSteps: ["Ran zsh -n aliases.zsh (passed)"]),
+        .report(id: "demo-archived", taskID: "t5", role: "Bartender · acme/web",
+                text: "The test runner update is complete and archived.", toolSteps: ["Ran npm test (88 passed)"]),
+        .report(id: "demo-stopped-task", taskID: "t6", role: "Bartender · acme/web",
+                text: "You stopped this task before it changed any icons.", toolSteps: []),
         .approval(ApprovalCard(id: "demo-approval", taskID: "t1", title: "Approve 4 actions for “Add rate limit headers”?",
                                actions: ["Push branch rounds/rate-limit-headers to https://github.com/acme/api.git at revision 4f1c2a9e.",
                                          "Open a draft pull request in acme/api from rounds/rate-limit-headers into main.",

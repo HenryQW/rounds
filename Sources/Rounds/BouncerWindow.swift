@@ -12,6 +12,12 @@ final class BouncerWindowState {
     var hovered: String?
     /// The sidebar by hand; nil: shown at 700 pt and wider, hidden below.
     var sidebar: Bool?
+    var details: Bool?
+    var sidebarHovered = false
+    var rejectionReasons: [String: String] = [:]
+    var expandedReports: Set<String> = []
+    var detailSections: Set<String> = ["Changes", "Checks", "Agents", "Environment"]
+    var factUnconfirmed = true
     var width: CGFloat = 900
     var narrow: Bool { width < 700 }
     var sidebarShown: Bool { sidebar ?? !narrow }
@@ -28,13 +34,14 @@ final class BouncerWindowController: NSObject, NSWindowDelegate {
 
     func show() {
         let model = BouncerModel.shared
-        // `pi` may be installed since the last check.
+        // A setup step can have completed since the last check.
         model.start()
         let window = self.window ?? makeWindow()
         self.window = window
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         model.windowShown()
+        model.focusOnPrompt = false
         model.focusToken += 1
         keyMonitor = keyMonitor ?? NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.window else { return event }
@@ -86,8 +93,7 @@ final class BouncerWindowController: NSObject, NSWindowDelegate {
         case (13, .command): // W
             window?.performClose(nil)
         case (48, let f) where f.contains(.control): // Tab
-            // Only the Bouncer row until 01c adds task rows.
-            let rows: [String?] = [nil]
+            let rows: [String?] = [nil] + model.taskGroups.flatMap(\.tasks).map { Optional($0.id) }
             let i = rows.firstIndex(of: model.selection) ?? 0
             model.selection = rows[(i + (f.contains(.shift) ? rows.count - 1 : 1)) % rows.count]
         case (36, []), (76, []): // Return; the prompt box only (a field editor is a one-line text field)
@@ -97,6 +103,7 @@ final class BouncerWindowController: NSObject, NSWindowDelegate {
             if state.hostNote { state.hostNote = false }
             else if model.thread.replying { model.stopReply() }
             else if state.narrow, state.sidebar == true { state.sidebar = nil }
+            else if state.narrow, state.details == true { state.details = nil }
             else { return false }
         default:
             return false
@@ -116,7 +123,7 @@ final class BouncerWindowController: NSObject, NSWindowDelegate {
 /// Where the focus goes when the window opens: the first undecided approval, else option 1 of the first open question
 /// (its text field when it takes text), else the prompt box.
 enum BouncerFocus: Hashable {
-    case approval(String), option(String, Int), text(String), prompt
+    case approval(String), option(String, Int), text(String), prompt, group, sort, taskMenu(String)
 }
 
 struct BouncerView: View {
@@ -130,37 +137,56 @@ struct BouncerView: View {
                 bannerView(banner)
                     .onChange(of: model.thread.hostNotices, initial: true) { _, notices in model.hostNoticesShown(notices) }
             }
+            if Demo.isOn, !model.thread.tasks.isEmpty, state.factUnconfirmed { BouncerFactBanner(state: state) }
             HStack(spacing: 0) {
                 if state.sidebarShown && !state.narrow {
                     sidebar
                     Divider()
                 }
                 conversation
+                if detailsShown && !state.narrow { Divider(); detailsPanel }
             }
             .overlay(alignment: .leading) {
                 if state.sidebarShown && state.narrow {
                     sidebar.background(.regularMaterial).overlay(alignment: .trailing) { Divider() }
                 }
             }
+            .overlay(alignment: .trailing) {
+                if detailsShown && state.narrow {
+                    detailsPanel.background(.regularMaterial).overlay(alignment: .leading) { Divider() }
+                }
+            }
         }
         .frame(minWidth: 480, minHeight: 400)
+        .background(Color(nsColor: .windowBackgroundColor))
         .onAppear(perform: focusFirst)
         .onChange(of: model.focusToken) { focusFirst() }
     }
 
-    private func focusFirst() {
-        // After this layout pass, so the target exists.
-        DispatchQueue.main.async {
-            var target = BouncerFocus.prompt
-            for item in model.thread.items {
-                if case .approval(let card) = item, card.decision == nil { target = .approval(card.id); break }
-                if case .question(let q) = item, q.isOpen {
-                    target = q.takesText ? .text(q.id) : .option(q.id, 0)
-                    break
-                }
-            }
-            focus = target
+    private var detailsShown: Bool { model.selectedTask != nil && (state.details ?? !state.narrow) }
+
+    @ViewBuilder private var detailsPanel: some View {
+        if Demo.isOn, let task = model.selectedTask {
+            BouncerDetails(task: task, details: DemoBouncer.details(task.id, factUnconfirmed: state.factUnconfirmed), state: state)
         }
+    }
+
+    private func focusFirst() {
+        // Approval priority applies to the whole thread, even when an earlier question waits.
+        var target = BouncerFocus.prompt
+        if !model.focusOnPrompt {
+            if let item = model.thread.items.first(where: { if case .approval(let card) = $0 { card.decision == nil } else { false } }),
+               case .approval(let card) = item {
+                if model.selection != nil { model.selection = card.taskID }
+                target = .approval(card.id)
+            } else if let item = model.thread.items.first(where: { if case .question(let q) = $0 { q.isOpen } else { false } }),
+                      case .question(let q) = item {
+                if model.selection != nil { model.selection = q.taskID }
+                target = q.takesText ? .text(q.id) : .option(q.id, 0)
+            }
+        }
+        // After this layout pass, so the selected task and its focus target exist.
+        DispatchQueue.main.async { focus = target }
     }
 
     // MARK: Header and banner
@@ -169,13 +195,26 @@ struct BouncerView: View {
         HStack(spacing: 8) {
             iconButton("sidebar", "sidebar.left", state.sidebarShown ? "Hide the sidebar" : "Show the sidebar") {
                 state.sidebar = !state.sidebarShown
+                if state.narrow { state.details = nil }
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text("Bouncer").font(.headline)
-                Text("The whole thread, with reports from every task").font(.callout).foregroundStyle(.secondary)
+                Text(model.selectedTask?.title ?? "Bouncer").font(.headline).lineLimit(1)
+                if let task = model.selectedTask {
+                    stateWord(task.state.title, task.state.color)
+                    Text([task.repository, task.organization].compactMap { $0 }.joined(separator: " · "))
+                        .font(.callout).foregroundStyle(.secondary).lineLimit(1)
+                } else {
+                    Text("The whole thread, with reports from every task").font(.callout).foregroundStyle(.secondary)
+                }
             }
-            Spacer()
+            Spacer(minLength: 0)
             hostNote
+            if model.selectedTask != nil {
+                iconButton("details", "sidebar.right", detailsShown ? "Hide task details" : "Show task details") {
+                    state.details = !detailsShown
+                    if state.narrow { state.sidebar = nil }
+                }
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -267,17 +306,111 @@ struct BouncerView: View {
             .buttonStyle(.plain)
             .onHover { hover("new", $0) }
             bouncerRow
-            Spacer(minLength: 0)
+            taskControls
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    ForEach(model.taskGroups, id: \.name) { group in
+                        if !group.name.isEmpty {
+                            Text(model.grouping == .state ? (BouncerTaskState(rawValue: group.name)?.title ?? group.name) : group.name)
+                                .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                                .padding(.top, 12).padding(.horizontal, 8)
+                                .accessibilityAddTraits(.isHeader)
+                        }
+                        ForEach(group.tasks) { taskRow($0) }
+                    }
+                }
+            }
+            Button(model.archived ? "Back to Tasks" : "Archive") {
+                model.archived.toggle()
+                model.selection = nil
+            }
+            .buttonStyle(.plain)
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .bouncerHover("archive", state: state)
         }
         .padding(8)
         .frame(width: 220)
         .frame(maxHeight: .infinity, alignment: .top)
+        .onHover { state.sidebarHovered = $0 }
+    }
+
+    private var taskControls: some View {
+        HStack {
+            Text(model.archived ? "Archive" : "Tasks").font(.callout.weight(.semibold)).foregroundStyle(.secondary)
+            Spacer()
+            Menu {
+                Picker("Group By", selection: Binding(get: { model.grouping }, set: { model.grouping = $0 })) {
+                    ForEach(BouncerTaskGrouping.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+            } label: { Image(systemName: "rectangle.3.group") }
+            .focused($focus, equals: .group)
+            .opacity(state.sidebarHovered || focus == .group ? 1 : 0)
+            .bouncerHover("group", state: state)
+            .help("Group tasks").accessibilityLabel("Group tasks")
+            Menu {
+                Picker("Sort By", selection: Binding(get: { model.sort }, set: { model.sort = $0 })) {
+                    ForEach(BouncerTaskSort.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+            } label: { Image(systemName: "arrow.up.arrow.down") }
+            .focused($focus, equals: .sort)
+            .opacity(state.sidebarHovered || focus == .sort ? 1 : 0)
+            .bouncerHover("sort", state: state)
+            .help("Sort tasks").accessibilityLabel("Sort tasks")
+        }
+        .menuStyle(.borderlessButton)
+        .padding(.horizontal, 8).padding(.top, 12)
+    }
+
+    private func taskRow(_ task: BouncerTask) -> some View {
+        let selected = task.id == model.selection
+        return HStack(spacing: 0) {
+            Button { selectTask(task.id) } label: {
+                HStack(alignment: .top, spacing: 8) {
+                    Circle().fill(task.state.color).frame(width: 7, height: 7).padding(.top, 5).accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(task.title).lineLimit(2)
+                        if let repository = task.repository {
+                            Text(repository).font(.caption).lineLimit(1)
+                        }
+                        if model.grouping != .state { Text(task.state.title).font(.caption) }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(selected ? Color.white : .primary)
+                .padding(.vertical, 6).padding(.leading, 8)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(task.title), \(task.state.title), \(task.repository ?? "No repository")")
+            .accessibilityAddTraits(selected ? .isSelected : [])
+            Menu {
+                Button(task.archived ? "Unarchive" : "Archive") { model.setArchived(task, !task.archived) }
+                    .disabled(!task.archived && !task.canArchive)
+                if !task.archived && !task.canArchive { Text("Only finished or stopped tasks can be archived.") }
+            } label: { Image(systemName: "ellipsis").frame(width: 20, height: 24) }
+            .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
+            .foregroundStyle(selected ? Color.white : .primary)
+            .focused($focus, equals: .taskMenu(task.id))
+            .opacity(state.hovered == task.id || state.hovered == "menu-\(task.id)" || focus == .taskMenu(task.id) ? 1 : 0)
+            .bouncerHover("menu-\(task.id)", state: state)
+            .accessibilityLabel("Actions for \(task.title)")
+        }
+        .padding(.trailing, 4)
+        .background(selected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.primary.opacity(state.hovered == task.id ? 0.08 : 0)),
+                    in: .rect(cornerRadius: 6))
+        .onHover { hover(task.id, $0) }
+    }
+
+    private func selectTask(_ id: String?) {
+        model.selection = id
+        if state.narrow { state.sidebar = nil }
     }
 
     /// The Bouncer's own thread, pinned at the top; selected while no task is.
     private var bouncerRow: some View {
         let selected = model.selection == nil, waiting = model.pillWaiting
-        return Button { model.selection = nil } label: {
+        return Button { selectTask(nil) } label: {
             HStack(spacing: 8) {
                 Image(systemName: "person.crop.circle").frame(width: 16)
                 VStack(alignment: .leading, spacing: 2) {
@@ -332,18 +465,25 @@ struct BouncerView: View {
         VStack(spacing: 0) {
             header
             Divider()
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 16) {
-                    ForEach(model.thread.items) { item in itemView(item) }
-                    if model.thread.replying { TypingDots() }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        ForEach(model.visibleItems) { item in
+                            VStack(alignment: .leading, spacing: 16) { itemView(item) }.id(item.id)
+                        }
+                        if model.thread.replying { TypingDots() }
+                    }
+                    .frame(maxWidth: 680, alignment: .leading)
+                    .padding(16)
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: 680, alignment: .leading)
-                .padding(16)
-                .frame(maxWidth: .infinity)
+                .defaultScrollAnchor(.bottom)
+                .onAppear { scrollFocus(proxy) }
+                .onChange(of: focus) { scrollFocus(proxy) }
+                .onChange(of: state.width) { scrollFocus(proxy) }
             }
-            .defaultScrollAnchor(.bottom)
             .overlay {
-                if model.thread.items.isEmpty && !model.thread.replying {
+                if model.visibleItems.isEmpty && !model.thread.replying {
                     Text(model.setupSteps.isEmpty ? "Ask the Bouncer to start a task, or ask what waits." : "Set up the Bouncer first.")
                         .foregroundStyle(.secondary)
                 }
@@ -371,32 +511,33 @@ struct BouncerView: View {
                 Text(markdown(text)).textSelection(.enabled)
                 if steps > 0 { Text(steps == 1 ? "1 tool step" : "\(steps) tool steps").font(.callout).foregroundStyle(.secondary) }
             }
-        case .report(_, _, let role, let text, let steps):
-            VStack(alignment: .leading, spacing: 6) {
-                who(role)
-                Text(text).textSelection(.enabled)
-                if !steps.isEmpty {
-                    // Collapsed: a click opens the steps.
-                    DisclosureGroup(steps.count == 1 ? "1 tool step" : "\(steps.count) tool steps") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            ForEach(Array(steps.enumerated()), id: \.offset) { _, step in
-                                Text(step).font(.callout.monospaced()).textSelection(.enabled)
-                            }
-                        }
-                        .padding(.top, 4)
-                    }
-                    .foregroundStyle(.secondary)
-                }
+        case .report(let id, let taskID, let role, let text, let steps):
+            BouncerReportCard(id: id, task: model.thread.tasks.first { $0.id == taskID }, role: role,
+                              text: text, steps: steps, state: state) { selectTask(taskID) }
+            if Demo.isOn, ["t4", "t5"].contains(taskID), let task = model.thread.tasks.first(where: { $0.id == taskID }) {
+                BouncerResultCard(title: task.title, details: DemoBouncer.details(taskID))
             }
-            .padding(12)
-            .background(Color.primary.opacity(0.03), in: .rect(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.primary.opacity(0.12), lineWidth: 0.5))
         case .question(let q): questionView(q)
-        case .approval(let card): approvalView(card)
+        case .approval(let card):
+            if Demo.isOn, let task = model.thread.tasks.first(where: { $0.id == card.taskID }) {
+                BouncerResultCard(title: task.title, details: DemoBouncer.details(card.taskID))
+            }
+            BouncerApprovalCard(card: card, focus: $focus, state: state) { model.decide(card.id, $0) }
+                .id("approval-\(card.id)")
         case .note(_, let text):
             Text(text).font(.callout).foregroundStyle(.secondary).frame(maxWidth: .infinity)
         case .stopped:
             Text("You stopped the reply.").font(.callout).foregroundStyle(.secondary)
+        }
+    }
+
+    private func scrollFocus(_ proxy: ScrollViewProxy) {
+        DispatchQueue.main.async {
+            switch focus {
+            case .approval(let id): proxy.scrollTo("approval-\(id)", anchor: .top)
+            case .option(let id, _), .text(let id): proxy.scrollTo(id, anchor: .top)
+            default: break
+            }
         }
     }
 
@@ -484,26 +625,6 @@ struct BouncerView: View {
         case .dismissed: return "You dismissed this question."
         case nil: return ""
         }
-    }
-
-    /// An approval request from host code. Approve and Reject come in 01c with the full card; it counts as waiting now.
-    private func approvalView(_ card: ApprovalCard) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "lock").foregroundStyle(.orange).accessibilityHidden(true)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(card.title).font(.headline)
-                    .focusable()
-                    .focused($focus, equals: .approval(card.id))
-                    .accessibilityAddTraits(.isHeader)
-                Text("From Rounds, not the agent. \(card.actions.count) actions.").font(.callout).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 8)
-            if card.decision == nil { stateWord("Needs input", .orange) }
-        }
-        .padding(12)
-        .background(.regularMaterial, in: .rect(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.primary.opacity(0.15), lineWidth: 0.5))
-        .accessibilityElement(children: .contain)
     }
 
     private func stateWord(_ word: String, _ color: Color) -> some View {

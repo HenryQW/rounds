@@ -47,6 +47,54 @@ private let now = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(card.decision == nil)
 }
 
+@Test func taskArchiveKeepsUnfinishedWorkVisibleAndCanRestoreHistory() {
+    let states: [BouncerTaskState] = [.needsInput, .working, .failed, .finished, .stopped]
+    var thread = BouncerThread(tasks: states.map {
+        BouncerTask(id: $0.rawValue, title: $0.rawValue, state: $0, updatedAt: now)
+    })
+    for task in thread.tasks { thread.setArchived(task.id, true) }
+    #expect(thread.tasks.filter(\.archived).map(\.state) == [.finished, .stopped])
+    thread.setArchived("finished", false)
+    #expect(thread.tasks.filter(\.archived).map(\.state) == [.stopped])
+}
+
+@Test func taskGroupsUseDisplayOrderAndKeepArchivedTasksSeparate() {
+    let tasks = [
+        BouncerTask(id: "a", title: "Zulu", repository: "web", organization: "Acme", state: .working, updatedAt: now),
+        BouncerTask(id: "b", title: "Alpha", repository: "api", organization: "Acme", state: .needsInput, updatedAt: now),
+        BouncerTask(id: "c", title: "Zyzzyva", repository: "web", state: .working, updatedAt: now.addingTimeInterval(1)),
+        BouncerTask(id: "d", title: "Old", state: .finished, updatedAt: now, archived: true),
+    ]
+    let states = bouncerTaskGroups(tasks, archived: false, grouping: .state, sort: .activity)
+    #expect(states.map(\.name) == ["needsInput", "working"])
+    #expect(states.flatMap(\.tasks).map(\.id) == ["b", "c", "a"])
+    let repositories = bouncerTaskGroups(tasks, archived: false, grouping: .repository, sort: .title)
+    #expect(repositories.map(\.name) == ["api", "web"])
+    #expect(repositories.flatMap(\.tasks).map(\.id) == ["b", "a", "c"])
+    #expect(bouncerTaskGroups(tasks, archived: false, grouping: .organization, sort: .title).map(\.name) == ["Acme", "No organization"])
+    #expect(bouncerTaskGroups(tasks, archived: true, grouping: .none, sort: .activity).flatMap(\.tasks).map(\.id) == ["d"])
+    // Equal activity falls back to title, then id, independent of input order.
+    let ties = ["z", "a"].map { BouncerTask(id: $0, title: "Same", state: .working, updatedAt: now) }
+    #expect(bouncerTaskGroups(ties, archived: false, grouping: .none, sort: .activity).flatMap(\.tasks).map(\.id) == ["a", "z"])
+}
+
+@Test func selectedTaskShowsItsHistoryAndWholeThreadOmitsArchivedTasks() {
+    let thread = BouncerThread(items: [
+        .reply(id: "root", text: "Whole thread", toolSteps: 0),
+        .report(id: "active", taskID: "a", role: "Bartender", text: "Active", toolSteps: []),
+        .report(id: "old", taskID: "b", role: "Bartender", text: "Archived", toolSteps: []),
+        .question(BouncerQuestion(id: "q", taskID: "a", title: "Which?")),
+        .approval(ApprovalCard(id: "approval", taskID: "a", title: "Push?", actions: ["Push"], checkedAt: now)),
+    ], tasks: [
+        BouncerTask(id: "a", title: "Active", state: .needsInput, updatedAt: now),
+        BouncerTask(id: "b", title: "Old", state: .finished, updatedAt: now, archived: true),
+    ])
+    #expect(thread.visibleItems(taskID: nil).map(\.id) == ["root", "active", "q", "approval"])
+    #expect(thread.visibleItems(taskID: "a").map(\.id) == ["active", "q", "approval"])
+    #expect(thread.visibleItems(taskID: "b").map(\.id) == ["old"])
+    #expect(thread.visibleItems(taskID: "missing").isEmpty)
+}
+
 @Test func setupStepsNameWhatIsMissing() throws {
     let folder = FileManager.default.temporaryDirectory.appending(path: "bouncer-setup-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
