@@ -3,7 +3,7 @@ title: Release
 description: "How a Rounds release is made: a tag starts the workflow, which tests, signs and publishes the app, the Sparkle update feed and the Homebrew cask."
 ---
 
-A tag starts a release. The GitHub Actions workflow `.github/workflows/release.yml` runs on the `xcode-27` runner (macOS 27, Apple silicon).
+A tag starts a release. The signing job in `.github/workflows/release.yml` runs on the `xcode-27` runner (macOS 27, Apple silicon). The shared host build workflow runs on a GitHub-hosted Apple silicon runner.
 
 ## Make a release
 
@@ -21,14 +21,15 @@ The workflow stops if the tag is not `v` followed by the version in `VERSION`, o
 
 1. If `TAP_TOKEN` is set, it checks that the token works (`scripts/check-tap-token.sh`), before it publishes anything.
 2. It runs the tests.
-3. It imports the signing certificate into a keychain for the run (`scripts/import-identity.sh`), builds `Rounds.app` with `scripts/bundle.sh`, stops if the app is not signed with "Rounds Self-Signed", and makes `Rounds.dmg` with `scripts/dmg.sh`. The build requires a standalone Node executable that loads only macOS libraries. It rejects Homebrew Node when it depends on Homebrew libraries. The copied Node must load `node:sqlite` and pass the bundled host health and shutdown checks. Use an official Node distribution that supports these checks.
-4. It signs `Rounds.dmg` with the Sparkle key and writes `appcast.xml` (`scripts/appcast.sh`), the feed that installed copies of Rounds read for updates. The feed holds the release notes (step 5) as Markdown, so the update window shows them as text. It stops if the key is not set. Then `scripts/verify-update.swift` checks the update as each installed copy will: the signature against `SUPublicEDKey` in the new app, the DMG's length, and the version. It stops on a mismatch.
-5. It publishes a GitHub release with two files: `Rounds.dmg`, which is the download, the Homebrew cask's file and the Sparkle update, and `appcast.xml`. The install script always downloads the `Rounds.dmg` of the latest release. The release notes are the version's section of `CHANGELOG.md` (step 1).
-6. If `TAP_TOKEN` is set, it writes the new version and checksum into `Casks/rounds.rb` in `HenryQW/homebrew-tap`.
+3. A separate job builds the Harness host with Node 26.13.1 for Apple silicon. Dependency builds in that job receive no signing or tap secrets. The job checks that Node loads only macOS libraries and can load `node:sqlite`. It also checks host health and shutdown with native arm64 execution.
+4. The signing job downloads the host artifact by ID and checks its digest. It imports the signing certificate into a keychain for the run (`scripts/import-identity.sh`). It builds `Rounds.app` with `scripts/bundle.sh` and includes the downloaded payload. It verifies the "Rounds Self-Signed" identity and makes `Rounds.dmg` with `scripts/dmg.sh`.
+5. It signs `Rounds.dmg` with the Sparkle key and writes `appcast.xml` (`scripts/appcast.sh`), the feed that installed copies of Rounds read for updates. The feed holds the release notes (step 6) as Markdown, so the update window shows them as text. It stops if the key is not set. Then `scripts/verify-update.swift` checks the update as each installed copy will: the signature against `SUPublicEDKey` in the new app, the DMG's length, and the version. It stops on a mismatch.
+6. It publishes a GitHub release with two files: `Rounds.dmg`, which is the download, the Homebrew cask's file and the Sparkle update, and `appcast.xml`. The install script always downloads the `Rounds.dmg` of the latest release. The release notes are the version's section of `CHANGELOG.md` (step 1).
+7. If `TAP_TOKEN` is set, it writes the new version and checksum into `Casks/rounds.rb` in `HenryQW/homebrew-tap`.
 
 ## Beta builds
 
-`.github/workflows/beta.yml` builds each push to `main` that changes more than docs or the website (a release tag fills the same prerelease from `release.yml`), the same way as a release: tests, the same certificate and Sparkle key, `scripts/verify-update.swift`. It replaces the files of the GitHub prerelease `beta`, and moves the tag `beta` to the build. Users who choose the Beta update channel get it. Its version is the last tag and the number of commits since it (`0.1.3.8`), so it is above that release and below the next one; on a tagged commit it is the release version. Its notes list the commits since the last release (`scripts/release-notes.sh`), by their Conventional Commits type, for testers. A prerelease is never the latest release, so the install script, the Stable channel and the cask do not change. `scripts/import-identity.sh` and `scripts/appcast.sh` are shared by both workflows.
+`.github/workflows/beta.yml` builds each push to `main` that changes more than docs or the website (a release tag fills the same prerelease from `release.yml`), with the shared host build, the same signing identity and Sparkle key, and the same update verification. It replaces the files of the GitHub prerelease `beta`, and moves the tag `beta` to the build. Users who choose the Beta update channel get it. Its version is the last tag and the number of commits since it (`0.1.3.8`), so it is above that release and below the next one; on a tagged commit it is the release version. Its notes list the commits since the last release (`scripts/release-notes.sh`), by their Conventional Commits type, for testers. A prerelease is never the latest release, so the install script, the Stable channel and the cask do not change. `scripts/import-identity.sh` and `scripts/appcast.sh` are shared by both workflows.
 
 ## Checks
 

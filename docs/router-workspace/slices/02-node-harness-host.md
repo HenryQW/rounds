@@ -87,15 +87,15 @@ Read these files in the pi source at commit `5a14e69c067d40dfbff4f2fff7d3b34c897
 | Protocol | One JSON object per line, protocol `1`, matching string `id` and `command`. Commands are `health` and `shutdown`. Health returns `ok`, pinned `commit` and `scheduling`. |
 | Harness | `Harness.open(storage, {models: createModels(), registry: createRegistry()}, BACKGROUND_CONTEXT)`. Health calls `inspect`. Shutdown calls `close`. No `root`, `submit` or `resume`. |
 | Storage | `harness.sqlite` under the configured folder. A per-folder lock rejects a second owner. An atomic process record supports cleanup after an abrupt parent exit. |
-| Process group | Create a fresh group before the host executes. Record its leader, birth time and argument marker. Record observed descendant births after health. Validate live members before each group signal. |
+| Process group | Create a fresh group before the host executes. Record its leader, birth time and argument marker. Validate live members and save newly verified descendant births before shutdown and before each group signal. If a record write fails, continue verified cleanup with the in-memory record and report the write failure. |
 | Failure | Startup, invalid health, timeout, early exit and unsafe cleanup throw a clear error. Keep a record when cleanup fails. Never resume work after failed cleanup. |
-| App | Mode off and quit await host cleanup. A mode toggle cannot start a replacement before the previous shutdown ends. Demo mode uses no host. |
+| App | Mode off, quit and Pi launch failure await host cleanup. A mode toggle waits for the previous shutdown. Host errors stay pending until the Bouncer window can show the banner. Demo mode uses no host. |
 
 ## How it works
 
 | Step | Behavior |
 |---|---|
-| Build | Verify the source commit. Export it into this worktree's ignored build folder. Use `cd -P` before dependency installation and compilation. Build the required packages, then bundle the host. |
+| Build | Fetch the exact commit into a fresh bare Git repository with replacement refs disabled. Export its tracked files and generate model data with the pinned generator. Use a physical path for dependency installation and compilation. Release and beta build the host with standalone arm64 Node in a separate job with no signing or tap secrets. |
 | Start | Create the data folder and acquire its lock. Check and clean a recorded leftover group before starting a new host. |
 | Launch | Spawn Node in its own process group, with pipes and an argument marker. Save the record before the first health request. Input closure exits an interrupted launch. |
 | Ready | Open SQLite, then open the Harness. Return health only after both succeed. Swift checks the protocol version, request identity, source commit and paused state. |
@@ -119,6 +119,9 @@ flowchart LR
 | Silent host | Startup times out within its bound and cleans its group |
 | Cooperative stop | The host receives shutdown, exits, and leaves no child or active group member |
 | Ignore shutdown and termination | Stop escalates to `SIGKILL` and removes a same-group child too |
+| Child first seen during shutdown | Stop verifies and removes a stubborn child after the leader exits |
+| Pi launch failure | Rounds shuts down the already running host |
+| Host shutdown notice | The notice stays pending across Pi start and exit while the Bouncer window is hidden |
 | Leftover group | A replacement cleans the recorded group before launching its new host |
 | Identity mismatch | Cleanup refuses to signal an unrelated live process and preserves the record |
 | Two owners | The folder lock rejects the second owner without stopping the first |
@@ -166,7 +169,18 @@ flowchart LR
 | Failed record persistence could make later cleanup require an absent file | Clear an absent record after verified termination; test stop and restart |
 | Full-suite concurrency exposed delayed lock release | Explicitly unlock before closing the descriptor; the final full suite passes |
 
-The main review checked both new failure paths and their regression tests. No finding remains in 02a.
+The main review checked both new failure paths and their regression tests.
+
+## Independent review
+
+| Finding | Action |
+|---|---|
+| Dependency builds received signing and tap credentials | Run the host build in a separate job and download its artifact by ID with digest checks |
+| Intel-only Node could pass on Apple silicon under Rosetta | Pin standalone arm64 Node in the workflow and execute the runtime checks in arm64 mode |
+| Local replacement refs and ignored model data changed the pinned build | Export the pinned Git objects from a fresh repository and regenerate model data |
+| A child first seen during shutdown could survive its leader | Save verified child identities before signalling and keep verified cleanup active if a record write fails |
+| Pi launch failure could leave the host running | Stop the host on launch error or Pi exit before its initial state |
+| Pi restart or exit could erase an unseen host notice | Retain the notice until the visible banner view receives it |
 
 ## Open
 

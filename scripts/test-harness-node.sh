@@ -11,7 +11,13 @@ trap 'rm -rf "$TMP"' EXIT HUP INT TERM
 printf 'int main(void) { return 1; }\n' > "$TMP/main.c"
 printf 'int fixture(void) { return 1; }\n' > "$TMP/fixture.c"
 printf 'int fixture(void); int main(void) { return fixture(); }\n' > "$TMP/linked.c"
-clang "$TMP/main.c" -o "$TMP/standalone"
+clang -arch arm64 "$TMP/main.c" -o "$TMP/standalone"
+clang -arch x86_64 "$TMP/main.c" -o "$TMP/intel"
+if "$CHECK" "$TMP/intel" > "$TMP/error" 2>&1; then
+    echo 'Accepted an Intel-only binary.' >&2
+    exit 1
+fi
+grep -F 'Node has no Apple silicon arm64 slice:' "$TMP/error" > /dev/null
 if "$CHECK" "$TMP/standalone" > "$TMP/error" 2>&1; then
     echo 'Accepted an executable without Node runtime capabilities.' >&2
     exit 1
@@ -72,14 +78,9 @@ for NAME in '@rpath/libfixture.dylib' "$TMP/libfixture.dylib"; do
     grep -F "Node is not portable; external library: $NAME" "$TMP/error" > /dev/null
 done
 
-# The non-native slice of a universal executable must be checked too.
-case "$(uname -m)" in
-    arm64) OTHER_ARCH=x86_64 ;;
-    x86_64) OTHER_ARCH=arm64 ;;
-    *) echo 'Unsupported test architecture.' >&2; exit 1 ;;
-esac
-clang -arch "$OTHER_ARCH" -dynamiclib "$TMP/fixture.c" -install_name '@rpath/libfixture.dylib' -o "$TMP/libfixture.dylib"
-clang -arch "$OTHER_ARCH" "$TMP/linked.c" -L"$TMP" -lfixture -o "$TMP/other"
+# Check the Intel slice of a universal executable too.
+clang -arch x86_64 -dynamiclib "$TMP/fixture.c" -install_name '@rpath/libfixture.dylib' -o "$TMP/libfixture.dylib"
+clang -arch x86_64 "$TMP/linked.c" -L"$TMP" -lfixture -o "$TMP/other"
 lipo -create "$TMP/standalone" "$TMP/other" -output "$TMP/universal"
 if "$CHECK" "$TMP/universal" > "$TMP/error" 2>&1; then
     echo 'Accepted an external library in a universal executable.' >&2

@@ -2,12 +2,12 @@
 
 | File | Lines | Bytes |
 |---|---:|---:|
-| `Sources/RoundsCore/NodeHarnessHost.swift` | 389 | 17,521 |
+| `Sources/RoundsCore/NodeHarnessHost.swift` | 470 | 20,970 |
 | `Resources/harness-host.mjs` | 72 | 3,214 |
-| `Sources/Rounds/BouncerModel.swift` | 248 | 11,136 |
-| `scripts/build-harness-host.sh` | 42 | 1,903 |
-| `scripts/bundle.sh` | 32 | 1,746 |
-| `Tests/RoundsCoreTests/NodeHarnessHostTests.swift` | 253 | 10,852 |
+| `Sources/Rounds/BouncerModel.swift` | 353 | 15,922 |
+| `scripts/build-harness-host.sh` | 44 | 2,231 |
+| `scripts/bundle.sh` | 50 | 2,336 |
+| `Tests/RoundsCoreTests/NodeHarnessHostTests.swift` | 442 | 19,693 |
 
 ## Boundary
 
@@ -30,7 +30,8 @@ sequenceDiagram
 
 The first health request gates storage opening. Input closure before that request ends an interrupted launch.
 
-The actor checks kernel birth identity, user, group and the leader argument marker before signalling. Health records observed descendant births.
+The actor checks kernel birth identity, user, group and the leader argument marker before signalling.
+It records verified descendant births during health checks and shutdown.
 
 Recorded descendants can be verified after leader exit. Unknown descendants without a verified parent chain block cleanup. Detached descendants remain Open.
 
@@ -47,14 +48,12 @@ git diff --check
 
 | Check | Result |
 |---|---|
-| Source | Verified `5a14e69c067d40dfbff4f2fff7d3b34c897e2dc9`; local and fresh-fetch builds pass |
-| Full suite | 365 tests pass; the conditional live check is skipped in that run |
-| Known flaky tests | Both named cases pass; neither needed a rerun |
-| Mutation | Removing response identity validation fails its test; validation was restored before the full suite |
-| Real Harness | A scratch database opens; health reports paused; stop reaps Node and leaves no live group member |
-| Packaging | Release build and local app packaging pass; no install or app launch |
-| Remaining checks | Model calls, conversation migration, tool execution and detached descendants are outside 02a |
+| Source | Verified `5a14e69c067d40dfbff4f2fff7d3b34c897e2dc9`; the fresh build and local export probe pass |
+| Full suite | 374 tests pass, including the live Harness check |
+| Real Harness | A scratch database opens. Health reports paused. Stop reaps Node and leaves no live group member. |
+| Packaging | The release build, local ad hoc signature and native smoke check pass with a payload that starts without executable permissions. |
+| Remaining checks | The hosted release workflow and visible window were not exercised. Detached descendants remain open. |
 
-The source install warns about an unused workspace engine requirement. The six required packages build with the bundled Node 25.9.0.
+The fresh build used standalone arm64 Node `26.13.1`, the release workflow version.
 
-Review findings and carried work are in the [slice brief](../../02-node-harness-host.md). The original Open items remain unchanged.
+See the [slice brief](../../02-node-harness-host.md) for the review findings and open work.

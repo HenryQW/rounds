@@ -63,8 +63,10 @@ public actor NodeHarnessHost {
             if lock == -1 { try acquireLock() }
             if let leftover = try readRecord() {
                 record = leftover
-                try await terminate(leftover, graceful: false)
+                var saveFailure: Error?
+                try await terminate(graceful: false, saveFailure: &saveFailure)
                 try clearRecord()
+                if let saveFailure { throw saveFailure }
             }
             try spawn()
             return try await checkedHealth()
@@ -200,14 +202,9 @@ public actor NodeHarnessHost {
                   response.commit == Self.sourceCommit, response.scheduling == "paused" else {
                 throw HarnessHostError("Invalid Harness health response.")
             }
-            if var record {
-                record.descendants = try await verifiedMembers(record).filter { $0 != record.pid }.map { pid in
-                    guard let info = HostProcessRecord.info(pid) else { throw HarnessHostError("A Harness child changed during inspection.") }
-                    return HostProcessIdentity(pid: pid, seconds: info.pbi_start_tvsec, microseconds: info.pbi_start_tvusec)
-                }
-                try JSONEncoder().encode(record).write(to: recordURL, options: [.atomic])
-                self.record = record
-            }
+            var saveFailure: Error?
+            _ = try await refreshMembers(saveFailure: &saveFailure)
+            if let saveFailure { throw saveFailure }
             return response
         } catch {
             let original = error
@@ -240,10 +237,11 @@ public actor NodeHarnessHost {
     }
 
     private func cleanup(graceful: Bool) async throws {
-        var closeFailure: Error?
+        var closeFailure: Error?, saveFailure: Error?
         let closeDeadline = ContinuousClock.now + exitWait
         if graceful, child != nil {
             do {
+                _ = try await refreshMembers(saveFailure: &saveFailure)
                 let id = UUID().uuidString
                 try write("shutdown", id: id)
                 let response = try JSONDecoder().decode(ShutdownResponse.self, from: await readLine(wait: exitWait))
@@ -255,8 +253,9 @@ public actor NodeHarnessHost {
         }
         try input?.close()
         input = nil
-        if let record {
-            try await terminate(record, graceful: graceful, gracefulWait: max(.zero, ContinuousClock.now.duration(to: closeDeadline)))
+        if record != nil {
+            let remaining = max(.zero, ContinuousClock.now.duration(to: closeDeadline))
+            try await terminate(graceful: graceful, gracefulWait: remaining, saveFailure: &saveFailure)
             try clearRecord()
         }
         reap()
@@ -275,6 +274,10 @@ public actor NodeHarnessHost {
             close(lock)
             lock = -1
         }
+        if let saveFailure {
+            exitStatus = nil
+            throw saveFailure
+        }
         if graceful, let status = exitStatus, status != 0 {
             exitStatus = nil
             let detail = status & 0x7f == 0 ? "status \(status >> 8)" : "signal \(status & 0x7f)"
@@ -286,29 +289,44 @@ public actor NodeHarnessHost {
         }
     }
 
-    private func terminate(_ record: HostProcessRecord, graceful: Bool, gracefulWait: Duration? = nil) async throws {
-        if graceful, try await waitForGroup(record, for: gracefulWait ?? exitWait) { return }
+    private func terminate(graceful: Bool, gracefulWait: Duration? = nil, saveFailure: inout Error?) async throws {
+        guard let pid = record?.pid else { return }
+        if graceful, try await waitForGroup(for: gracefulWait ?? exitWait, saveFailure: &saveFailure) { return }
         for signal in [SIGTERM, SIGKILL] {
-            if try await verifiedMembers(record).isEmpty { reap(); return }
-            // members() checks every live member immediately before each group signal.
-            if kill(-record.pid, signal) != 0, errno != ESRCH { try check(errno) }
-            if try await waitForGroup(record, for: exitWait) { return }
+            if try await refreshMembers(saveFailure: &saveFailure) { reap(); return }
+            if kill(-pid, signal) != 0, errno != ESRCH { try check(errno) }
+            if try await waitForGroup(for: exitWait, saveFailure: &saveFailure) { return }
         }
         throw HarnessHostError("The Harness process group did not stop.")
     }
 
-    private func waitForGroup(_ record: HostProcessRecord, for wait: Duration) async throws -> Bool {
+    private func waitForGroup(for wait: Duration, saveFailure: inout Error?) async throws -> Bool {
         let deadline = ContinuousClock.now + wait
         repeat {
             reap()
-            if try await verifiedMembers(record).isEmpty { return true }
+            if try await refreshMembers(saveFailure: &saveFailure) { return true }
             // Cleanup must finish even when its caller was cancelled.
             try? await Task.sleep(for: .milliseconds(20))
         } while ContinuousClock.now < deadline
         return false
     }
 
-    private func verifiedMembers(_ record: HostProcessRecord) async throws -> [pid_t] {
+    /// Keeps verified ownership in memory if the process record cannot be updated on disk.
+    private func refreshMembers(saveFailure: inout Error?) async throws -> Bool {
+        guard var record else { return true }
+        let members = try await verifiedMembers(record)
+        let descendants = members.filter { $0.pid != record.pid }
+        if record.descendants != descendants {
+            record.descendants = descendants
+            self.record = record
+            do { try JSONEncoder().encode(record).write(to: recordURL, options: [.atomic]) } catch {
+                saveFailure = HarnessHostError("Cannot save the Harness process record: \(error.localizedDescription)")
+            }
+        }
+        return members.isEmpty
+    }
+
+    private func verifiedMembers(_ record: HostProcessRecord) async throws -> [HostProcessIdentity] {
         let deadline = ContinuousClock.now + exitWait
         while true {
             do { return try record.members() }
@@ -344,7 +362,7 @@ struct HostProcessRecord: Codable, Sendable {
         return proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size ? info : nil
     }
 
-    func members() throws -> [pid_t] {
+    func members() throws -> [HostProcessIdentity] {
         guard pid > 1, uid == getuid(), UUID(uuidString: marker) != nil else {
             throw HarnessHostError("Invalid Harness process record. Cleanup stopped.")
         }
@@ -405,7 +423,9 @@ struct HostProcessRecord: Codable, Sendable {
         guard verified.count == live.count else {
             throw HarnessHostError("Harness group ownership could not be proved. Cleanup stopped.")
         }
-        return Array(verified)
+        return live.map { pid, info in
+            HostProcessIdentity(pid: pid, seconds: info.pbi_start_tvsec, microseconds: info.pbi_start_tvusec)
+        }.sorted { $0.pid < $1.pid }
     }
 
     private func arguments(_ pid: pid_t) -> [String] {
@@ -430,7 +450,7 @@ struct HostProcessRecord: Codable, Sendable {
     }
 }
 
-struct HostProcessIdentity: Codable, Sendable {
+struct HostProcessIdentity: Codable, Equatable, Sendable {
     let pid: pid_t
     let seconds: UInt64
     let microseconds: UInt64

@@ -126,7 +126,10 @@ struct BouncerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if let banner = model.thread.banner { bannerView(banner) }
+            if let banner = model.thread.banner {
+                bannerView(banner)
+                    .onChange(of: model.thread.hostNotices, initial: true) { _, notices in model.hostNoticesShown(notices) }
+            }
             HStack(spacing: 0) {
                 if state.sidebarShown && !state.narrow {
                     sidebar

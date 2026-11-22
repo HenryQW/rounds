@@ -70,6 +70,18 @@ private func withHarness(_ fixture: HarnessFixture, requestWait: Duration = .sec
     }
 }
 
+@Test func failedPiLaunchStopsTheHealthyHarness() async throws {
+    let fixture = try HarnessFixture()
+    try await withHarness(fixture) { host in
+        let pi = PiRPCBouncer(executable: fixture.folder.appending(path: "missing-pi"), folder: fixture.folder,
+                              sessionFile: nil, sessionDir: fixture.folder.path)
+        await #expect(throws: CocoaError.self) { try await pi.start(with: host) }
+        let stopped = try String(contentsOf: fixture.folder.appending(path: "stopped"), encoding: .utf8)
+        #expect(stopped == "shutdown\n")
+        #expect(!FileManager.default.fileExists(atPath: fixture.folder.appending(path: "host-process.json").path))
+    }
+}
+
 @Test func harnessHostRestartsAnExitedChildOnTheFirstAttempt() async throws {
     let fixture = try HarnessFixture()
     try await withHarness(fixture) { host in
@@ -310,6 +322,51 @@ private let stubborn = """
         #expect(HostProcessRecord.info(record.pid) == nil)
         #expect(HostProcessRecord.info(child).map { $0.pbi_status == SZOMB } ?? true)
         #expect(try record.members().isEmpty)
+    }
+}
+
+@Test(arguments: [false, true])
+func harnessHostStopsAChildFirstSeenDuringShutdown(recordWriteFails: Bool) async throws {
+    let fixture = try HarnessFixture("""
+        trap 'exit 0' TERM
+        while IFS= read -r line; do
+            id=${line#*'"id":"'}
+            id=${id%%'"'*}
+            case "$line" in
+                *shutdown*)
+                    /bin/sh -c 'trap "" TERM; exec /bin/sleep 1000' &
+                    echo $! > "$folder/fixture-child"
+                    wait "$!"
+                    exit 0
+                    ;;
+            esac
+            printf '{"version":1,"id":"%s","command":"health","ok":true,"commit":"\(NodeHarnessHost.sourceCommit)","scheduling":"paused"}\\n' "$id"
+        done
+        """)
+    try await withHarness(fixture) { host in
+        _ = try await host.start()
+        let record = try fixture.record()
+        #expect(record.descendants.isEmpty)
+        let recordURL = fixture.folder.appending(path: "host-process.json")
+        if recordWriteFails {
+            try FileManager.default.removeItem(at: recordURL)
+            try FileManager.default.createDirectory(at: recordURL, withIntermediateDirectories: false)
+            try Data([1]).write(to: recordURL.appending(path: "fixture"))
+        }
+        do {
+            try await host.stop()
+            Issue.record("The host did not report the failed shutdown reply.")
+        } catch {
+            if recordWriteFails { #expect(error.localizedDescription.contains("Cannot save the Harness process record")) }
+        }
+        let text = try String(contentsOf: fixture.folder.appending(path: "fixture-child"), encoding: .utf8)
+        let child = try #require(Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)))
+        defer {
+            if let info = HostProcessRecord.info(child), info.pbi_pgid == record.pid { kill(child, SIGKILL) }
+        }
+        #expect(HostProcessRecord.info(record.pid) == nil)
+        #expect(HostProcessRecord.info(child).map { $0.pbi_status == SZOMB } ?? true)
+        #expect(!FileManager.default.fileExists(atPath: fixture.folder.appending(path: "host-process.json").path))
     }
 }
 

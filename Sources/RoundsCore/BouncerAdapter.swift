@@ -16,7 +16,28 @@ public protocol BouncerAdapter: AnyObject, Sendable {
     func shutdown() async
 }
 
+public struct BouncerStartupCleanupFailure: Error, Sendable {
+    public let startupMessage: String
+    public let cleanupMessage: String
+}
+
 public extension BouncerAdapter {
+    /// Starts Pi after host health succeeds. A failed Pi launch closes the host before returning.
+    func start(with host: NodeHarnessHost) async throws {
+        _ = try await host.start()
+        do {
+            try Task.checkCancellation()
+            try await start()
+        } catch {
+            let startupError = error
+            do { try await Task.detached { try await host.stop() }.value } catch {
+                throw BouncerStartupCleanupFailure(startupMessage: startupError.localizedDescription,
+                                                   cleanupMessage: error.localizedDescription)
+            }
+            throw startupError
+        }
+    }
+
     /// Host recovery must finish stopping Pi even if a restart cancels the monitor.
     func shutdownAfterHostFailure() async {
         await Task.detached { await self.shutdown() }.value

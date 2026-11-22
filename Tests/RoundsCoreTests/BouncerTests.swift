@@ -4,6 +4,22 @@ import Testing
 
 private let now = Date(timeIntervalSince1970: 1_800_000_000)
 
+@Test func hostShutdownNoticeWaitsForAVisibleWindowThroughPiRestartAndExit() {
+    var thread = BouncerThread()
+    let pending = ["The Harness host did not stop."]
+    thread.apply(.started(sessionFile: nil, isNew: true, model: nil))
+    thread.showHostNotices(pending, windowIsVisible: false)
+    #expect(thread.hostNotices.isEmpty)
+    thread.apply(.exited("Pi exited."))
+    thread.showHostNotices(pending, windowIsVisible: false)
+    #expect(thread.banner == "Pi exited.")
+    thread.showHostNotices(pending, windowIsVisible: true)
+    thread.apply(.started(sessionFile: nil, isNew: true, model: nil))
+    thread.apply(.exited("Pi exited."))
+    #expect(thread.hostNotices == pending)
+    #expect(thread.banner == "Pi exited.\nThe Harness host did not stop.")
+}
+
 @Test func waitingCountsOpenQuestionsAndUndecidedApprovals() throws {
     var thread = BouncerThread()
     #expect(thread.waitingCount == 0)

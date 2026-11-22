@@ -9,16 +9,17 @@ on:
     tags: ["v*"]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
+  harness-host:
+    uses: ./.github/workflows/build-harness-host.yml
+
   release:
+    needs: harness-host
     runs-on: xcode-27
-    env:
-      TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
-      SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
-      SIGNING_CERTIFICATE_P12: ${{ secrets.SIGNING_CERTIFICATE_P12 }}
-      SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
 
@@ -31,26 +32,42 @@ jobs:
           scripts/changelog.sh "$(cat VERSION)" > build/notes.md
 
       - name: Check the tap token
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
         if: env.TAP_TOKEN != ''
         # Before anything is published: an expired token would leave the cask on the old version.
         run: scripts/check-tap-token.sh 0
 
       - name: Test
-        run: |
-          scripts/test-harness-node.sh
-          swift test
+        run: swift test
+
+      - name: Require the Harness payload artifact
+        env:
+          PAYLOAD_ID: ${{ needs.harness-host.outputs.payload-id }}
+        run: test -n "$PAYLOAD_ID"
+
+      - uses: actions/download-artifact@v8
+        with:
+          artifact-ids: ${{ needs.harness-host.outputs.payload-id }}
+          path: ${{ runner.temp }}/rounds-harness-host
+          digest-mismatch: error
 
       - name: Import the signing identity
+        env:
+          SIGNING_CERTIFICATE_P12: ${{ secrets.SIGNING_CERTIFICATE_P12 }}
+          SIGNING_CERTIFICATE_PASSWORD: ${{ secrets.SIGNING_CERTIFICATE_PASSWORD }}
         run: scripts/import-identity.sh
 
       - name: Build the app and the disk image
         run: |
-          scripts/bundle.sh
+          scripts/bundle.sh --harness-payload "$RUNNER_TEMP/rounds-harness-host"
           # The same identity as every release, or permissions and Sparkle's code signature check break on update.
           codesign -dvv build/Rounds.app 2>&1 | grep -x "Authority=Rounds Self-Signed" > /dev/null  # no -q: an early exit is SIGPIPE
           scripts/dmg.sh
 
       - name: Sign the update and write the appcast
+        env:
+          SPARKLE_ED_PRIVATE_KEY: ${{ secrets.SPARKLE_ED_PRIVATE_KEY }}
         run: |
           # Sparkle checks the EdDSA signature: Rounds has no Developer ID to fall back on, so a release without the key
           # would strand every installed copy.
@@ -75,6 +92,8 @@ jobs:
           gh release edit beta --prerelease --latest=false --title "Rounds $VERSION" --notes-file build/notes.md
 
       - name: Update the Homebrew tap
+        env:
+          TAP_TOKEN: ${{ secrets.TAP_TOKEN }}
         if: env.TAP_TOKEN != ''
         run: |
           SHA256="$(shasum -a 256 build/Rounds.dmg | cut -d ' ' -f 1)"

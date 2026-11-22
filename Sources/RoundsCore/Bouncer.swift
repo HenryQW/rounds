@@ -104,16 +104,21 @@ public enum BouncerEvent: Equatable, Sendable {
 public struct BouncerThread: Equatable, Sendable {
     public private(set) var items: [BouncerItem]
     public private(set) var tasks: [BouncerTask]
-    public private(set) var banner: String?
+    public var banner: String? {
+        let lines = [eventBanner].compactMap { $0 } + hostNotices.filter { $0 != eventBanner }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
+    }
+    public private(set) var hostNotices: [String] = []
     public private(set) var replying: Bool
+    private var eventBanner: String?
 
     public init(items: [BouncerItem] = [], tasks: [BouncerTask] = []) {
-        (self.items, self.tasks, banner, replying) = (items, tasks, nil, false)
+        (self.items, self.tasks, replying) = (items, tasks, false)
     }
 
     public mutating func apply(_ event: BouncerEvent) {
         switch event {
-        case .started: banner = nil
+        case .started: eventBanner = nil
         // An item with a known id replaces it: `get_messages` after a restart gives the ids of the live stream.
         case .item(let item):
             if let i = items.firstIndex(where: { $0.id == item.id }) { items[i] = item } else { items.append(item) }
@@ -123,15 +128,22 @@ public struct BouncerThread: Equatable, Sendable {
         case .replying(let on): replying = on
         case .closed(let id): closeQuestions { $0.id == id }
         case .tasks(let list): tasks = list
-        case .banner(let text): banner = text
-        case .failed(let text): banner = text
+        case .banner(let text): eventBanner = text
+        case .failed(let text): eventBanner = text
         case .exited(let text):
-            (banner, replying) = (text, false)
+            (eventBanner, replying) = (text, false)
             closeQuestions { _ in true }
         // The window keeps the model list; the thread does not show it.
         case .models: break
         }
     }
+
+    public mutating func showHostNotices(_ notices: [String], windowIsVisible: Bool) {
+        guard windowIsVisible else { return }
+        for notice in notices where !hostNotices.contains(notice) { hostNotices.append(notice) }
+    }
+
+    public mutating func clearHostNotices() { hostNotices.removeAll() }
 
     public mutating func answer(_ questionID: String, _ answer: BouncerAnswer) {
         guard let i = items.firstIndex(where: { $0.id == questionID }), case .question(var q) = items[i], q.isOpen else { return }

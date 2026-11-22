@@ -1,0 +1,44 @@
+name: Build Harness host
+
+on:
+  workflow_call:
+    outputs:
+      payload-id:
+        description: The artifact that contains the checked host payload
+        value: ${{ jobs.build.outputs.payload-id }}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # A fresh GitHub-hosted Apple silicon runner keeps dependency builds outside the signing job.
+    runs-on: macos-15
+    outputs:
+      payload-id: ${{ steps.upload.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '26.13.1'
+          architecture: arm64
+          package-manager-cache: false
+
+      - name: Build and test the host
+        run: |
+          scripts/build-harness-host.sh
+          ROUNDS_HARNESS_PAYLOAD="$PWD/.build/harness-host" scripts/test-harness-node.sh
+
+      - uses: actions/upload-artifact@v6
+        id: upload
+        with:
+          name: harness-host-${{ github.run_attempt }}
+          path: |
+            .build/harness-host/node
+            .build/harness-host/host.mjs
+            .build/harness-host/commit
+          include-hidden-files: true
+          if-no-files-found: error

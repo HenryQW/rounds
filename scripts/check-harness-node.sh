@@ -34,7 +34,12 @@ printf '%s\n' "$LIBRARIES" | LC_ALL=C awk '
     }
 '
 
-if ! env -i PATH=/usr/bin:/bin "$NODE" --input-type=commonjs -e '
+if ! lipo -verify_arch arm64 "$NODE"; then
+    echo "Node has no Apple silicon arm64 slice: $NODE" >&2
+    exit 1
+fi
+
+if ! env -i PATH=/usr/bin:/bin arch -arm64 "$NODE" --input-type=commonjs -e '
     const { DatabaseSync } = require("node:sqlite");
     if (typeof DatabaseSync !== "function") throw new Error("DatabaseSync is unavailable");
 '; then
@@ -50,7 +55,7 @@ if [ "$#" -ge 2 ]; then
     TMP="$(mktemp -d "${TMP_BASE%/}/rounds-host-check.XXXXXX")"
     trap 'rm -rf "$TMP"' EXIT HUP INT TERM
     if ! env -i PATH=/usr/bin:/bin ROUNDS_HARNESS_RUN_ID=00000000-0000-0000-0000-000000000000 \
-        "$NODE" --input-type=commonjs - "$HOST" "$TMP" "$COMMIT" <<'NODE_CHECK'
+        arch -arm64 "$NODE" --input-type=commonjs - "$HOST" "$TMP" "$COMMIT" <<'NODE_CHECK'
 const { spawn } = require("node:child_process");
 const host = spawn(process.execPath, [process.argv[2], process.argv[3],
     "ROUNDS_HARNESS_RUN_ID=00000000-0000-0000-0000-000000000000"],

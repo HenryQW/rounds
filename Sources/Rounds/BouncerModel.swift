@@ -37,6 +37,9 @@ final class BouncerModel {
     @ObservationIgnored private var startup: Task<Void, Never>?
     @ObservationIgnored private var hostMonitor: Task<Void, Never>?
     @ObservationIgnored private var hostFailureActive = false
+    @ObservationIgnored private var piLaunchState = PiLaunchState.awaitingState
+    private enum PiLaunchState { case awaitingState, ready, exitedBeforeState }
+    private let hostNoticeKeys = ["bouncerHostShutdownError", "bouncerHostHealthError"]
     /// Shutdowns that have not ended, from each Off and quit, so quit waits for a Pi that an earlier Off stops.
     @ObservationIgnored private var shutdowns: [UUID: Task<Void, Never>] = [:]
     /// The session file that Pi reported at start; `sessionFile` once it exists.
@@ -128,11 +131,10 @@ final class BouncerModel {
                 let text = "The Harness host stopped: \(error.localizedDescription)"
                 log.error("\(text, privacy: .public)")
                 appDefaults.set(text, forKey: "bouncerHostHealthError")
+                windowShown()
             } catch {
-                let text = "The Harness host did not stop: \(error.localizedDescription)"
-                log.error("\(text, privacy: .public)")
-                appDefaults.set(text, forKey: "bouncerHostShutdownError")
-                thread.apply(.failed(text))
+                recordHostShutdownError(error.localizedDescription)
+                windowShown()
             }
             await adapterStop
             shutdowns[id] = nil
@@ -145,6 +147,9 @@ final class BouncerModel {
         let host = self.host, earlierStops = Array(shutdowns.values), monitor = hostMonitor
         hostMonitor = nil
         monitor?.cancel()
+        piLaunchState = .awaitingState
+        thread.clearHostNotices()
+        windowShown()
         startup = Task {
             defer { if !Task.isCancelled { startup = nil } }
             await monitor?.value
@@ -152,10 +157,12 @@ final class BouncerModel {
             do {
                 for task in earlierStops { await task.value }
                 try Task.checkCancellation()
-                if let host { _ = try await host.start() }
-                try Task.checkCancellation()
-                try await adapter.start()
-                if self.adapter === adapter {
+                if let host {
+                    try await adapter.start(with: host)
+                } else {
+                    try await adapter.start()
+                }
+                if self.adapter === adapter, piLaunchState != .exitedBeforeState {
                     running = true
                     hostFailureActive = false
                     if let host {
@@ -184,7 +191,9 @@ final class BouncerModel {
                     }
                 }
             } catch {
-                fail("The Bouncer did not start: \(error.localizedDescription)", from: adapter, duringStartup: true)
+                let failure = error as? BouncerStartupCleanupFailure
+                if let failure { recordHostShutdownError(failure.cleanupMessage) }
+                fail("The Bouncer did not start: \(failure?.startupMessage ?? error.localizedDescription)", from: adapter, duringStartup: true)
                 if !Task.isCancelled {
                     startup = nil
                     windowShown()
@@ -240,22 +249,36 @@ final class BouncerModel {
         focusToken += 1
     }
 
-    /// Clears a saved host notice only when its banner is visible in the Bouncer window.
     func windowShown() {
-        guard let window = BouncerWindowController.shared.window, window.isVisible, !window.isMiniaturized,
-              let notice = appDefaults.string(forKey: "bouncerHostHealthError") else { return }
-        if thread.banner?.contains(notice) != true {
-            // A pending Pi request may have replaced the host banner during shutdown.
-            // During startup, wait for `.started` to restore the notice after Pi clears the banner.
-            guard startup == nil else { return }
-            thread.apply(.failed([thread.banner, notice].compactMap { $0 }.joined(separator: "\n")))
+        let notices = hostNoticeKeys.compactMap { appDefaults.string(forKey: $0) }
+        guard !notices.isEmpty else { return }
+        thread.showHostNotices(notices, windowIsVisible: isWindowVisible)
+    }
+
+    func hostNoticesShown(_ notices: [String]) {
+        guard isWindowVisible else { return }
+        for key in hostNoticeKeys {
+            if let pending = appDefaults.string(forKey: key), notices.contains(pending) {
+                appDefaults.removeObject(forKey: key)
+            }
         }
-        appDefaults.removeObject(forKey: "bouncerHostHealthError")
+    }
+
+    private var isWindowVisible: Bool {
+        guard let window = BouncerWindowController.shared.window else { return false }
+        return window.isVisible && !window.isMiniaturized
+    }
+
+    private func recordHostShutdownError(_ message: String) {
+        let text = "The Harness host did not stop: \(message)"
+        log.error("\(text, privacy: .public)")
+        appDefaults.set(text, forKey: "bouncerHostShutdownError")
     }
 
     private func apply(_ event: BouncerEvent) {
         switch event {
         case .started(let file, let isNew, let current):
+            piLaunchState = .ready
             if let old = missingBouncerSession(recorded: sessionFile, reported: file, isNew: isNew) {
                 thread.apply(.item(.note(id: "missing-\(old)", text: "New conversation. The earlier Bouncer session file is missing.")))
             }
@@ -265,22 +288,26 @@ final class BouncerModel {
             recordSessionFile()
         case .replying(false): recordSessionFile()
         case .models(let list): models = list
-        case .exited: running = false
+        case .exited:
+            running = false
+            if piLaunchState == .awaitingState, let host {
+                piLaunchState = .exitedBeforeState
+                let monitor = hostMonitor
+                monitor?.cancel()
+                hostMonitor = Task {
+                    await monitor?.value
+                    do { try await Task.detached { try await host.stop() }.value } catch {
+                        recordHostShutdownError(error.localizedDescription)
+                        windowShown()
+                    }
+                }
+            }
         default: break
         }
         thread.apply(event)
-        if case .started = event {
-            var notices: [String] = []
-            if let error = appDefaults.string(forKey: "bouncerHostShutdownError") {
-                appDefaults.removeObject(forKey: "bouncerHostShutdownError")
-                notices.append(error)
-            }
-            if let error = appDefaults.string(forKey: "bouncerHostHealthError") { notices.append(error) }
-            if !notices.isEmpty { thread.apply(.failed(notices.joined(separator: "\n"))) }
-            windowShown()
-        } else if case .exited = event, let notice = appDefaults.string(forKey: "bouncerHostHealthError") {
-            thread.apply(.failed([thread.banner, notice].compactMap { $0 }.joined(separator: "\n")))
-            windowShown()
+        switch event {
+        case .started, .exited: windowShown()
+        default: break
         }
     }
 
