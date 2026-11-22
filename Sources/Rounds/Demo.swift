@@ -56,8 +56,17 @@ enum Demo {
                     }
                 }
                 if scene?.hasPrefix("bouncer") == true, scene != "bouncer-pill" {
+                    if ["bouncer-cards", "bouncer-details"].contains(scene) { BouncerModel.shared.selection = "t1" }
+                    if scene == "bouncer-details" { BouncerWindowController.shared.state.detailSections = ["Agents", "Environment"] }
                     BouncerWindowController.shared.show()
+                    if ["bouncer-cards", "bouncer-details"].contains(scene), let window = BouncerWindowController.shared.window {
+                        window.setContentSize(NSSize(width: 1200, height: 960))
+                        window.center()
+                    }
                     if scene == "bouncer-note" { BouncerWindowController.shared.state.hostNote = true }
+                    if let path = argument("--demo-render") {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { renderBouncer(to: path) }
+                    }
                 }
                 if scene?.hasPrefix("window") == true {
                     if scene == "window-children" { PanelController.shared.state.expanded = ["demo-parser", "demo-notes"] }
@@ -83,6 +92,27 @@ enum Demo {
                 }
             }
         }
+    }
+
+    /// An in-app window render when macOS does not permit external window capture.
+    @MainActor private static func renderBouncer(to path: String) {
+        guard let view = BouncerWindowController.shared.window?.contentView else { fatalError("No Bouncer window to render") }
+        view.layoutSubtreeIfNeeded()
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { fatalError("Cannot render the Bouncer window") }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        // Material layers are transparent in a cached display. Use the window colour behind them.
+        let image = NSImage(size: view.bounds.size)
+        view.effectiveAppearance.performAsCurrentDrawingAppearance {
+            image.lockFocus()
+            NSColor.windowBackgroundColor.setFill()
+            view.bounds.fill()
+            bitmap.draw(in: view.bounds)
+            image.unlockFocus()
+        }
+        guard let tiff = image.tiffRepresentation, let flattened = NSBitmapImageRep(data: tiff),
+              let data = flattened.representation(using: .png, properties: [:]) else { fatalError("Cannot encode the Bouncer render") }
+        do { try data.write(to: URL(fileURLWithPath: path)) }
+        catch { fatalError("Cannot write the Bouncer render: \(error)") }
     }
 
     /// The placeholder sessions: every state, a Ready row the user opened (seen), a starred row, a parent with a direct and an isolated child, background
