@@ -20,8 +20,7 @@ final class BarSettingsState {
     private(set) var inspection: BarInspection?
     private(set) var inspecting = false
     var error: String?
-    /// The user's answer to "Create a repository in this folder?"; no until the user says yes.
-    var createRepository = false
+    /// The bar name typed in the "Create a repository in this folder?" alert.
     var repositoryName = ""
     var confirmCreate = false
     /// A folder chosen for a scope but not yet approved.
@@ -80,7 +79,7 @@ final class BarSettingsState {
         panel.canCreateDirectories = true
         panel.prompt = "Choose"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        (createRepository, repositoryName) = (false, "")
+        repositoryName = ""
         inspect(url.path, adopt: true)
     }
 
@@ -122,7 +121,7 @@ final class BarSettingsState {
             let result = await Task.detached { Result(catching: { try createBarRepository(in: folder, name: name) }) }.value
             switch result {
             case .success:
-                (createRepository, repositoryName) = (false, "")
+                repositoryName = ""
                 inspect(folder, adopt: true)
             case .failure(let failure):
                 error = "Could not create the repository: \(message(failure))"
@@ -262,36 +261,25 @@ struct BarSections: View {
                     Text("The bar folder was moved or replaced. Choose it again.").foregroundStyle(.orange)
                 }
             } else if state.inspection == .noRepository {
-                LabeledContent { EmptyView() } label: {
-                    described("No repository found", "The folder is not in a Git repository.")
-                }
-                Picker(selection: $state.createRepository) {
-                    Text("Yes, Create a Repository").tag(true)
-                    Text("No, Stop Setup").tag(false)
-                } label: {
-                    described("Create a repository in this folder?", "Rounds runs git init here. It adds no remote and makes no commit.")
-                }
-                .pickerStyle(.radioGroup)
-                if state.createRepository {
-                    LabeledContent {
-                        HStack {
-                            TextField("", text: $state.repositoryName, prompt: Text("Bar"))
-                            Button("Create…") { state.confirmCreate = true }
-                                .disabled(state.repositoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        }
-                    } label: {
-                        described("Bar name", "Saved in \(barFileName) in the folder.")
+                LabeledContent {
+                    Button("Create Repository…") {
+                        // The folder name is a first suggestion for the bar name.
+                        state.repositoryName = state.folder.map { ($0 as NSString).lastPathComponent } ?? ""
+                        state.confirmCreate = true
                     }
+                } label: {
+                    described("No repository found", "The folder is not in a Git repository.")
                 }
             }
         } header: {
             step(2, "Review the repository")
         }
         .alert("Create a repository in this folder?", isPresented: $state.confirmCreate) {
+            TextField("Bar name", text: $state.repositoryName)
             Button("Cancel", role: .cancel) {}
-            Button("Create Repository") { state.create() }
+            Button("Create") { state.create() }
         } message: {
-            Text("Rounds runs git init in \(state.folder ?? "") and writes \(barFileName). It does not add a remote, commit or push.")
+            Text("Rounds runs git init in \(state.folder ?? "") and writes the bar name to \(barFileName). It does not add a remote, commit or push.")
         }
     }
 

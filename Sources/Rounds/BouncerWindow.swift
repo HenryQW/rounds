@@ -447,14 +447,7 @@ struct BouncerView: View {
         case .chooseBar: ("Choose a bar folder", .bar)
         case .confirmRemotes: ("Confirm the bar remotes", .bar)
         }
-        return Button {
-            SettingsState.shared.page = page
-            NSApp.activate(ignoringOtherApps: true)
-            // The app menu's Settings… item (⌘,), which SwiftUI's Settings scene adds.
-            if let menu = NSApp.mainMenu?.items.first?.submenu, let item = menu.items.firstIndex(where: { $0.keyEquivalent == "," }) {
-                menu.performActionForItem(at: item)
-            }
-        } label: {
+        return Button { openSettings(page) } label: {
             HStack(spacing: 8) {
                 Image(systemName: "wrench.and.screwdriver").frame(width: 16)
                 VStack(alignment: .leading, spacing: 2) {
@@ -469,6 +462,48 @@ struct BouncerView: View {
         .onHover { hover("setup", $0) }
         .help("The Bouncer starts when the setup is complete. Opens Settings.")
         .padding(.bottom, 6)
+    }
+
+    private func openSettings(_ page: SettingsPage) {
+        SettingsState.shared.page = page
+        NSApp.activate(ignoringOtherApps: true)
+        // The app menu's Settings… item (⌘,), which SwiftUI's Settings scene adds.
+        if let menu = NSApp.mainMenu?.items.first?.submenu, let item = menu.items.firstIndex(where: { $0.keyEquivalent == "," }) {
+            menu.performActionForItem(at: item)
+        }
+    }
+
+    /// Shown in place of the empty conversation until the setup is complete (spec 5.8): the first missing step and
+    /// the button that does it.
+    @ViewBuilder private func setUpCard(_ step: BouncerSetupStep) -> some View {
+        let bar = BarSettingsState.shared
+        switch step {
+        case .chooseBar:
+            ContentUnavailableView {
+                Label("Set up a bar", systemImage: "wineglass")
+            } description: {
+                Text("The Bouncer keeps its records in a bar, a Git repository on this Mac. The Bouncer starts when the setup is complete.")
+            } actions: {
+                if bar.folder == nil {
+                    Button("Choose Folder…") {
+                        bar.chooseFolder()
+                        // The repository check and the remotes continue in Settings.
+                        if bar.folder != nil { openSettings(.bar) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                } else {
+                    Button("Continue Setup…") { openSettings(.bar) }.buttonStyle(.borderedProminent)
+                }
+            }
+        case .confirmRemotes:
+            ContentUnavailableView {
+                Label("Confirm the bar remotes", systemImage: "wineglass")
+            } description: {
+                Text("The Bouncer starts after you confirm that the remotes of the bar may be public.")
+            } actions: {
+                Button("Open Bar Settings…") { openSettings(.bar) }.buttonStyle(.borderedProminent)
+            }
+        }
     }
 
     // MARK: Conversation
@@ -496,8 +531,11 @@ struct BouncerView: View {
             }
             .overlay {
                 if model.visibleItems.isEmpty && !model.thread.replying {
-                    Text(model.setupSteps.isEmpty ? "Ask the Bouncer to start a task, or ask what waits." : "Set up the Bouncer first.")
-                        .foregroundStyle(.secondary)
+                    if let step = model.setupSteps.first {
+                        setUpCard(step)
+                    } else {
+                        Text("Ask the Bouncer to start a task, or ask what waits.").foregroundStyle(.secondary)
+                    }
                 }
             }
             composer
