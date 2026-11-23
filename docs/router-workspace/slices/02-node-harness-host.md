@@ -98,7 +98,27 @@ The local probes used the release source with different markers in the selected 
 
 The offline fixture runs with `node --test scripts/test-container-admission.mjs`. The host check also runs it with the bundled Node when `ROUNDS_HARNESS_PAYLOAD` is set. Without a payload, the host check reports that it skipped the fixture. It creates temporary Git checkouts, run records and saved-state files. A counted stub records each admitted create or load. The tests cover a clean create, config files and links, missing config or state, identity and revision mismatches, a foreign container identity, and state changes after an allowed load. A create rejects existing remotes and Git notes. A load checks the remote names and URLs, and notes refs and object IDs, against the run record. A modeled create followed by load accepts matching owned metadata. The fixture uses its own JSON state model and a sample built-in config. It does not simulate the fallback worktree read, parse upstream Git notes or exercise container-use.
 
-This fixture does not register tools or enforce production security. It accepts empty metadata on load when the run record expects none. It checks `HEAD`, not the full checkout contents. It assumes private, stable inputs during each call and does not prove ownership or prevent replacement after a check. The live bridge still needs controlled checkout and state creation, upstream state verification on every load, and protection through the upstream read. Live container execution, secret resolution, network isolation and restart reconciliation remain unverified.
+The fixture accepts empty metadata on load when the run record expects none. It checks `HEAD` and assumes private, stable inputs during each call. Production opens the Harness with an empty tool registry.
+
+### Live upstream checks
+
+A disposable client used container-use v0.4.2 and Dagger v0.18.14 on Docker Desktop for macOS. The probe used a fresh Git repository, an isolated engine, a private image mirror and a test proxy. It started the client with a minimal environment and used a generated secret.
+
+| Check | Observed result |
+|---|---|
+| Creation and reopen | `Create` saved the built-in config and used the pinned source tree. `Get` read `refs/notes/container-use-state` and preferred saved config over a linked `.container-use` directory. Removing only `config` from the note made `Get` read through the link. Removing the note made `Get` fail before fallback. |
+| Private checkout and state | The owner, device, inode and permissions of the tracked paths stayed stable through `Get` and `Run`. The checkout and state roots used mode `0700`. The source revision, local fork remote, worktree revision and note identity stayed stable. The guest could read a source file and could see neither the private host root nor `.git`. |
+| Secret resolution | A host working config resolved an `env://` value through the Dagger client. `Create` failed with the same config when the next client lacked the value. The probe printed only success markers. |
+| Network, internal Docker network alone | `Run` received the proxy settings. The allowed proxy route reached the test origin, and the denied route returned status `403`. Direct connections to the test origin and a public address failed. The public name lookup failed. Both the original command and a nested Dagger worker could connect directly to the private image mirror. |
+| Network, with worker firewall | The firewall allowed worker traffic to the proxy address and port. It blocked other traffic from the worker bridge. Both workers lost direct access to the mirror. The proxy allow and deny checks still passed. |
+| Network after restart | The engine restart cleared the firewall. Installing the forwarding rules before the first job let Dagger's network setup put its accept rules first. Both workers could reach the mirror again. A second restart with a filter before the forwarding stage blocked both paths and preserved the proxy checks. |
+| Reopen after restart | `Update` persisted a file marker and the probe saved an owned run record. A fresh client read the marker after an engine restart and on a fresh engine with a new volume. The probe's preflight rejected a dirty source checkout and a changed note. |
+
+### Production registration gates
+
+- Hold exclusive ownership of the private checkout and state through every upstream call. Verify the actual note, run identity and checkout before each reopen. Refuse config-less notes before the upstream fallback runs.
+- Apply and verify worker egress controls at engine startup and restart. Verify that Dagger's network setup leaves them effective before scheduling work. Keep mirror access available to the engine and block it for workers. Test the production proxy allowlist with both ordinary and nested workers.
+- Reconcile stored runs, local records, checkout ownership and live process identity before scheduling resumes. The live reopen checks used a probe run record. The production host still needs a bridge that performs this reconciliation.
 
 [Creation]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/repository/repository.go#L185-L239
 [file loader]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/environment/config.go#L146-L160
@@ -229,7 +249,6 @@ The main review checked both new failure paths and their regression tests.
 - Check the live Magpie service before release. The conversation fixture uses a loopback provider.
 - Define restart behavior for model requests made by Bartenders and Barbacks. The Bouncer aborts interrupted requests before it resumes scheduling.
 - The shared engine version must match the container-use release. Nesting still lets code in a container start normal containers on that engine.
-- Choose the one egress allowlist for version one. An allowed domain can still receive data from the container. The proxy address must be an IP address, because the engine DNS does not resolve Docker aliases.
-- Implement the [container configuration contract](#container-configuration-contract). Check refusal before an upstream tool call for a dirty host config, a linked config and unverified reopen state.
+- Choose the one egress allowlist for version one. An allowed domain can still receive data from the container. Use an IP address for the proxy. The engine DNS did not resolve Docker aliases in the earlier feasibility probe.
+- Implement and verify the [production registration gates](#production-registration-gates). Check refusal before an upstream tool call for a dirty host config, a linked config and unverified reopen state.
 - Verify the identity of a process before Rounds signals it. A detached descendant can escape process-group cleanup.
-- After a restart, reconcile run identity, process state, checkout ownership and local-only records before work resumes.
