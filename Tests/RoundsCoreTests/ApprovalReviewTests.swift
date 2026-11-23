@@ -43,7 +43,7 @@ import Testing
                     revision: snapshot.revision, draft: draft))
                 let request = ApprovalRequest(id: UUID(), taskID: taskID, repositoryID: UUID(), organizationID: nil,
                                               resultRevisionID: UUID(), resultDigest: String(repeating: "a", count: 64),
-                                              snapshot: snapshot, actions: [action], createdAt: now, checkedAt: now)
+                                              snapshot: snapshot, actions: [action], createdAt: now, checkedAt: now, harnessBinding: nil)
                 #expect(throws: ApprovalError.credentialAddressInText) { try request.validate(taskID: taskID) }
             }
             #expect(throws: ApprovalError.credentialAddressInText) {

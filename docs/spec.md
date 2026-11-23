@@ -425,7 +425,11 @@ Claude sessions: `claude://code/continue?session=<sessionId>`. Codex threads: `c
 
 ### 5.9 Bouncer Window
 
-Bouncer mode (Settings > General, `bouncerMode`, off by default) puts the Bouncer in front of the sessions. Off keeps the app as in 5.1 to 5.8. The plan is `docs/router-workspace/slices/01-bouncer-mode.md`. Dispatch still needs to supply task rows and authorized local results. Local task fixtures exercise the saved approval path.
+Bouncer mode (Settings > General, `bouncerMode`, off by default) puts the Bouncer in front of the sessions. Off keeps the app as in 5.1 to 5.8. The plan is `docs/router-workspace/slices/01-bouncer-mode.md`.
+
+Local fixtures check denied worker egress, restart reconciliation, Blocked continuation and branch intake across two repositories. The running app still needs current task, repository and storage permissions to enable this workflow. See [slice 03](router-workspace/slices/03-dispatch-and-results.md).
+
+Local approval fixtures check saved answers, durable delivery and exact action execution with an inert executor. The running app needs the trusted decision adapter and protected transport in [slice 04](router-workspace/slices/04-approval-and-publication.md).
 
 - Pill: it shows the Bouncer only. Nothing waits: the empty clear tab, still, with no number. Approvals and questions wait: the orange tab with their count, which peeks every 2 s with the ring (the panel grows as in 5.7), and stays still with Reduce Motion. Only a click opens the Bouncer Window; a hover does nothing. Right-click adds Open Session List, which slides out the session window. The global shortcut still opens the session window. Accessibility: label "Bouncer", value "N waiting for you" or "Nothing waiting", hint "Opens the Bouncer Window".
 - Window: a normal titled, resizable window (900 x 640 pt at first, at least 480 x 400 pt, frame saved). The subtitle says what waits. The sidebar has the Set Up row (only while a step is missing), New Task (⌘N) and the Bouncer row; below 700 pt it is an overlay that the header's sidebar button shows. The conversation shows the user's messages, the Bouncer's replies, reports with their tool steps collapsed (a click opens them), questions with numbered options (the recommended one marked) or a text field, approval requests, notes, and "You stopped the reply.". While the Bouncer replies, typing dots show (still with Reduce Motion). The focus goes to the first undecided approval, else option 1 of the first open question, else the prompt box.

@@ -269,13 +269,21 @@ extension TaskInterface {
     /// Only the local host calls this with the exact result, repository and proposed intents.
     public func requestApproval(for taskID: UUID, expecting reference: TaskDetailReference,
                                 repositoryID: UUID, repository: URL, sourceRef: String, remote: String,
-                                actions: [ApprovalAction], using authorization: TaskStorageAuthorization) throws -> ApprovalRecord {
+                                actions: [ApprovalAction], using authorization: TaskStorageAuthorization,
+                                harnessBinding: ApprovalHarnessBinding? = nil,
+                                verifyBoundTaskEnded: (ApprovalHarnessBinding) throws -> Bool = { _ in false }) throws -> ApprovalRecord {
         try withApprovals(for: taskID, using: authorization) { record, lock in
             guard record.task.detailReference == reference else { throw TaskGraphError.changedOnDisk }
             guard let details = record.details, let result = details.result, let resultRevisionID = details.resultRevisionID else {
                 throw ApprovalError.resultMismatch
             }
+            guard !details.approvals.contains(where: { $0.execution?.last == .started }) else {
+                throw ApprovalError.executionUncertain
+            }
             guard details.approvals.last.map({ $0.invalidatedAt != nil }) ?? true else { throw ApprovalError.invalidRequest }
+            let bindings = details.approvals.compactMap(\.request.harnessBinding)
+            guard !bindings.contains(where: { $0.taskID == harnessBinding?.taskID }),
+                  try bindings.last.map(verifyBoundTaskEnded) != false else { throw ApprovalError.boundTaskUnverified }
             guard result.repositoryID == repositoryID, let authorizedFolder = result.repositoryFolder else {
                 throw ApprovalError.resultMismatch
             }
@@ -287,7 +295,7 @@ extension TaskInterface {
             let request = ApprovalRequest(id: UUID(), taskID: taskID, repositoryID: repositoryID,
                                           organizationID: authorization.organizationID, resultRevisionID: resultRevisionID,
                                           resultDigest: try approvalResultDigest(result), snapshot: snapshot, actions: actions,
-                                          createdAt: createdAt, checkedAt: max(createdAt, Date()))
+                                          createdAt: createdAt, checkedAt: max(createdAt, Date()), harnessBinding: harnessBinding)
             try request.validate(taskID: taskID)
             let approval = ApprovalRecord(request: request)
             try saveApprovals(record, using: authorization, lock: lock, at: request.checkedAt) { $0.append(approval) }
@@ -326,6 +334,71 @@ extension TaskInterface {
             saved.answer = answer
             try saveApprovals(record, using: authorization, lock: lock, at: at) { $0[$0.count - 1] = saved }
             return saved
+        }
+    }
+
+    /// Reads an answer for the exact call after the same local recheck used for the card.
+    public func verifiedApprovalAnswer(_ requestID: UUID, for taskID: UUID, binding: ApprovalHarnessBinding,
+                                       using authorization: TaskStorageAuthorization) throws -> ApprovalAnswer? {
+        try withApprovals(for: taskID, using: authorization) { record, lock in
+            guard let approval = record.details?.approvals.last, approval.id == requestID,
+                  approval.request.harnessBinding == binding else { throw ApprovalError.boundTaskUnverified }
+            guard try recheck(approval, in: record, using: authorization, lock: lock) else { throw ApprovalError.stale }
+            let current = try read(taskID, using: authorization, expectingDirectory: lock.2)
+            guard current.task.detailReference == record.task.detailReference else { throw TaskGraphError.changedOnDisk }
+            return approval.answer
+        }
+    }
+
+    /// The trusted executor verifies live permissions, targets and recovery before running the stored action.
+    /// Its return confirms the external result. A thrown or interrupted execution stays blocked for inspection.
+    func executeApprovedAction(_ actionID: UUID, requestID: UUID, taskID: UUID,
+                               using authorization: TaskStorageAuthorization,
+                               verify: (ApprovalRequest, ApprovalAction) throws -> Bool,
+                               execute: (ApprovalAction) throws -> Void) throws {
+        try withApprovals(for: taskID, using: authorization) { record, lock in
+            guard let approval = record.details?.approvals.last, approval.id == requestID else {
+                throw ApprovalError.unknownRequest
+            }
+            guard approval.execution?.last != .started else { throw ApprovalError.executionUncertain }
+            let next = approval.execution?.count ?? 0
+            guard approval.answer?.decision == .approved, approval.request.actions.indices.contains(next) else {
+                throw ApprovalError.actionNotApproved
+            }
+            let action = approval.request.actions[next]
+            guard action.id == actionID,
+                  try recheck(approval, in: record, using: authorization, lock: lock),
+                  try verify(approval.request, action) else { throw ApprovalError.actionNotApproved }
+
+            var started = approval
+            started.execution = (approval.execution ?? []) + [.started]
+            try saveApprovals(record, using: authorization, lock: lock, at: Date()) { $0[$0.count - 1] = started }
+            let current: TaskRecord
+            do {
+                current = try read(taskID, using: authorization, expectingDirectory: lock.2)
+                guard current.details?.approvals.last == started,
+                      try recheck(started, in: current, using: authorization, lock: lock),
+                      try verify(started.request, action) else { throw ApprovalError.actionNotApproved }
+            } catch {
+                // No executor ran. Keep any invalidation that the final check saved.
+                do {
+                    let latest = try read(taskID, using: authorization, expectingDirectory: lock.2)
+                    guard let saved = latest.details?.approvals.last, saved.id == requestID,
+                          saved.execution == started.execution else { throw ApprovalError.executionUncertain }
+                    try saveApprovals(latest, using: authorization, lock: lock, at: Date()) {
+                        $0[$0.count - 1].execution = approval.execution
+                    }
+                } catch { throw ApprovalError.executionUncertain }
+                throw error
+            }
+            do {
+                try execute(action)
+                var completed = started
+                completed.execution?[next] = .completed
+                try saveApprovals(current, using: authorization, lock: lock, at: Date()) { $0[$0.count - 1] = completed }
+            } catch {
+                throw ApprovalError.executionUncertain
+            }
         }
     }
 
