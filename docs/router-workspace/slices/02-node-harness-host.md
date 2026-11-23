@@ -173,7 +173,7 @@ The disposable restart check reopened a command result and a skipped build file 
 | Ready | Open SQLite, then open the Harness. Return health only after both succeed. Swift checks the protocol version, request identity, source commit and paused state. |
 | Running | Keep one host for this mode lifetime. Health reports real Harness inspection. The Bouncer shares the host pipes with lifecycle commands. |
 | Stop | Ask for shutdown and close input. Wait for graceful exit, then send `SIGTERM`, then `SIGKILL` after bounded waits. Reap the child and check group members. |
-| Restart | Clean only the verified recorded group. A mismatched process identity blocks startup. Detached descendants and work reconciliation remain Open. |
+| Restart | Clean the verified recorded group. If a recorded child is still live outside the group, keep the record and block startup. Retry after the child exits. |
 
 ```mermaid
 flowchart LR
@@ -272,4 +272,4 @@ The main review checked both new failure paths and their regression tests.
 - The shared engine version must match the container-use release. Keep nesting disabled for admitted tools on that engine.
 - Choose the one egress allowlist for version one. An allowed domain can still receive data from the container. Use an IP address for the proxy. The engine DNS did not resolve Docker aliases in the earlier feasibility probe.
 - Complete the [production registration gates](#production-registration-gates) before adding tools to the Harness registry.
-- Verify the identity of a process before Rounds signals it. A detached descendant can escape process-group cleanup.
+- Account for descendants that detach before Rounds records their birth identity. A recorded child that detaches blocks startup until it exits.

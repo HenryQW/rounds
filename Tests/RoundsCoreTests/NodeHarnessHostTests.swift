@@ -555,6 +555,71 @@ func harnessHostStopsAChildFirstSeenDuringShutdown(recordWriteFails: Bool) async
     }
 }
 
+@Test(arguments: [false, true])
+func harnessHostRechecksARecordedChildOutsideTheGroup(reusedPID: Bool) async throws {
+    let fixture = try HarnessFixture("""
+        /usr/bin/perl -MPOSIX -e '
+            my $folder = shift;
+            alarm 35;
+            select undef, undef, undef, 0.02 until -e "$folder/detach";
+            POSIX::setsid() >= 0 or die "setsid: $!";
+            sleep 30;
+        ' "$folder" </dev/null >/dev/null &
+        """)
+    let next = try HarnessFixture()
+    defer { fixture.remove(); next.remove() }
+    let original = fixture.host(), replacement = next.host()
+    _ = try await original.start()
+    let saved = try fixture.record()
+    let child = try #require(saved.descendants.first)
+    func sameChild() -> proc_bsdinfo? {
+        guard let info = HostProcessRecord.info(child.pid), info.pbi_start_tvsec == child.seconds,
+              info.pbi_start_tvusec == child.microseconds, info.pbi_status != SZOMB else { return nil }
+        return info
+    }
+    do {
+        try Data().write(to: fixture.folder.appending(path: "detach"))
+        let deadline = ContinuousClock.now + .seconds(2)
+        while sameChild()?.pbi_pgid == UInt32(saved.pid), ContinuousClock.now < deadline {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        try #require(sameChild()?.pbi_pgid == UInt32(child.pid))
+        kill(saved.pid, SIGKILL)
+        var leftover = saved
+        if reusedPID {
+            leftover.descendants = [HostProcessIdentity(pid: child.pid, seconds: child.seconds + 1,
+                                                         microseconds: child.microseconds)]
+        }
+        let recordURL = next.folder.appending(path: "host-process.json")
+        let data = try JSONEncoder().encode(leftover)
+        try data.write(to: recordURL)
+        if !reusedPID {
+            do {
+                _ = try await replacement.start()
+                Issue.record("An escaped child should block Harness startup.")
+            } catch {
+                #expect(error.localizedDescription.contains("A recorded Harness child left its process group"))
+            }
+            #expect(try Data(contentsOf: recordURL) == data)
+            #expect(!FileManager.default.fileExists(atPath: next.folder.appending(path: "fixture-pid").path))
+            if sameChild() != nil { kill(child.pid, SIGKILL) }
+            let deadline = ContinuousClock.now + .seconds(2)
+            while sameChild() != nil, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+            #expect(sameChild() == nil)
+        }
+        #expect(try await replacement.start().scheduling == "paused")
+        if reusedPID { #expect(sameChild() != nil) }
+        try await replacement.stop()
+    } catch {
+        if sameChild() != nil { kill(child.pid, SIGKILL) }
+        try? await replacement.stop()
+        try? await original.stop()
+        throw error
+    }
+    if sameChild() != nil { kill(child.pid, SIGKILL) }
+    try? await original.stop()
+}
+
 @Test func harnessHostRefusesAReusedProcessIdentity() async throws {
     let fixture = try HarnessFixture()
     let info = try #require(HostProcessRecord.info(getpid()))
