@@ -507,8 +507,8 @@ struct SessionRowView: View {
     }
 }
 
-/// A mark under a row's time (spec 5.2): a click opens its one link; with more, a menu has one item per link. It has
-/// the grey hover fill, and after 0.6 s on it the hover card (`HoverCard`) names each item.
+/// A mark under a row's time (spec 5.2): a click opens its one link; with more, it shows the hover card (`HoverCard`)
+/// at once. It has the grey hover fill, and after 0.6 s on it the card names each item.
 private struct RowMark<Content: View>: View {
     let links: [(title: String, url: URL)]
     let hoverId: String
@@ -526,13 +526,9 @@ private struct RowMark<Content: View>: View {
                 } label: { mark }
                     .buttonStyle(.plain)
             } else {
-                Menu {
-                    ForEach(Array(links.enumerated()), id: \.offset) { _, link in Button(link.title) { NSWorkspace.shared.open(link.url) } }
-                } label: { mark }
-                .menuStyle(.button)
-                .buttonStyle(.plain)
-                .menuIndicator(.hidden)
-                .fixedSize()
+                // Several links: the click shows the card now, and a click on an item opens it.
+                Button { HoverCard.shared.show(hoverId, row: row, kind: kind) } label: { mark }
+                    .buttonStyle(.plain)
             }
         }
         .onHover { inside in

@@ -46,6 +46,15 @@ final class HoverCard {
         }
     }
 
+    /// A click on a mark with several items: the card shows now, with no wait.
+    func show(_ id: String, row: SessionRow, kind: Kind) {
+        timer?.cancel()
+        if shown != nil, id == mark { return }
+        close()
+        (mark, onMark) = (id, true)
+        open(id, row: row, kind: kind)
+    }
+
     /// The pointer entered or left the card.
     func hoverCard(_ inside: Bool) {
         onCard = inside
