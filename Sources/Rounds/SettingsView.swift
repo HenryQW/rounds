@@ -348,7 +348,7 @@ struct SettingsView: View {
                 .toggleStyle(.checkbox)
             }
         } footer: {
-            footer(nil, help: "Right-click the pill for Settings and Quit.")
+            footer(nil, help: "Right-click the pill for Settings and Quit. Hold ⌘ and drag the pill to move it along the edge.")
         }
     }
 
