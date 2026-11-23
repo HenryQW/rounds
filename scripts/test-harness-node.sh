@@ -66,6 +66,9 @@ EOF
 fi
 if [ -n "${ROUNDS_HARNESS_PAYLOAD:-}" ]; then
     NODE_OPTIONS="--require=$TMP/preload.cjs" "$CHECK" "$ROUNDS_HARNESS_PAYLOAD/node" "$ROUNDS_HARNESS_PAYLOAD/host.mjs" "$PIN"
+    "$ROUNDS_HARNESS_PAYLOAD/node" --test scripts/test-container-admission.mjs
+else
+    printf '%s\n' 'Container admission fixture skipped: ROUNDS_HARNESS_PAYLOAD is not set.'
 fi
 
 for NAME in '@rpath/libfixture.dylib' "$TMP/libfixture.dylib"; do
