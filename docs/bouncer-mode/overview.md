@@ -1,6 +1,6 @@
 # Bouncer mode overview
 
-Bouncer mode extends Rounds so one user-facing Bouncer coordinates Bartenders and their bounded Barbacks across independent repositories. Durable records must support recovery without the old conversation. Rounds is the product home. The user's Router Workspace is a separate coordination directory, not the Rounds source repository unless the user chooses otherwise. Names are in [CONTEXT.md](CONTEXT.md); decisions are in [decisions.md](decisions.md).
+Bouncer mode extends Rounds so one user-facing Bouncer coordinates Bartenders and their bounded Barbacks across independent repositories. Durable records must support recovery without the old conversation. Rounds is the product home. The user's bar is a separate coordination directory, not the Rounds source repository unless the user chooses otherwise. Names are in [CONTEXT.md](CONTEXT.md); decisions are in [decisions.md](decisions.md).
 
 ```mermaid
 flowchart TD
@@ -18,7 +18,7 @@ The user gives goals in the Bouncer conversation, makes decisions and reviews re
 ## Built so far
 
 - Organization rules, destination consent and outbound checks: [spec 2.7.1](../spec.md#271-organization-boundaries).
-- Workspace setup in Settings > Workspace: [spec 2.7.2](../spec.md#272-workspace-setup). Nothing calls `mayStoreTaskDetails(for:)` until task dispatch exists.
+- Bar setup in Settings > Bar: [spec 2.7.2](../spec.md#272-bar-setup). Nothing calls `mayStoreTaskDetails(for:)` until task dispatch exists.
 - The task graph and the task detail store are in the source, but the app does not use them yet. Agent dispatch is not built.
 - [Slice 02](slices/02-node-harness-host.md) adds the Node Host, SQLite storage and a Bouncer conversation with no tools. The container tool bridge remains in 02c.
 
@@ -43,7 +43,7 @@ Agents produce and Rounds publishes: agents cannot do a protected action, and Ro
 | Area | Requirement |
 |---|---|
 | Product | Build in the Rounds repository. Preserve existing session features unless a change is agreed. |
-| Workspace | Keep coordination records separate from application code. Setup can use `/router-setup` or a natural-language request. Check whether the chosen directory is already in a Git repository; otherwise ask whether to create one and ask for its name. |
+| Bar | Keep coordination records separate from application code. Setup can use `/router-setup` or a natural-language request. Check whether the chosen directory is already in a Git repository; otherwise ask whether to create one and ask for its name. |
 | Storage | Use one Git root with a remote for permitted records and configuration. It can be private or public. Before using a public remote, obtain explicit acknowledgement. When visibility cannot be verified, treat it as potentially public and obtain acknowledgement before use. If organization rules prohibit details in the root, keep them in an approved local location and put only permitted metadata in Git. Show that the details are not remotely backed up by the root. See decision "Root repository visibility". |
 | Registry | Keep a stable repository ID, organization, name, aliases, purpose, instruction references, and related repositories. Resolve machine-specific checkout paths separately. |
 | Routing | Use one Bouncer conversation for the user, in the Bouncer Window. Prefer an explicitly named repository. Otherwise use aliases, purpose, and project context; inspect ambiguous matches and ask only when the ambiguity changes the work. Do not choose arbitrarily. |

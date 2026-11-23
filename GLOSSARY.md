@@ -59,17 +59,17 @@ _Avoid_: provider, integration, sink
 The repository a session belongs to; worktrees join their repository.
 _Avoid_: repo, workspace, folder
 
-**Workspace**:
-The Git repository that holds the Router Workspace's coordination records. It is not a project; application code stays in its own repositories.
-_Avoid_: root folder, router repo
+**Bar**:
+A Git repository that holds the coordination records of Bouncer mode. Each bar is a workspace for the Bouncer and its Bartenders. It is not a project; application code stays in its own repositories.
+_Avoid_: workspace, root folder, router repo
 
 **Task detail folder**:
-A private local folder that the user approves for the task details of one organization, or of unclassified projects. The workspace repository does not back it up.
+A private local folder that the user approves for the task details of one organization, or of unclassified projects. The bar does not back it up.
 _Avoid_: detail store (alone), cache
 
 ## Planned coordination roles
 
-These roles describe the planned Router Workspace. They do not describe current Rounds behavior. A task can outlive a session or span several sessions.
+These roles describe the planned Bouncer mode. They do not describe current Rounds behavior. A task can outlive a session or span several sessions.
 
 **Bouncer**:
 The user-facing agent that assigns repository tasks to Bartenders and coordinates their results. It makes routine decisions and decides which results need the user's attention. Rounds host code, not the Bouncer, shows each approval request to the user.

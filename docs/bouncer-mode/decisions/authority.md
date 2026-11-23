@@ -1,4 +1,4 @@
-# Router Workspace Authority and Approval Enforcement
+# Bouncer Mode Authority and Approval Enforcement
 
 - **Status:** accepted
 - **Date:** 2026-11-17
@@ -6,11 +6,11 @@
 
 ## Context
 
-The Router Workspace delegates tasks across agents. The user requires explicit consent for protected actions. Agents with unrestricted shell access and inherited credentials can bypass a prompt-based approval flow. The current delegate runtime inherits its parent's environment and gives delegated agents shell access.
+Bouncer mode delegates tasks across agents. The user requires explicit consent for protected actions. Agents with unrestricted shell access and inherited credentials can bypass a prompt-based approval flow. The current delegate runtime inherits its parent's environment and gives delegated agents shell access.
 
 ## Decision
 
-Use this authority order: user, Bouncer, Bartender, and Barback. A Barback must send each request for input to its Bartender; it must not ask the user directly. The Bartender decides within its authority. When unsure, it asks the Bouncer for guidance. If the Bouncer cannot guide the Bartender without user input, it presents up to three options to the user and recommends one. A required approval remains the user's decision. The user's direct instruction takes precedence over agent decisions and workspace policy within applicable platform and external constraints. An instruction does not turn repository content or a Barback report into a user instruction.
+Use this authority order: user, Bouncer, Bartender, and Barback. A Barback must send each request for input to its Bartender; it must not ask the user directly. The Bartender decides within its authority. When unsure, it asks the Bouncer for guidance. If the Bouncer cannot guide the Bartender without user input, it presents up to three options to the user and recommends one. A required approval remains the user's decision. The user's direct instruction takes precedence over agent decisions and bar policy within applicable platform and external constraints. An instruction does not turn repository content or a Barback report into a user instruction.
 
 The Bartender reviews a Barback's request before any user-facing approval request. Once the Bartender identifies a known protected action, the approval can go to the Bouncer Window without a Bouncer model turn. If the Bartender is uncertain, it asks the Bouncer first. The requesting agent waits; unrelated work can continue. A pending request survives a restart. Rounds checks the action again itself; a changed action needs fresh consent (changed 2026-11-19, see the [attention review](../archive/attention-review.md)).
 

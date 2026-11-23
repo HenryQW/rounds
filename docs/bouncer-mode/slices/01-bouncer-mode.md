@@ -10,7 +10,7 @@ Details, 2026-11-19. No open owner decision. Sub-steps 01a (RoundsCore) and 01b 
 
 ## Depends
 
-None. Organization rules and workspace setup are built ([overview](../overview.md#built-so-far)).
+None. Organization rules and bar setup are built ([overview](../overview.md#built-so-far)).
 
 ## Builds
 
@@ -34,11 +34,11 @@ None. Organization rules and workspace setup are built ([overview](../overview.m
 - *Default* (agent, 2026-11-19, reversible): the pill bounces while any approval or question waits, seen or not. It reuses the ringing layers of the existing pill (`RingingTab`), so the render server runs the motion.
 - *Default* (agent, 2026-11-19, reversible): without `--demo`, the window uses the Pi adapter for the Bouncer conversation and shows no tasks, because tasks come with dispatch. With `--demo`, the demo adapter feeds the whole window, tasks and approval cards included.
 - *Default* (agent, 2026-11-19, reversible): the Pi adapter never makes an approval card. A Pi dialog shows as a question card only, whatever its title says. Approval cards come only from host code (demo now, the gate in [slice 04](04-approval-and-publication.md)).
-- *Default* (agent, 2026-11-19, reversible): the Bouncer Session runs with its working folder at the workspace folder and its session files in `~/Library/Application Support/Rounds/bouncer-sessions` (`--session-dir`). So the session list does not show the Bouncer as an ordinary pi row.
+- *Default* (agent, 2026-11-19, reversible): the Bouncer Session runs with its working folder at the bar folder and its session files in `~/Library/Application Support/Rounds/bouncer-sessions` (`--session-dir`). So the session list does not show the Bouncer as an ordinary pi row.
 - *Default* (agent, 2026-11-19, reversible): the control row in slice 01 has the Model menu and the send or stop button. The menu lists Default and the models that `get_available_models` returns; the mockup's Fast and Deep are placeholders. The attach button and the Target repository and Organization menus come with dispatch ([slice 03](03-dispatch-and-results.md)), where they have an effect.
 - *Default* (agent, 2026-11-19, reversible): New Task (Cmd+N) selects the Bouncer row and puts the focus in an empty prompt box until dispatch exists.
 - *Default* (agent, 2026-11-19, reversible): slice 01 sends to Pi only the text that the user types. It gives the Bouncer no tool that reads other sessions.
-- *Default* (reviewer, 2026-11-19, reversible): the Bouncer Session starts with no tools: `--no-tools --no-extensions --no-mcp --no-skills --no-prompt-templates`. A plain `pi --mode rpc` gets shell and edit tools and every installed extension, which breaks "It does not edit repositories" ([overview](../overview.md)) and decision "Option 3: container-use for all agent work". Context files stay on, so the workspace `AGENTS.md` loads. Slice 03 adds the dispatch and result tools with explicit `-e` paths.
+- *Default* (reviewer, 2026-11-19, reversible): the Bouncer Session starts with no tools: `--no-tools --no-extensions --no-mcp --no-skills --no-prompt-templates`. A plain `pi --mode rpc` gets shell and edit tools and every installed extension, which breaks "It does not edit repositories" ([overview](../overview.md)) and decision "Option 3: container-use for all agent work". Context files stay on, so the bar's `AGENTS.md` loads. Slice 03 adds the dispatch and result tools with explicit `-e` paths.
 - *Default* (agent, 2026-11-19, reversible): the slice merges in three sub-steps (see Files). One pull request would mix a process protocol, a new window and demo cards, which need different reviews.
 
 ## Open
@@ -52,7 +52,7 @@ None.
 - [CONTEXT.md](../CONTEXT.md) (Bouncer Session, Approval Request) and [decisions.md](../decisions.md).
 - [bouncer-mockups.html](../bouncer-mockups.html): the pill, the window and the keyboard handler at the end of the script.
 - Pi 1.5.2 package docs, in the installed package's `docs/` folder: `rpc.md`, `rpc-commands.md` (`prompt`, `abort`, `get_state`, `get_messages`, `set_model`, `get_available_models`), `rpc-extension-ui.md`, `json.md`. `pi --help` is the authority for flags.
-- Code: [EdgeDrawer.swift](../../../Sources/Rounds/EdgeDrawer.swift) (`EdgeDrawer.apply`, `observe`, `open(display:)`, `EdgePill`, `RingingTab`), [AppModel.swift](../../../Sources/Rounds/AppModel.swift) (`regroup`, the pill counts), [RoundsApp.swift](../../../Sources/Rounds/RoundsApp.swift), [Demo.swift](../../../Sources/Rounds/Demo.swift), [WorkspaceSettings.swift](../../../Sources/Rounds/WorkspaceSettings.swift), [SettingsView.swift](../../../Sources/Rounds/SettingsView.swift) (`SettingsPage`, `SettingsState.page`), [Pi.swift](../../../Sources/RoundsCore/Pi.swift), [Workspace.swift](../../../Sources/RoundsCore/Workspace.swift).
+- Code: [EdgeDrawer.swift](../../../Sources/Rounds/EdgeDrawer.swift) (`EdgeDrawer.apply`, `observe`, `open(display:)`, `EdgePill`, `RingingTab`), [AppModel.swift](../../../Sources/Rounds/AppModel.swift) (`regroup`, the pill counts), [RoundsApp.swift](../../../Sources/Rounds/RoundsApp.swift), [Demo.swift](../../../Sources/Rounds/Demo.swift), [BarSettings.swift](../../../Sources/Rounds/BarSettings.swift), [SettingsView.swift](../../../Sources/Rounds/SettingsView.swift) (`SettingsPage`, `SettingsState.page`), [Pi.swift](../../../Sources/RoundsCore/Pi.swift), [Bar.swift](../../../Sources/RoundsCore/Bar.swift).
 
 ## Files
 
@@ -68,7 +68,7 @@ None.
 | 01b | `Sources/Rounds/EdgeDrawer.swift` | Changed | Pill look, size, click and menu in Bouncer mode |
 | 01b | `Sources/Rounds/SettingsView.swift` | Changed | General toggle; Keys cheatsheet rows |
 | 01b | `Sources/Rounds/RoundsApp.swift`, `Demo.swift` | Changed | Start the model; a `--demo-scene bouncer` scene |
-| 01b | `docs/spec.md`, `GLOSSARY.md`, `docs/router-workspace/CONTEXT.md` | Changed | See "Docs in the same commit" |
+| 01b | `docs/spec.md`, `GLOSSARY.md`, `docs/bouncer-mode/CONTEXT.md` | Changed | See "Docs in the same commit" |
 | 01c | `Sources/Rounds/BouncerCards.swift` | New | Approval card, result card, report steps, fact banner |
 | 01c | `Sources/Rounds/BouncerDetails.swift` | New | Details panel: Changes, Checks, Agents, Environment |
 | 01c | `Sources/Rounds/BouncerWindow.swift`, `BouncerDemo.swift`, `docs/spec.md` | Changed | Task rows, group and sort, archive; demo tasks |
@@ -116,8 +116,8 @@ public struct BouncerThread: Equatable, Sendable {
     public mutating func decide(_ approvalID: String, _ decision: ApprovalDecision) throws  // empty reason: BouncerError.reasonRequired
     public var waitingCount: Int  // open questions + undecided approvals
 }
-public enum BouncerSetupStep: Equatable, Sendable { case chooseWorkspace, confirmRemotes, installPi }
-public func bouncerSetupSteps(workspace: WorkspaceSettings, isWorkspace: Bool, remotes: [WorkspaceRemote]?, piPath: String?) -> [BouncerSetupStep]
+public enum BouncerSetupStep: Equatable, Sendable { case chooseBar, confirmRemotes, installPi }
+public func bouncerSetupSteps(bar: BarSettings, isBar: Bool, remotes: [BarRemote]?, piPath: String?) -> [BouncerSetupStep]
 public func otherWaits(_ sessions: [SessionRow], bouncerSessionFile: String?) -> [SessionRow]
 
 // RoundsCore/PiRPC.swift
@@ -164,7 +164,7 @@ App side: `BouncerModel.shared` holds `thread: BouncerThread`, `adapter: any Bou
 - Stream: assistant `message_update` text deltas grow the current reply; `tool_execution_start` adds a tool step to it; only `agent_settled` sets `replying` to false (`agent_end` can be followed by a retry). While a reply runs, the send button is a stop button that sends `abort`; `agent_settled` with `aborted: true` adds the "stopped" item; the window sends no prompt then, because Pi rejects a `prompt` during a run without `streamingBehavior`.
 - Dialogs: `extension_ui_request` `select` gives a question with its options in order; `confirm` gives Yes and No; `input` and `editor` give a question with a text field. The answer goes back as `extension_ui_response` with the same `id` (`value`, `confirmed` or `cancelled: true`). A request with `timeout`: when Pi resolves it, the card shows "Pi closed this question." and stops counting. `notify` gives a note; `setStatus`, `setWidget`, `setTitle` and `set_editor_text` are ignored.
 - Exit: Rounds closes stdin at quit or Off (quit also waits for a stop that an earlier Off started), then sends SIGTERM after 5 s and SIGKILL after 5 s more, because Pi ignores a single signal during its shutdown. An unexpected exit shows the last stderr lines in the banner with Start Again.
-- Set Up row: `bouncerSetupSteps` from `WorkspaceSettingsState` and the `pi` path; it shows above the tasks only when a step is missing. A click opens Settings on the Workspace or Agents page (`SettingsState.page`). The adapter starts only with no step missing; `remotes` is nil until the check of the workspace folder finds a repository, so Pi does not start before that check ends.
+- Set Up row: `bouncerSetupSteps` from `BarSettingsState` and the `pi` path; it shows above the tasks only when a step is missing. A click opens Settings on the Bar or Agents page (`SettingsState.page`). The adapter starts only with no step missing; `remotes` is nil until the check of the bar folder finds a repository, so Pi does not start before that check ends.
 - Host note: `otherWaits(AppModel.shared.allGroups.sessions, ...)` gives the sessions that need input or failed, without the Bouncer's own session. 0 hides the button. The popover lists title and state word, "Shown by Rounds; the Bouncer does not see these." and Open Session List (`PanelController.shared.show(.yourTurn)`).
 - Demo: `--demo` makes `DemoBouncer`, which plays the mockup thread: one undecided approval, one open three-option question, so the pill shows 2.
 
@@ -199,7 +199,7 @@ In `Tests/RoundsCoreTests`, run with `scripts/test.sh`. The window has no test t
 | Tool steps | Two `tool_execution_start` in one reply | The reply has 2 steps |
 | Reopen | Recorded file exists; missing; nil | `--session <file>`, not new; no `--session`, new; new |
 | No tools | Any case above | The arguments always hold `--no-tools`, `--no-extensions`, `--no-mcp`, `--no-skills` and `--no-prompt-templates` |
-| Setup steps | No workspace; remotes not confirmed; no `pi`; all set | One step each; empty |
+| Setup steps | No bar; remotes not confirmed; no `pi`; all set | One step each; empty |
 | Other waits | Bouncer's own session needs input; one other does | Only the other |
 | Child process | `PiRPCBouncer` on a script that prints one response and exits 1 with stderr | A `.started`, then `.exited` with the stderr text |
 | Launch arguments | A script that records its arguments | The five no-tools flags |

@@ -102,15 +102,15 @@ public struct TaskDetailWriteResult: Equatable, Sendable {
 public struct TaskDetailStore: Sendable {
     public let directory: URL
     private let approvedIdentity: FolderIdentity?
-    private let approval: (WorkspaceSettingsStore, WorkspaceScope)?
+    private let approval: (BarSettingsStore, BarScope)?
     private static let maximumBytes = 1_048_576
 
     public init(directory: URL) { self.directory = directory; self.approvedIdentity = nil; self.approval = nil }
 
-    init(directory: URL, approvedIdentity: FolderIdentity, workspace: WorkspaceSettingsStore, scope: WorkspaceScope) {
+    init(directory: URL, approvedIdentity: FolderIdentity, bar: BarSettingsStore, scope: BarScope) {
         self.directory = directory
         self.approvedIdentity = approvedIdentity
-        self.approval = (workspace, scope)
+        self.approval = (bar, scope)
     }
 
     @discardableResult
@@ -126,8 +126,8 @@ public struct TaskDetailStore: Sendable {
         let revision = TaskDetailRevision(taskID: taskID, revisionID: revisionID,
                                           resultRevisionID: result.map { _ in resultRevisionID ?? revisionID }, assignment: assignment,
                                           result: result, progress: progress, decisions: decisions, approvals: approvals)
-        if let (workspace, scope) = approval {
-            return try workspace.withTaskDetailApproval(for: scope) { identity in
+        if let (bar, scope) = approval {
+            return try bar.withTaskDetailApproval(for: scope) { identity in
                 guard identity == approvedIdentity else { throw TaskInterfaceError.storageNotReady }
                 return try publish(revision)
             }
@@ -136,8 +136,8 @@ public struct TaskDetailStore: Sendable {
     }
 
     func withPublicationApproval<T>(_ body: () throws -> T) throws -> T {
-        guard let (workspace, scope) = approval else { return try body() }
-        return try workspace.withTaskDetailApproval(for: scope, wait: false) { identity in
+        guard let (bar, scope) = approval else { return try body() }
+        return try bar.withTaskDetailApproval(for: scope, wait: false) { identity in
             guard identity == approvedIdentity else { throw TaskInterfaceError.storageNotReady }
             let dir = try openDirectory()
             defer { close(dir) }

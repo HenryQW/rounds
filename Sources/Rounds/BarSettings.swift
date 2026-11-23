@@ -4,20 +4,20 @@ import Observation
 import RoundsCore
 import SwiftUI
 
-/// Workspace setup (spec 2.7.2): the workspace folder, its remotes and the task detail folders. The store refuses
+/// Bar setup (spec 2.7.2): the bar folder, its remotes and the task detail folders. The store refuses
 /// corrupt data; every change reloads it first.
 @MainActor @Observable
-final class WorkspaceSettingsState {
-    static let shared = WorkspaceSettingsState()
+final class BarSettingsState {
+    static let shared = BarSettingsState()
     private let directory = Demo.isOn
         ? FileManager.default.temporaryDirectory.appending(path: "rounds-demo-\(ProcessInfo.processInfo.processIdentifier)")
         : URL.applicationSupportDirectory.appending(path: "Rounds")
-    var store: WorkspaceSettingsStore { WorkspaceSettingsStore(url: directory.appending(path: "workspace-settings.json")) }
-    private(set) var settings = WorkspaceSettings()
+    var store: BarSettingsStore { BarSettingsStore(url: directory.appending(path: "bar-settings.json")) }
+    private(set) var settings = BarSettings()
     private(set) var loaded = false
     /// The folder the user chose, and what Git says about it; nil while no folder is chosen or the check runs.
     private(set) var folder: String?
-    private(set) var inspection: WorkspaceInspection?
+    private(set) var inspection: BarInspection?
     private(set) var inspecting = false
     var error: String?
     /// The user's answer to "Create a repository in this folder?"; no until the user says yes.
@@ -25,20 +25,20 @@ final class WorkspaceSettingsState {
     var repositoryName = ""
     var confirmCreate = false
     /// A folder chosen for a scope but not yet approved.
-    private(set) var chosenDetail: [WorkspaceScope: String] = [:]
+    private(set) var chosenDetail: [BarScope: String] = [:]
 
     private init() {
         if Demo.isOn {
             // Fictional values; demo mode inspects, creates and saves nothing.
-            folder = "/Users/demo/Projects/workspace"
-            inspection = .repository(root: "/Users/demo/Projects/workspace",
-                                     remotes: [WorkspaceRemote(name: "origin", url: "https://example.invalid/demo/workspace.git")])
+            folder = "/Users/demo/Projects/bar"
+            inspection = .repository(root: "/Users/demo/Projects/bar",
+                                     remotes: [BarRemote(name: "origin", url: "https://example.invalid/demo/bar.git")])
             chosenDetail[.unclassified] = "/Users/demo/Private/Task Details"
             loaded = true
             return
         }
         reload()
-        if let workspace = settings.workspace { inspect(workspace.path, adopt: false) }
+        if let bar = settings.bar { inspect(bar.path, adopt: false) }
     }
 
     var repositoryRoot: String? {
@@ -48,18 +48,18 @@ final class WorkspaceSettingsState {
     /// The folder is the root of its repository and has no problem, so the repository section would only repeat it.
     var rootIsFolder: Bool {
         guard let folder, let root = repositoryRoot, !inspecting else { return false }
-        return root == folder && settings.workspaceProblem(inspection ?? .noRepository) != .folderChanged
+        return root == folder && settings.barProblem(inspection ?? .noRepository) != .folderChanged
     }
 
-    var remotes: [WorkspaceRemote] {
+    var remotes: [BarRemote] {
         if case .repository(_, let remotes) = inspection { remotes } else { [] }
     }
 
-    /// The selected folder is the recorded workspace folder.
-    var isWorkspace: Bool {
+    /// The selected folder is the recorded bar folder.
+    var isBar: Bool {
         if Demo.isOn { return true }
-        guard let folder, let workspace = settings.workspace else { return false }
-        return FolderIdentity.current(folder) == workspace
+        guard let folder, let bar = settings.bar else { return false }
+        return FolderIdentity.current(folder) == bar
     }
 
     func reload() {
@@ -69,7 +69,7 @@ final class WorkspaceSettingsState {
             error = nil
         } catch {
             loaded = false
-            self.error = "Could not read workspace settings. Task details cannot be stored until the file is repaired or removed: \(store.url.path)"
+            self.error = "Could not read bar settings. Task details cannot be stored until the file is repaired or removed: \(store.url.path)"
         }
     }
 
@@ -84,23 +84,23 @@ final class WorkspaceSettingsState {
         inspect(url.path, adopt: true)
     }
 
-    /// Runs Git off the main thread. A repository folder the user chose becomes the workspace folder; the recorded
+    /// Runs Git off the main thread. A repository folder the user chose becomes the bar folder; the recorded
     /// folder checked at launch does not, so a replaced folder needs a new choice.
     func inspect(_ path: String, adopt: Bool) {
         guard !Demo.isOn else { return }
         (folder, inspection, inspecting) = (path, nil, true)
         Task {
-            let result = await Task.detached { Result(catching: { try inspectWorkspaceFolder(path) }) }.value
+            let result = await Task.detached { Result(catching: { try inspectBarFolder(path) }) }.value
             guard folder == path else { return }
             inspecting = false
             switch result {
             case .success(let found):
                 inspection = found
                 error = nil
-                // The repository root becomes the workspace folder.
+                // The repository root becomes the bar folder.
                 if adopt, case .repository(let root, _) = found {
                     folder = root
-                    change { try $0.setWorkspace(root) }
+                    change { try $0.setBar(root) }
                 }
             case .failure(let failure):
                 error = "Could not inspect the folder: \(message(failure))"
@@ -108,10 +108,10 @@ final class WorkspaceSettingsState {
         }
     }
 
-    /// Reads the recorded workspace folder again; it does not adopt a replaced folder.
+    /// Reads the recorded bar folder again; it does not adopt a replaced folder.
     func refresh() {
-        guard let workspace = settings.workspace, !inspecting else { return }
-        inspect(workspace.path, adopt: false)
+        guard let bar = settings.bar, !inspecting else { return }
+        inspect(bar.path, adopt: false)
     }
 
     /// Called after the user confirms the alert.
@@ -119,7 +119,7 @@ final class WorkspaceSettingsState {
         guard let folder, !Demo.isOn else { return }
         let name = repositoryName
         Task {
-            let result = await Task.detached { Result(catching: { try createWorkspaceRepository(in: folder, name: name) }) }.value
+            let result = await Task.detached { Result(catching: { try createBarRepository(in: folder, name: name) }) }.value
             switch result {
             case .success:
                 (createRepository, repositoryName) = (false, "")
@@ -130,7 +130,7 @@ final class WorkspaceSettingsState {
         }
     }
 
-    var acknowledged: Bool { isWorkspace && !remotes.isEmpty && settings.acknowledges(remotes) }
+    var acknowledged: Bool { isBar && !remotes.isEmpty && settings.acknowledges(remotes) }
 
     func setAcknowledged(_ on: Bool) {
         let remotes = remotes
@@ -138,18 +138,18 @@ final class WorkspaceSettingsState {
     }
 
     /// The folder a row shows: one chosen but not approved, else the approved one.
-    func detailPath(_ scope: WorkspaceScope) -> String? {
+    func detailPath(_ scope: BarScope) -> String? {
         chosenDetail[scope] ?? settings.detailFolders[scope]?.path
     }
 
-    func detailProblem(_ scope: WorkspaceScope) -> DetailFolderProblem? {
+    func detailProblem(_ scope: BarScope) -> DetailFolderProblem? {
         guard let root = repositoryRoot else { return .notApproved }
         if let chosen = chosenDetail[scope] { return checkDetailFolder(chosen, repositoryRoot: root) ?? .notApproved }
         return settings.detailFolderProblem(for: scope, repositoryRoot: root)
     }
 
     /// A new folder needs a new approval.
-    func chooseDetailFolder(_ scope: WorkspaceScope) {
+    func chooseDetailFolder(_ scope: BarScope) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -160,7 +160,7 @@ final class WorkspaceSettingsState {
         if settings.detailFolders[scope] != nil { change { $0.withdrawApproval(for: scope) } }
     }
 
-    func setApproved(_ on: Bool, _ scope: WorkspaceScope) {
+    func setApproved(_ on: Bool, _ scope: BarScope) {
         guard let root = repositoryRoot else { return }
         if on {
             guard let path = detailPath(scope) else { return }
@@ -171,7 +171,7 @@ final class WorkspaceSettingsState {
     }
 
     @discardableResult
-    private func change(_ edit: (inout WorkspaceSettings) throws -> Void) -> Bool {
+    private func change(_ edit: (inout BarSettings) throws -> Void) -> Bool {
         guard !Demo.isOn else { return false }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -187,11 +187,11 @@ final class WorkspaceSettingsState {
     }
 
     private func message(_ error: Error) -> String {
-        switch error as? WorkspaceError {
+        switch error as? BarError {
         case .invalidFolder: "The folder does not exist."
         case .invalidName: "Enter a name with no control characters, at most 100 characters."
         case .alreadyRepository: "The folder is already in a Git repository."
-        case .fileExists: "The folder already has a \(workspaceFileName) file. Rounds does not replace it."
+        case .fileExists: "The folder already has a \(barFileName) file. Rounds does not replace it."
         case .gitFailed(let text): text.isEmpty ? "Git failed." : text
         case .gitTimedOut: "Git did not answer in time."
         case .detailFolderInvalid(let problem): Self.text(problem)
@@ -207,14 +207,14 @@ final class WorkspaceSettingsState {
         case .symlink: "The folder is a symbolic link. Choose the folder it points to."
         case .notOwner: "Another user owns this folder. Choose a folder that you own."
         case .notPrivate: "Other users can open this folder. Remove group and other access, and any ACL."
-        case .insideRepository: "The folder is in the workspace repository. Choose a folder outside it."
+        case .insideRepository: "The folder is in the bar. Choose a folder outside it."
         }
     }
 }
 
-/// The four steps of workspace setup, as sections of the Workspace page.
-struct WorkspaceSections: View {
-    @Bindable var state: WorkspaceSettingsState
+/// The four steps of bar setup, as sections of the Bar page.
+struct BarSections: View {
+    @Bindable var state: BarSettingsState
     @Bindable private var organizations = OrganizationSettingsState.shared
 
     var body: some View {
@@ -226,7 +226,7 @@ struct WorkspaceSections: View {
                 // Remotes can change while the page is closed; read them again when it opens.
                 .onAppear { state.refresh() }
             if state.folder != nil && !state.rootIsFolder { repositorySection }
-            if state.isWorkspace {
+            if state.isBar {
                 remoteSection
                 detailSection
             }
@@ -238,13 +238,13 @@ struct WorkspaceSections: View {
             LabeledContent {
                 Button(state.folder == nil ? "Choose…" : "Change…") { state.chooseFolder() }
             } label: {
-                described("Workspace folder", state.folder.map { abbreviate($0) } ?? "No folder chosen.")
+                described("Bar folder", state.folder.map { abbreviate($0) } ?? "No folder chosen.")
             }
             .help(state.folder ?? "")
         } header: {
-            step(1, "Choose a workspace folder")
+            step(1, "Choose a bar folder")
         } footer: {
-            Text("The workspace holds coordination records. Application code stays in its own repositories.")
+            Text("The bar holds coordination records. Application code stays in its own repositories.")
                 .font(.callout).foregroundStyle(.secondary)
         }
     }
@@ -258,8 +258,8 @@ struct WorkspaceSections: View {
                     described("Repository root", abbreviate(root))
                 }
                 .help(root)
-                if state.settings.workspaceProblem(state.inspection ?? .noRepository) == .folderChanged {
-                    Text("The workspace folder was moved or replaced. Choose it again.").foregroundStyle(.orange)
+                if state.settings.barProblem(state.inspection ?? .noRepository) == .folderChanged {
+                    Text("The bar folder was moved or replaced. Choose it again.").foregroundStyle(.orange)
                 }
             } else if state.inspection == .noRepository {
                 LabeledContent { EmptyView() } label: {
@@ -275,12 +275,12 @@ struct WorkspaceSections: View {
                 if state.createRepository {
                     LabeledContent {
                         HStack {
-                            TextField("", text: $state.repositoryName, prompt: Text("Workspace"))
+                            TextField("", text: $state.repositoryName, prompt: Text("Bar"))
                             Button("Create…") { state.confirmCreate = true }
                                 .disabled(state.repositoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                         }
                     } label: {
-                        described("Workspace name", "Saved in \(workspaceFileName) in the folder.")
+                        described("Bar name", "Saved in \(barFileName) in the folder.")
                     }
                 }
             }
@@ -291,7 +291,7 @@ struct WorkspaceSections: View {
             Button("Cancel", role: .cancel) {}
             Button("Create Repository") { state.create() }
         } message: {
-            Text("Rounds runs git init in \(state.folder ?? "") and writes \(workspaceFileName). It does not add a remote, commit or push.")
+            Text("Rounds runs git init in \(state.folder ?? "") and writes \(barFileName). It does not add a remote, commit or push.")
         }
     }
 
@@ -339,7 +339,7 @@ struct WorkspaceSections: View {
         }
     }
 
-    private func detailRow(_ name: String, _ scope: WorkspaceScope) -> some View {
+    private func detailRow(_ name: String, _ scope: BarScope) -> some View {
         let path = state.detailPath(scope)
         let problem = state.detailProblem(scope)
         return VStack(alignment: .leading, spacing: 6) {
@@ -354,7 +354,7 @@ struct WorkspaceSections: View {
                 .labelColumn()
             }
             if let problem, problem != .notApproved || path != nil {
-                Text(WorkspaceSettingsState.text(problem)).font(.callout).foregroundStyle(.orange)
+                Text(BarSettingsState.text(problem)).font(.callout).foregroundStyle(.orange)
             }
             if path != nil {
                 Toggle("I confirm this folder is approved for task details of \(name).",

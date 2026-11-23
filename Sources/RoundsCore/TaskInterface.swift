@@ -85,9 +85,9 @@ public enum TaskCreationResult: Equatable, Sendable {
 /// Local record operations only. The caller supplies scope and value authority on every call.
 /// Graph setup remains an explicit TaskGraphStore.initialize operation.
 public struct TaskInterface: Sendable {
-    public let workspace: WorkspaceSettingsStore
+    public let bar: BarSettingsStore
 
-    public init(workspace: WorkspaceSettingsStore) { self.workspace = workspace }
+    public init(bar: BarSettingsStore) { self.bar = bar }
 
     var writeRecord: @Sendable (TaskRecordStore, UUID, TaskDetailReference, TaskDetails, Date, GraphDirectoryIdentity, Bool, (Date) throws -> Void) throws -> TaskRecordWriteResult = {
         try $0.writeAuthorized(taskID: $1, expecting: $2, assignment: $3.assignment, result: $3.result,
@@ -230,17 +230,17 @@ public struct TaskInterface: Sendable {
     }
 
     private func checkedStores(_ authorization: TaskStorageAuthorization) throws -> TaskRecordStore {
-        guard workspace.mayStoreTaskDetails(for: authorization.organizationID) else {
+        guard bar.mayStoreTaskDetails(for: authorization.organizationID) else {
             throw TaskInterfaceError.storageNotReady
         }
-        let scope = authorization.organizationID.map(WorkspaceScope.organization) ?? .unclassified
-        guard let directory = workspace.taskDetailFolder(for: scope) else { throw TaskInterfaceError.storageNotReady }
+        let scope = authorization.organizationID.map(BarScope.organization) ?? .unclassified
+        guard let directory = bar.taskDetailFolder(for: scope) else { throw TaskInterfaceError.storageNotReady }
         guard directory == authorization.detailDirectory else { throw TaskInterfaceError.detailDestinationMismatch }
-        guard let identity = try? workspace.load().detailFolders[scope],
+        guard let identity = try? bar.load().detailFolders[scope],
               identity.path == directory.path else { throw TaskInterfaceError.storageNotReady }
         return TaskRecordStore(graph: TaskGraphStore(directory: authorization.graphDirectory),
                                details: TaskDetailStore(directory: directory, approvedIdentity: identity,
-                                                        workspace: workspace, scope: scope))
+                                                        bar: bar, scope: scope))
     }
 
     private func authorize(_ values: TaskGraphValues, using authorization: TaskStorageAuthorization) throws {

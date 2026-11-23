@@ -2,10 +2,10 @@ import CryptoKit
 import Darwin
 import Foundation
 
-public enum WorkspaceError: Error, Equatable {
+public enum BarError: Error, Equatable {
     case invalidFolder, invalidName, alreadyRepository, fileExists
     case gitFailed(String), gitTimedOut
-    case noWorkspace, folderChanged, notRepository, remotesNotAcknowledged
+    case noBar, folderChanged, notRepository, remotesNotAcknowledged
     case detailFolderInvalid(DetailFolderProblem)
     case malformedData, invalidFile, changedOnDisk
 }
@@ -25,7 +25,7 @@ public struct FolderIdentity: Codable, Equatable, Sendable {
     }
 }
 
-public struct WorkspaceRemote: Equatable, Sendable {
+public struct BarRemote: Equatable, Sendable {
     public let name: String
     public let url: String
 
@@ -51,13 +51,13 @@ public struct WorkspaceRemote: Equatable, Sendable {
     }
 }
 
-public enum WorkspaceInspection: Equatable, Sendable {
-    case repository(root: String, remotes: [WorkspaceRemote])
+public enum BarInspection: Equatable, Sendable {
+    case repository(root: String, remotes: [BarRemote])
     case noRepository
 }
 
 /// The task detail folder for one organization, or for projects that no organization rule matches.
-public enum WorkspaceScope: Hashable, Sendable {
+public enum BarScope: Hashable, Sendable {
     case organization(UUID)
     case unclassified
 
@@ -77,26 +77,26 @@ public enum DetailFolderProblem: Equatable, Sendable {
     case notApproved, missing, replaced, symlink, notOwner, notPrivate, insideRepository
 }
 
-public let workspaceFileName = "rounds-workspace.json"
+public let barFileName = "rounds-bar.json"
 
 /// Finds the Git repository that holds `folder` and its remotes. Runs only local `git` commands, with no shell.
-public func inspectWorkspaceFolder(_ folder: String, timeout: TimeInterval = 10) throws -> WorkspaceInspection {
-    guard FolderIdentity.current(folder) != nil else { throw WorkspaceError.invalidFolder }
+public func inspectBarFolder(_ folder: String, timeout: TimeInterval = 10) throws -> BarInspection {
+    guard FolderIdentity.current(folder) != nil else { throw BarError.invalidFolder }
     let top = try runGit(["-C", folder, "rev-parse", "--show-toplevel"], timeout: timeout)
     guard top.status == 0 else {
         if top.stderr.contains("not a git repository") { return .noRepository }
-        throw WorkspaceError.gitFailed(top.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+        throw BarError.gitFailed(top.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
     }
     let root = top.stdout.trimmingCharacters(in: .newlines)
     // `remote -v` shows the URLs that Git uses, after `insteadOf` rewrites, for fetch and push.
     let list = try runGit(["-C", root, "remote", "-v"], timeout: timeout)
-    guard list.status == 0 else { throw WorkspaceError.gitFailed(list.stderr.trimmingCharacters(in: .whitespacesAndNewlines)) }
-    var remotes: [WorkspaceRemote] = []
+    guard list.status == 0 else { throw BarError.gitFailed(list.stderr.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    var remotes: [BarRemote] = []
     for line in list.stdout.split(separator: "\n") {
         guard let tab = line.firstIndex(of: "\t") else { continue }
         var url = line[line.index(after: tab)...]
         for suffix in [" (fetch)", " (push)"] where url.hasSuffix(suffix) { url = url.dropLast(suffix.count) }
-        let remote = WorkspaceRemote(name: String(line[..<tab]), url: String(url))
+        let remote = BarRemote(name: String(line[..<tab]), url: String(url))
         if !remotes.contains(remote) { remotes.append(remote) }
     }
     // A push can also go to a URL set directly in `branch.<name>.pushRemote`, `branch.<name>.remote` or
@@ -104,29 +104,29 @@ public func inspectWorkspaceFolder(_ folder: String, timeout: TimeInterval = 10)
     let pushKeys = try runGit(["-C", root, "config", "--get-regexp", #"^(branch\..*\.(pushremote|remote)|remote\.pushdefault)$"#],
                               timeout: timeout)
     guard pushKeys.status == 0 || (pushKeys.status == 1 && pushKeys.stdout.isEmpty) else {
-        throw WorkspaceError.gitFailed(pushKeys.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+        throw BarError.gitFailed(pushKeys.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
     }
     let names = Set(remotes.map(\.name))
     for line in pushKeys.stdout.split(separator: "\n") {
         guard let space = line.firstIndex(of: " ") else { continue }
         let value = String(line[line.index(after: space)...])
         guard value != ".", !names.contains(value) else { continue }
-        let remote = WorkspaceRemote(name: String(line[..<space]), url: value)
+        let remote = BarRemote(name: String(line[..<space]), url: value)
         if !remotes.contains(remote) { remotes.append(remote) }
     }
     return .repository(root: root, remotes: remotes)
 }
 
 /// Resolves a full `refs/` name in a working tree to the commit available locally at the time of lookup.
-public func resolveWorkspaceSourceCommit(in repositoryRoot: String, sourceRef: String,
+public func resolveBarSourceCommit(in repositoryRoot: String, sourceRef: String,
                                          timeout: TimeInterval = 10) throws -> String {
-    try resolveWorkspaceSource(in: repositoryRoot, sourceRef: sourceRef, timeout: timeout).commit
+    try resolveBarSource(in: repositoryRoot, sourceRef: sourceRef, timeout: timeout).commit
 }
 
-private func resolveWorkspaceSource(in repositoryRoot: String, sourceRef: String,
+private func resolveBarSource(in repositoryRoot: String, sourceRef: String,
                                     timeout: TimeInterval) throws -> (object: String, commit: String) {
-    guard let root = FolderIdentity.current(repositoryRoot) else { throw WorkspaceError.invalidFolder }
-    let invalidRef = WorkspaceError.gitFailed("Use a valid full Git reference name under refs/.")
+    guard let root = FolderIdentity.current(repositoryRoot) else { throw BarError.invalidFolder }
+    let invalidRef = BarError.gitFailed("Use a valid full Git reference name under refs/.")
     guard sourceRef.hasPrefix("refs/"), !sourceRef.utf8.contains(0) else { throw invalidRef }
     let format = try runGit(["check-ref-format", sourceRef], timeout: timeout)
     guard format.status == 0 else { throw invalidRef }
@@ -136,50 +136,50 @@ private func resolveWorkspaceSource(in repositoryRoot: String, sourceRef: String
     let top = try runGit(local + ["rev-parse", "--show-toplevel"], timeout: timeout)
     guard top.status == 0 else {
         if top.stderr.contains("not a git repository") || top.stderr.contains("must be run in a work tree") {
-            throw WorkspaceError.notRepository
+            throw BarError.notRepository
         }
-        throw WorkspaceError.gitFailed(top.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
+        throw BarError.gitFailed(top.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
     }
     guard let path = top.stdoutUTF8, path.utf8.last == 10,
           let workTree = String(bytes: path.utf8.dropLast(), encoding: .utf8),
-          FolderIdentity.current(workTree) == root else { throw WorkspaceError.notRepository }
+          FolderIdentity.current(workTree) == root else { throw BarError.notRepository }
 
     let ref = try runGit(local + ["show-ref", "--verify", "--", sourceRef], timeout: timeout)
     // Foundation can normalize subprocess arguments. Check the reference spelling Git received.
     let suffix = " \(sourceRef)\n".utf8
     guard ref.status == 0, ref.stdoutBytes.suffix(suffix.count).elementsEqual(suffix) else {
-        throw WorkspaceError.gitFailed("Git could not read the local source reference.")
+        throw BarError.gitFailed("Git could not read the local source reference.")
     }
     let object = String(decoding: ref.stdoutBytes.dropLast(suffix.count), as: UTF8.self)
     guard [40, 64].contains(object.utf8.count), object.allSatisfy({ $0.isASCII && $0.isHexDigit }) else {
-        throw WorkspaceError.gitFailed("Git did not return a full object identifier for the source reference.")
+        throw BarError.gitFailed("Git did not return a full object identifier for the source reference.")
     }
     // Peel the captured object so a ref move between commands cannot change the lookup.
     let commit = try runGit(local + ["rev-parse", "--verify", "--end-of-options", "\(object)^{commit}"], timeout: timeout)
     guard commit.status == 0 else {
-        throw WorkspaceError.gitFailed("The source reference does not resolve to a locally available commit.")
+        throw BarError.gitFailed("The source reference does not resolve to a locally available commit.")
     }
     return (object, commit.stdout.trimmingCharacters(in: .newlines))
 }
 
-/// Initializes a repository in `folder` and writes `rounds-workspace.json`. Call only after the user says yes.
+/// Initializes a repository in `folder` and writes `rounds-bar.json`. Call only after the user says yes.
 /// Adds no remote and makes no commit. Never replaces an existing file.
-public func createWorkspaceRepository(in folder: String, name: String, timeout: TimeInterval = 10) throws {
+public func createBarRepository(in folder: String, name: String, timeout: TimeInterval = 10) throws {
     let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !name.isEmpty, name.count <= 100, !name.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else {
-        throw WorkspaceError.invalidName
+        throw BarError.invalidName
     }
-    guard let identity = FolderIdentity.current(folder) else { throw WorkspaceError.invalidFolder }
-    guard try inspectWorkspaceFolder(identity.path, timeout: timeout) == .noRepository else { throw WorkspaceError.alreadyRepository }
-    let file = identity.path + "/" + workspaceFileName
+    guard let identity = FolderIdentity.current(folder) else { throw BarError.invalidFolder }
+    guard try inspectBarFolder(identity.path, timeout: timeout) == .noRepository else { throw BarError.alreadyRepository }
+    let file = identity.path + "/" + barFileName
     var info = stat()
-    guard lstat(file, &info) != 0, errno == ENOENT else { throw WorkspaceError.fileExists }
+    guard lstat(file, &info) != 0, errno == ENOENT else { throw BarError.fileExists }
     let encoder = JSONEncoder()
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-    var data = try encoder.encode(WorkspaceFile(formatVersion: 1, name: name))
+    var data = try encoder.encode(BarFile(formatVersion: 1, name: name))
     data.append(0x0A)
     let fd = open(file, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o644)
-    guard fd >= 0 else { throw errno == EEXIST ? WorkspaceError.fileExists : workspacePOSIXError() }
+    guard fd >= 0 else { throw errno == EEXIST ? BarError.fileExists : barPOSIXError() }
     var initialized = false
     defer {
         close(fd)
@@ -187,76 +187,76 @@ public func createWorkspaceRepository(in folder: String, name: String, timeout: 
         if !initialized { unlink(file) }
     }
     try writeAll(fd, data)
-    guard fsync(fd) == 0 else { throw workspacePOSIXError() }
+    guard fsync(fd) == 0 else { throw barPOSIXError() }
     let result = try runGit(["-C", identity.path, "init", "--quiet"], timeout: timeout)
-    guard result.status == 0 else { throw WorkspaceError.gitFailed(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    guard result.status == 0 else { throw BarError.gitFailed(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)) }
     initialized = true
 }
 
-/// The only file in the workspace repository that Rounds writes.
-private struct WorkspaceFile: Encodable {
+/// The only file in the bar that Rounds writes.
+private struct BarFile: Encodable {
     let formatVersion: Int
     let name: String
 }
 
-/// Machine-specific workspace choices. They stay in local Rounds settings, never in the workspace repository.
-public struct WorkspaceSettings: Equatable, Sendable {
-    public private(set) var workspace: FolderIdentity?
+/// Machine-specific bar choices. They stay in local Rounds settings, never in the bar.
+public struct BarSettings: Equatable, Sendable {
+    public private(set) var bar: FolderIdentity?
     /// SHA-256 of the acknowledged remote URLs, so a URL that holds a credential is not copied to the settings file.
     public private(set) var acknowledgedRemotes: String?
-    public private(set) var detailFolders: [WorkspaceScope: FolderIdentity] = [:]
+    public private(set) var detailFolders: [BarScope: FolderIdentity] = [:]
 
     public init() {}
 
     /// A different folder removes the remote acknowledgement and every detail folder approval. Pass the repository
-    /// root, so a removed `.git` cannot make a parent repository stand in for the workspace.
-    public mutating func setWorkspace(_ folder: String) throws {
-        guard let identity = FolderIdentity.current(folder) else { throw WorkspaceError.invalidFolder }
-        guard identity != workspace else { return }
-        self = WorkspaceSettings()
-        workspace = identity
+    /// root, so a removed `.git` cannot make a parent repository stand in for the bar.
+    public mutating func setBar(_ folder: String) throws {
+        guard let identity = FolderIdentity.current(folder) else { throw BarError.invalidFolder }
+        guard identity != bar else { return }
+        self = BarSettings()
+        bar = identity
     }
 
     /// The acknowledgement covers this exact set of remote URLs. Pass the URLs from a current inspection.
-    public mutating func acknowledgeRemotes(_ remotes: [WorkspaceRemote]) throws {
-        guard workspace != nil else { throw WorkspaceError.noWorkspace }
+    public mutating func acknowledgeRemotes(_ remotes: [BarRemote]) throws {
+        guard bar != nil else { throw BarError.noBar }
         acknowledgedRemotes = remoteDigest(remotes)
     }
 
     public mutating func withdrawAcknowledgement() { acknowledgedRemotes = nil }
 
-    public func acknowledges(_ remotes: [WorkspaceRemote]) -> Bool {
+    public func acknowledges(_ remotes: [BarRemote]) -> Bool {
         remotes.isEmpty || acknowledgedRemotes == remoteDigest(remotes)
     }
 
     /// Records the user's approval of `folder` for `scope` after the checks in `detailFolderProblem`.
-    public mutating func approveDetailFolder(_ folder: String, for scope: WorkspaceScope, repositoryRoot: String) throws {
-        guard workspace != nil else { throw WorkspaceError.noWorkspace }
-        if let problem = checkDetailFolder(folder, repositoryRoot: repositoryRoot) { throw WorkspaceError.detailFolderInvalid(problem) }
-        guard let identity = FolderIdentity.current(folder) else { throw WorkspaceError.detailFolderInvalid(.missing) }
+    public mutating func approveDetailFolder(_ folder: String, for scope: BarScope, repositoryRoot: String) throws {
+        guard bar != nil else { throw BarError.noBar }
+        if let problem = checkDetailFolder(folder, repositoryRoot: repositoryRoot) { throw BarError.detailFolderInvalid(problem) }
+        guard let identity = FolderIdentity.current(folder) else { throw BarError.detailFolderInvalid(.missing) }
         detailFolders[scope] = identity
     }
 
-    public mutating func withdrawApproval(for scope: WorkspaceScope) { detailFolders[scope] = nil }
+    public mutating func withdrawApproval(for scope: BarScope) { detailFolders[scope] = nil }
 
-    /// Nil when the workspace folder is the recorded one and is in a repository whose remotes are acknowledged.
-    public func workspaceProblem(_ inspection: WorkspaceInspection) -> WorkspaceError? {
-        guard let workspace else { return .noWorkspace }
-        guard FolderIdentity.current(workspace.path) == workspace else { return .folderChanged }
-        guard case .repository(let root, let remotes) = inspection, FolderIdentity.current(root) == workspace else { return .notRepository }
+    /// Nil when the bar folder is the recorded one and is in a repository whose remotes are acknowledged.
+    public func barProblem(_ inspection: BarInspection) -> BarError? {
+        guard let bar else { return .noBar }
+        guard FolderIdentity.current(bar.path) == bar else { return .folderChanged }
+        guard case .repository(let root, let remotes) = inspection, FolderIdentity.current(root) == bar else { return .notRepository }
         return acknowledges(remotes) ? nil : .remotesNotAcknowledged
     }
 
     /// Nil when the approved folder for `scope` is the same folder and still passes every check.
-    public func detailFolderProblem(for scope: WorkspaceScope, repositoryRoot: String) -> DetailFolderProblem? {
+    public func detailFolderProblem(for scope: BarScope, repositoryRoot: String) -> DetailFolderProblem? {
         guard let approved = detailFolders[scope] else { return .notApproved }
         if let problem = checkDetailFolder(approved.path, repositoryRoot: repositoryRoot) { return problem }
         return FolderIdentity.current(approved.path) == approved ? nil : .replaced
     }
 
     /// The folder where task details for `scope` may be stored, or nil while setup is not complete for it.
-    public func taskDetailFolder(for scope: WorkspaceScope, inspection: WorkspaceInspection) -> URL? {
-        guard workspaceProblem(inspection) == nil, case .repository(let root, _) = inspection,
+    public func taskDetailFolder(for scope: BarScope, inspection: BarInspection) -> URL? {
+        guard barProblem(inspection) == nil, case .repository(let root, _) = inspection,
               detailFolderProblem(for: scope, repositoryRoot: root) == nil,
               let path = detailFolders[scope]?.path else { return nil }
         return URL(fileURLWithPath: path, isDirectory: true)
@@ -264,7 +264,7 @@ public struct WorkspaceSettings: Equatable, Sendable {
 }
 
 /// A detail folder must be an existing directory, not a symlink, owned by this user with no group or other access
-/// and no ACL, and outside the workspace repository.
+/// and no ACL, and outside the bar.
 public func checkDetailFolder(_ folder: String, repositoryRoot: String) -> DetailFolderProblem? {
     var link = stat()
     guard folder.hasPrefix("/"), lstat(folder, &link) == 0 else { return .missing }
@@ -286,7 +286,7 @@ public func checkDetailFolder(_ folder: String, repositoryRoot: String) -> Detai
     return nil
 }
 
-private func remoteDigest(_ remotes: [WorkspaceRemote]) -> String {
+private func remoteDigest(_ remotes: [BarRemote]) -> String {
     let urls = Set(remotes.map(\.credentialFreeURL)).sorted().joined(separator: "\n")
     return SHA256.hash(data: Data(urls.utf8)).map { String(format: "%02x", $0) }.joined()
 }
@@ -300,92 +300,92 @@ private struct SettingsDocument: Codable {
     }
 
     let version: Int
-    let workspace: Folder?
+    let bar: Folder?
     let acknowledgedRemotes: String?
     let detailFolders: [String: Folder]
 }
 
-private struct WorkspaceSnapshot: Equatable {
+private struct BarSnapshot: Equatable {
     let data: Data
     let device: dev_t
     let inode: ino_t
 }
 
-/// Atomic local storage for `WorkspaceSettings`. A missing file starts empty; a corrupt file throws and is not replaced.
-public struct WorkspaceSettingsStore: Sendable {
+/// Atomic local storage for `BarSettings`. A missing file starts empty; a corrupt file throws and is not replaced.
+public struct BarSettingsStore: Sendable {
     public let url: URL
 
     public init(url: URL) { self.url = url }
 
-    public func load() throws -> WorkspaceSettings {
+    public func load() throws -> BarSettings {
         try withLock { try decode(readSnapshot()?.data) }
     }
 
     /// The closure edits a fresh copy outside the lock. A concurrent change rejects the update.
     @discardableResult
-    public func update(_ edit: (inout WorkspaceSettings) throws -> Void) throws -> WorkspaceSettings {
+    public func update(_ edit: (inout BarSettings) throws -> Void) throws -> BarSettings {
         let original = try withLock { try readSnapshot() }
         var settings = try decode(original?.data)
         try edit(&settings)
         return try withLock {
-            guard try readSnapshot() == original else { throw WorkspaceError.changedOnDisk }
+            guard try readSnapshot() == original else { throw BarError.changedOnDisk }
             try replace(with: encode(settings))
             return settings
         }
     }
 
     /// The task detail folder for `scope` after a fresh inspection, or nil while setup is not complete for it.
-    public func taskDetailFolder(for scope: WorkspaceScope) -> URL? {
-        guard let settings = try? load(), let workspace = settings.workspace,
-              let inspection = try? inspectWorkspaceFolder(workspace.path) else { return nil }
+    public func taskDetailFolder(for scope: BarScope) -> URL? {
+        guard let settings = try? load(), let bar = settings.bar,
+              let inspection = try? inspectBarFolder(bar.path) else { return nil }
         return settings.taskDetailFolder(for: scope, inspection: inspection)
     }
 
     /// False unless setup is complete for the organization, or for unclassified projects when `organizationID` is nil.
     public func mayStoreTaskDetails(for organizationID: UUID?) -> Bool {
-        taskDetailFolder(for: organizationID.map(WorkspaceScope.organization) ?? .unclassified) != nil
+        taskDetailFolder(for: organizationID.map(BarScope.organization) ?? .unclassified) != nil
     }
 
     /// Holds the settings lock while a cooperating task write uses the approved folder.
-    func withTaskDetailApproval<T>(for scope: WorkspaceScope, wait: Bool = true,
+    func withTaskDetailApproval<T>(for scope: BarScope, wait: Bool = true,
                                    _ body: (FolderIdentity) throws -> T) throws -> T {
         try withLock(wait: wait) {
             let settings = try decode(readSnapshot()?.data)
-            guard let workspace = settings.workspace,
-                  let inspection = try? inspectWorkspaceFolder(workspace.path),
+            guard let bar = settings.bar,
+                  let inspection = try? inspectBarFolder(bar.path),
                   settings.taskDetailFolder(for: scope, inspection: inspection) != nil,
                   let identity = settings.detailFolders[scope] else { throw TaskInterfaceError.storageNotReady }
             return try body(identity)
         }
     }
 
-    private func decode(_ data: Data?) throws -> WorkspaceSettings {
-        guard let data else { return WorkspaceSettings() }
+    private func decode(_ data: Data?) throws -> BarSettings {
+        guard let data else { return BarSettings() }
         guard let document = try? JSONDecoder().decode(SettingsDocument.self, from: data), document.version == 1 else {
-            throw WorkspaceError.malformedData
+            throw BarError.malformedData
         }
         func folder(_ value: SettingsDocument.Folder) throws -> FolderIdentity {
-            guard value.path.hasPrefix("/"), !value.path.utf8.contains(0) else { throw WorkspaceError.malformedData }
+            guard value.path.hasPrefix("/"), !value.path.utf8.contains(0) else { throw BarError.malformedData }
             return FolderIdentity(path: value.path, device: value.device, inode: value.inode)
         }
-        var settings = WorkspaceSettings()
-        if let workspace = document.workspace { settings.restore(workspace: try folder(workspace)) }
+        var settings = BarSettings()
+        if let bar = document.bar { settings.restore(bar: try folder(bar)) }
         if let digest = document.acknowledgedRemotes {
-            guard settings.workspace != nil, digest.count == 64, digest.allSatisfy(\.isHexDigit) else { throw WorkspaceError.malformedData }
+            guard settings.bar != nil, digest.count == 64, digest.allSatisfy(\.isHexDigit) else { throw BarError.malformedData }
             settings.restore(acknowledgedRemotes: digest)
         }
         for (key, value) in document.detailFolders {
-            guard settings.workspace != nil, let scope = WorkspaceScope(key: key) else { throw WorkspaceError.malformedData }
+            guard settings.bar != nil, let scope = BarScope(key: key) else { throw BarError.malformedData }
             settings.restore(scope, try folder(value))
         }
         return settings
     }
 
-    private func encode(_ settings: WorkspaceSettings) throws -> Data {
+    private func encode(_ settings: BarSettings) throws -> Data {
         func folder(_ value: FolderIdentity) -> SettingsDocument.Folder {
             SettingsDocument.Folder(path: value.path, device: value.device, inode: value.inode)
         }
-        let document = SettingsDocument(version: 1, workspace: settings.workspace.map(folder),
+        let document = SettingsDocument(version: 1, bar: settings.bar.map(folder),
                                         acknowledgedRemotes: settings.acknowledgedRemotes,
                                         detailFolders: Dictionary(uniqueKeysWithValues: settings.detailFolders.map { ($0.key.key, folder($0.value)) }))
         let encoder = JSONEncoder()
@@ -394,55 +394,55 @@ public struct WorkspaceSettingsStore: Sendable {
     }
 
     private func withLock<T>(wait: Bool = true, _ body: () throws -> T) throws -> T {
-        guard url.isFileURL else { throw WorkspaceError.invalidFile }
+        guard url.isFileURL else { throw BarError.invalidFile }
         let lock = open(url.appendingPathExtension("lock").path, O_RDWR | O_CREAT | O_NOFOLLOW, 0o600)
-        guard lock >= 0 else { throw workspacePOSIXError() }
+        guard lock >= 0 else { throw barPOSIXError() }
         defer { close(lock) }
         guard flock(lock, wait ? LOCK_EX : LOCK_EX | LOCK_NB) == 0 else {
-            if !wait && (errno == EWOULDBLOCK || errno == EAGAIN) { throw WorkspaceError.changedOnDisk }
-            throw workspacePOSIXError()
+            if !wait && (errno == EWOULDBLOCK || errno == EAGAIN) { throw BarError.changedOnDisk }
+            throw barPOSIXError()
         }
         defer { flock(lock, LOCK_UN) }
         return try body()
     }
 
-    private func readSnapshot() throws -> WorkspaceSnapshot? {
+    private func readSnapshot() throws -> BarSnapshot? {
         let fd = open(url.path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
         if fd < 0 {
             if errno == ENOENT { return nil }
-            throw WorkspaceError.invalidFile
+            throw BarError.invalidFile
         }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         var info = stat()
-        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_nlink == 1 else { throw WorkspaceError.invalidFile }
-        return WorkspaceSnapshot(data: try handle.readToEnd() ?? Data(), device: info.st_dev, inode: info.st_ino)
+        guard fstat(fd, &info) == 0, info.st_mode & S_IFMT == S_IFREG, info.st_nlink == 1 else { throw BarError.invalidFile }
+        return BarSnapshot(data: try handle.readToEnd() ?? Data(), device: info.st_dev, inode: info.st_ino)
     }
 
     /// Writes a private temporary file, syncs it, and renames it over the settings file.
     private func replace(with data: Data) throws {
-        let temporary = url.deletingLastPathComponent().appending(path: ".rounds-workspace-\(UUID().uuidString).tmp").path
+        let temporary = url.deletingLastPathComponent().appending(path: ".rounds-bar-\(UUID().uuidString).tmp").path
         let fd = open(temporary, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, 0o600)
-        guard fd >= 0 else { throw workspacePOSIXError() }
+        guard fd >= 0 else { throw barPOSIXError() }
         var renamed = false
         defer {
             close(fd)
             if !renamed { unlink(temporary) }
         }
         try writeAll(fd, data)
-        guard fcntl(fd, F_FULLFSYNC) == 0 else { throw workspacePOSIXError() }
-        guard rename(temporary, url.path) == 0 else { throw workspacePOSIXError() }
+        guard fcntl(fd, F_FULLFSYNC) == 0 else { throw barPOSIXError() }
+        guard rename(temporary, url.path) == 0 else { throw barPOSIXError() }
         renamed = true
         let directory = open(url.deletingLastPathComponent().path, O_RDONLY)
-        guard directory >= 0 else { throw workspacePOSIXError() }
+        guard directory >= 0 else { throw barPOSIXError() }
         defer { close(directory) }
-        guard fsync(directory) == 0 else { throw workspacePOSIXError() }
+        guard fsync(directory) == 0 else { throw barPOSIXError() }
     }
 }
 
-extension WorkspaceSettings {
-    fileprivate mutating func restore(workspace: FolderIdentity) { self.workspace = workspace }
+extension BarSettings {
+    fileprivate mutating func restore(bar: FolderIdentity) { self.bar = bar }
     fileprivate mutating func restore(acknowledgedRemotes: String) { self.acknowledgedRemotes = acknowledgedRemotes }
-    fileprivate mutating func restore(_ scope: WorkspaceScope, _ folder: FolderIdentity) { detailFolders[scope] = folder }
+    fileprivate mutating func restore(_ scope: BarScope, _ folder: FolderIdentity) { detailFolders[scope] = folder }
 }
 
 private func writeAll(_ fd: Int32, _ data: Data) throws {
@@ -451,13 +451,13 @@ private func writeAll(_ fd: Int32, _ data: Data) throws {
         while offset < bytes.count {
             let count = write(fd, bytes.baseAddress!.advanced(by: offset), bytes.count - offset)
             if count < 0 && errno == EINTR { continue }
-            guard count > 0 else { throw workspacePOSIXError() }
+            guard count > 0 else { throw barPOSIXError() }
             offset += count
         }
     }
 }
 
-private func workspacePOSIXError(_ code: Int32 = errno) -> POSIXError {
+private func barPOSIXError(_ code: Int32 = errno) -> POSIXError {
     POSIXError(POSIXErrorCode(rawValue: code) ?? .EIO)
 }
 
@@ -489,7 +489,7 @@ private func runGit(_ arguments: [String], timeout: TimeInterval,
     (process.standardOutput, process.standardError, process.standardInput) = (out, err, FileHandle.nullDevice)
     let exited = DispatchSemaphore(value: 0)
     process.terminationHandler = { _ in exited.signal() }
-    do { try process.run() } catch { throw WorkspaceError.gitFailed("git did not start") }
+    do { try process.run() } catch { throw BarError.gitFailed("git did not start") }
     // Each pipe on its own thread, so a full pipe cannot block the command.
     nonisolated(unsafe) var stdout = Data(), stderr = Data()
     let pipes = DispatchGroup()
@@ -497,9 +497,9 @@ private func runGit(_ arguments: [String], timeout: TimeInterval,
     DispatchQueue.global(qos: .utility).async(group: pipes) { stderr = err.fileHandleForReading.readDataToEndOfFile() }
     guard exited.wait(timeout: .now() + timeout) == .success else {
         process.terminate()
-        throw WorkspaceError.gitTimedOut
+        throw BarError.gitTimedOut
     }
-    guard pipes.wait(timeout: .now() + 2) == .success else { throw WorkspaceError.gitTimedOut }
+    guard pipes.wait(timeout: .now() + 2) == .success else { throw BarError.gitTimedOut }
     return GitOutput(status: process.terminationStatus, stdoutBytes: stdout, stderr: String(decoding: stderr, as: UTF8.self))
 }
 
@@ -511,7 +511,7 @@ public func inspectApprovalSnapshot(repository: URL, sourceRef: String, remote: 
         throw ApprovalError.snapshotUnavailable
     }
     do {
-        let source = try resolveWorkspaceSource(in: folder.path, sourceRef: sourceRef, timeout: timeout)
+        let source = try resolveBarSource(in: folder.path, sourceRef: sourceRef, timeout: timeout)
         let local = ["-C", folder.path, "--git-dir=.git", "--no-lazy-fetch"]
         func output(_ args: [String], allowEmpty: Bool = false,
                     remoteOverride: (name: String, url: String)? = nil) throws -> String {
@@ -582,7 +582,7 @@ public func inspectApprovalSnapshot(repository: URL, sourceRef: String, remote: 
             return [.init(key: key, value: clean)] + effective.map { .init(key: key, value: $0) }
         }
         guard try output(configArgs).utf8.elementsEqual(config.utf8), FolderIdentity.current(repository.path) == folder,
-              try resolveWorkspaceSource(in: folder.path, sourceRef: sourceRef, timeout: timeout) == source else {
+              try resolveBarSource(in: folder.path, sourceRef: sourceRef, timeout: timeout) == source else {
             throw ApprovalError.snapshotUnavailable
         }
         let sshLoginDigest = try sshLogins.contains { $0 != nil } ? approvalDigest(JSONEncoder().encode(sshLogins)) : nil

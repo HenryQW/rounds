@@ -13,7 +13,7 @@ Goal: the user gives goals in the Bouncer conversation, makes decisions, and rev
 | Agent chart | An animated flow chart on board, detail, approval and recovery | Motion and space that ask for no action | Use child rows and a short chain in the subtitle. Animate only the running dots. |
 | Interrupted approval | Stays visible as Interrupted until the user rechecks it | The user checks facts that Rounds can check | Withdraw the request and record it. The agent asks again after it resumes, as a new request. |
 | Recovery | A page with an evidence timeline | The user reads evidence for facts that Rounds proved | Rounds rechecks agents and checkouts itself. Show one row only for a fact it cannot prove, with one safe action. |
-| Backup note | A footer on every view | Banner blindness | Show it once in Settings > Workspace and on the setup row. |
+| Backup note | A footer on every view | Banner blindness | Show it once in Settings > Bar and on the setup row. |
 | Root records | Commit at milestones; each push needs approval | One approval request for each push of records | Commit locally. Push the records only when the user asks; version one runs on one machine. |
 | Setup | Settings page before first use | The user must find the page | Show a Set Up row in Your Turn when a task needs a missing approval. |
 

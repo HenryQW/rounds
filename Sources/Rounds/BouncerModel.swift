@@ -99,12 +99,12 @@ final class BouncerModel {
 
     /// What the user must set up before the Bouncer can start; the Set Up row shows them.
     var setupSteps: [BouncerSetupStep] {
-        let workspace = WorkspaceSettingsState.shared
-        if Demo.isOn { return Demo.bouncerSetup ? [.chooseWorkspace] : [] }
+        let bar = BarSettingsState.shared
+        if Demo.isOn { return Demo.bouncerSetup ? [.chooseBar] : [] }
         // At launch the check of the recorded folder runs off the main thread; the Bouncer waits for its remotes.
-        var remotes: [WorkspaceRemote]?
-        if case .repository(_, let found) = workspace.inspection { remotes = found }
-        return bouncerSetupSteps(workspace: workspace.settings, isWorkspace: workspace.isWorkspace, remotes: remotes)
+        var remotes: [BarRemote]?
+        if case .repository(_, let found) = bar.inspection { remotes = found }
+        return bouncerSetupSteps(bar: bar.settings, isBar: bar.isBar, remotes: remotes)
     }
 
     /// Sessions that need input or failed, without the Bouncer's own: the host note.
@@ -309,7 +309,7 @@ final class BouncerModel {
     private func reloadLocalApprovals(for taskID: UUID) {
         guard let access = localApprovalAccess[taskID], checkingApprovals.insert(taskID).inserted else { return }
         thread.beginLocalApprovalReload(for: taskID)
-        let interface = TaskInterface(workspace: WorkspaceSettingsState.shared.store)
+        let interface = TaskInterface(bar: BarSettingsState.shared.store)
         Task {
             defer { checkingApprovals.remove(taskID) }
             let loaded = await Task.detached { Result { try interface.reloadApprovals(for: taskID, using: access()) } }.value
@@ -357,7 +357,7 @@ final class BouncerModel {
         }
         guard let taskID = UUID(uuidString: card.taskID), let requestID = UUID(uuidString: id),
               let access = localApprovalAccess[taskID], checkingApprovals.insert(taskID).inserted else { return }
-        let interface = TaskInterface(workspace: WorkspaceSettingsState.shared.store)
+        let interface = TaskInterface(bar: BarSettingsState.shared.store)
         Task {
             defer { checkingApprovals.remove(taskID) }
             let saved = await Task.detached {

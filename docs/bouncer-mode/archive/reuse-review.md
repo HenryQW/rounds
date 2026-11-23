@@ -1,6 +1,6 @@
-# Router Workspace reuse review
+# Bouncer mode reuse review
 
-This review records candidates for the planned Router Workspace in Rounds. The user chose Rounds as the product home. It does not select an isolation or approval mechanism.
+This review records candidates for the planned Bouncer mode in Rounds. The user chose Rounds as the product home. It does not select an isolation or approval mechanism.
 
 | Need | Existing resource | Finding | Open check |
 |---|---|---|---|
@@ -17,12 +17,12 @@ This review records candidates for the planned Router Workspace in Rounds. The u
 | Checkpoints | [pi-rewind](https://github.com/arpagon/pi-rewind) | The installed 0.5.0 creates snapshots under `refs/pi-checkpoints`, prunes old session refs on startup, and restores with `git reset --hard`. Checkpoint failures are non-fatal. | Check whether its Git snapshot code can be reused with router-owned retention, explicit failure handling, and safe recovery. Its checkpoints are separate from branch history. |
 | Product and task view | [Rounds](https://github.com/HenryQW/rounds) | Its macOS app shows live agent sessions, project groups, and `acp_delegate` children. It flattens nested children under the root, and finished delegate runs leave its live list. A hook logs some observed approvals. Configured notification channels can send session metadata. | Reuse the app and review existing behavior against the router design. Durable task records, complete decision history, approval controls, and the execution guard remain separate needs. Check direct approval alerts and organization rules for notifications. |
 | Flow animation | [Magpie routing animation](https://github.com/yetone/magpie/issues/302) | Magpie stopped queuing animations while its window is hidden. On return it limits animation to four active requests and does not replay finished ones. | Check whether a native Rounds flow can reuse this behavior. Motion must not imply that an unverified agent is running. |
-| Task view | [mdboard](https://github.com/Patrik-Stas/mdboard) | Its documentation describes a local web board backed by Markdown task files. It exposes task editing, movement, and deletion. | Check whether the board can be adapted to the Router Workspace record format and limited to the approved actions. |
+| Task view | [mdboard](https://github.com/Patrik-Stas/mdboard) | Its documentation describes a local web board backed by Markdown task files. It exposes task editing, movement, and deletion. | Check whether the board can be adapted to the Bouncer mode record format and limited to the approved actions. |
 | Approval interface | [Agent Inbox](https://github.com/Zijian-Ni/agent-inbox) | Its documentation describes a local approval interface and append-only decision log. It explicitly says its approval gate is cooperative and has no authentication. | Test delegate integration, rejection reasons, local access controls, and the required independent execution guard. |
 
 ### tick-md implementation check
 
-At [revision `031e815`](https://github.com/Purple-Horizons/tick-md/tree/031e81550d82a93de17ce977f5b61358bc5d09ef), the command-line lock treats a lock as stale after 60 seconds even when its owner is alive. The completion command writes the task file directly and does not check the task's own dependencies. Invalid configuration restores automatic commits. Its task model has dependency IDs but no parent field. These behaviors need changes before use for Router Workspace records. Concurrency and crash behavior were not tested.
+At [revision `031e815`](https://github.com/Purple-Horizons/tick-md/tree/031e81550d82a93de17ce977f5b61358bc5d09ef), the command-line lock treats a lock as stale after 60 seconds even when its owner is alive. The completion command writes the task file directly and does not check the task's own dependencies. Invalid configuration restores automatic commits. Its task model has dependency IDs but no parent field. These behaviors need changes before use for Bouncer mode records. Concurrency and crash behavior were not tested.
 
 ### Backlog.md implementation check
 

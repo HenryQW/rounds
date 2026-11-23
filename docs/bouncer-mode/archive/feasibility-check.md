@@ -1,6 +1,6 @@
 # Delegation safety feasibility check
 
-This check records evidence for the planned Rounds Router Workspace. It does not establish a production approval or isolation boundary.
+This check records evidence for the planned Bouncer mode in Rounds. It does not establish a production approval or isolation boundary.
 
 ## Results
 

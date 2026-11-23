@@ -32,7 +32,7 @@ final class SettingsState {
 
 /// The Settings pages in the sidebar (spec 5.4), each with a title and one line on what it is for.
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, pill, filters, agents, organizations, workspace, tickets, notifications, history, keys
+    case general, pill, filters, agents, organizations, bar, tickets, notifications, history, keys
     var id: Self { self }
 
     var title: String {
@@ -42,7 +42,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .filters: "Filters"
         case .agents: "Agents"
         case .organizations: "Organizations"
-        case .workspace: "Workspace"
+        case .bar: "Bar"
         case .tickets: "Tickets"
         case .notifications: "Notifications"
         case .history: "History"
@@ -57,7 +57,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .filters: "line.3.horizontal.decrease.circle"
         case .agents: "sparkles"
         case .organizations: "person.2"
-        case .workspace: "folder.badge.gearshape"
+        case .bar: "folder.badge.gearshape"
         case .tickets: "ticket"
         case .notifications: "bell"
         case .history: "chart.bar"
@@ -72,7 +72,7 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .filters: "What Last Call counts, and when a session is Aged."
         case .agents: "Where the live state of each session comes from."
         case .organizations: "Which organizations may send session information."
-        case .workspace: "Where coordination records and task details stay."
+        case .bar: "Where coordination records and task details stay."
         case .tickets: "Shows the Linear and GitHub issues of each session."
         case .notifications: "Sounds on this Mac, and remote messages when you are away."
         case .history: "When agents waited for you, in the last 90 days."
@@ -104,7 +104,7 @@ struct SettingsView: View {
             case .filters: page(.filters) { filters }
             case .agents: page(.agents) { sources }
             case .organizations: OrganizationSettingsView(model: model)
-            case .workspace: page(.workspace) { WorkspaceSections(state: WorkspaceSettingsState.shared) }
+            case .bar: page(.bar) { BarSections(state: BarSettingsState.shared) }
             case .tickets: page(.tickets) { tickets }
             case .notifications: page(.notifications) { notifications }
             case .history:
@@ -293,7 +293,7 @@ struct SettingsView: View {
             Toggle(isOn: $bouncer.on) {
                 described("Bouncer mode", "The pill opens the Bouncer Window. The shortcut opens the session window.")
             }
-            .help("The Bouncer runs pi without tools in the workspace folder. The pill's right-click menu also opens the session window.")
+            .help("The Bouncer runs pi without tools in the bar folder. The pill's right-click menu also opens the session window.")
         } footer: {
             footer(state.error ?? state.recorder.message)
         }

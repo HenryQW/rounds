@@ -1,4 +1,4 @@
-# Router Workspace plan
+# Bouncer mode plan
 
 ## Objective and status
 
@@ -18,7 +18,7 @@ flowchart TD
 | Area | Requirement |
 |---|---|
 | Product | Build in the Rounds repository. Preserve existing session features unless a change is agreed. |
-| Workspace | Keep coordination records separate from application code. Setup can use `/router-setup` or a natural-language request. Check whether the chosen directory is already in a Git repository; otherwise ask whether to create one and ask for its name. |
+| Bar | Keep coordination records separate from application code. Setup can use `/router-setup` or a natural-language request. Check whether the chosen directory is already in a Git repository; otherwise ask whether to create one and ask for its name. |
 | Storage | Use one Git root with a remote for permitted records and configuration. It can be private or public. Before using a public remote, obtain explicit acknowledgement. When visibility cannot be verified, treat it as potentially public and obtain acknowledgement before use. If organization rules prohibit details in the root, keep them in an approved local location and put only permitted metadata in Git. Show that the details are not remotely backed up by the root. |
 | Registry | Keep a stable repository ID, organization, name, aliases, purpose, instruction references, and related repositories. Resolve machine-specific checkout paths separately. |
 | Routing | Use one Bouncer conversation for the user, in the Bouncer window. Prefer an explicitly named repository. Otherwise use aliases, purpose, and project context; inspect ambiguous matches and ask only when the ambiguity changes the work. Do not choose arbitrarily. |
@@ -56,12 +56,12 @@ flowchart TD
 - Add a trusted checkout registry before supporting Git remote rules in Settings. A matching Git remote is not proof of checkout ownership. Keep unknown remotes and unmatched sessions local, and recheck permission before each outbound request.
 - Validate delegate compatibility, agent termination, checkout ownership, recovery proof, and the complete approval guard before using them for protected actions. Check agent transcripts, output, logs, and temporary files against organization storage rules before dispatch.
 - Define repository enrollment and explicit instruction loading.
-- Workspace setup is built (Settings > Workspace, [spec 2.7.2](../../spec.md)). Nothing calls `mayStoreTaskDetails(for:)` until task dispatch exists. Setup decisions for version one:
+- Bar setup is built (Settings > Bar, [spec 2.7.2](../../spec.md)). Nothing calls `mayStoreTaskDetails(for:)` until task dispatch exists. Setup decisions for version one:
   - Rounds does not ask a Git host for remote visibility, because the query sends the remote address off the machine. Every remote is unverified and needs the may-be-public acknowledgement. The acknowledgement applies to the exact set of remote URLs; a changed set needs a new acknowledgement.
-  - For a folder outside a Git repository, Rounds asks whether to create one. On yes, it initializes the repository in that folder and records the entered name as the workspace name. It does not add a remote, commit, or push.
-  - The repository holds only `rounds-workspace.json` with a format version and the workspace name. Rounds does not commit it automatically.
-  - Machine-specific choices stay in local Rounds settings: the workspace folder and its identity, the acknowledged remotes, and one approved task detail folder for each organization and for unclassified projects.
-  - A task detail folder must be an existing private folder outside the workspace repository. Work for an organization without an approved folder cannot store task details.
+  - For a folder outside a Git repository, Rounds asks whether to create one. On yes, it initializes the repository in that folder and records the entered name as the bar name. It does not add a remote, commit, or push.
+  - The repository holds only `rounds-bar.json` with a format version and the bar name. Rounds does not commit it automatically.
+  - Machine-specific choices stay in local Rounds settings: the bar folder and its identity, the acknowledged remotes, and one approved task detail folder for each organization and for unclassified projects.
+  - A task detail folder must be an existing private folder outside the bar. Work for an organization without an approved folder cannot store task details.
 - Build the task interface on the versioned task graph and detail stores. The graph holds task identifiers, links, states, timestamps and detail revision IDs. The detail store holds assignments, progress, results and decisions in immutable revisions. The caller must authorize each storage destination. Resolve cross-organization links and separate local-only records before integration.
 - Define task-state transitions, task-to-session identity, reopening or resuming a closed Bouncer session, and checkpoints and safe retention.
 - Design native task, approval, error, and accessibility states from the [attention review](attention-review.md), which the user approved on 2026-11-19. Earlier mockups were removed as outdated. The shared theme `DESIGN.md` is a separate local draft and is not in the published package.

@@ -74,7 +74,7 @@ Read these files in the pi source at commit `5a14e69c067d40dfbff4f2fff7d3b34c897
 | 02a | `scripts/build-harness-host.sh`, `scripts/bundle.sh` | Build the pinned source in a physical path; package the host and Node |
 | 02a | `Sources/Rounds/BouncerModel.swift` | Own the host with Bouncer mode; await health before the existing adapter starts; stop on off and quit |
 | 02a | `Tests/RoundsCoreTests/NodeHarnessHostTests.swift` | Lifecycle and ownership regressions with local child fixtures |
-| 02a | `docs/spec.md`, this brief, `docs/router-workspace/slices/README.md` | Current behavior and remaining parts |
+| 02a | `docs/spec.md`, this brief, `docs/bouncer-mode/slices/README.md` | Current behavior and remaining parts |
 | 02b | `Sources/RoundsCore/HarnessBouncer.swift`, `Sources/Rounds/BouncerModel.swift`, `Resources/harness-bouncer.mjs`, `Resources/harness-magpie.mjs` | Open, project and control the durable conversation |
 | 02c, local | `Resources/harness-container-use.mjs`, `Resources/harness-container-run.mjs`, `Resources/harness-engine-egress.mjs`, `scripts/harness-engine-egress.sh` | Call the pinned server with a verified private run and worker firewall |
 | 02c, registration | `Resources/harness-host.mjs` | Add tools when the production requirements pass |

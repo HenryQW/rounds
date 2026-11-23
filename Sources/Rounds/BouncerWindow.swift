@@ -444,8 +444,8 @@ struct BouncerView: View {
     /// A missing setup step: a click opens Settings on the page that sets it.
     private func setUpRow(_ step: BouncerSetupStep) -> some View {
         let (text, page): (String, SettingsPage) = switch step {
-        case .chooseWorkspace: ("Choose a workspace folder", .workspace)
-        case .confirmRemotes: ("Confirm the workspace remotes", .workspace)
+        case .chooseBar: ("Choose a bar folder", .bar)
+        case .confirmRemotes: ("Confirm the bar remotes", .bar)
         }
         return Button {
             SettingsState.shared.page = page

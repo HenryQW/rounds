@@ -11,7 +11,7 @@ Rounds: a native macOS 27 background app that shows the live state of AI coding 
 | Words and their meaning (the standard states) | `GLOSSARY.md` |
 | Release notes, one section per version (website/docs/release.md) | `CHANGELOG.md` |
 | Resumable state (git-ignored) | `.context/progress.md` |
-| Bouncer mode design (planned, mostly not built) | `docs/router-workspace/README.md` (start there) |
+| Bouncer mode design (planned, mostly not built) | `docs/bouncer-mode/README.md` (start there) |
 
 Code: `Sources/RoundsCore` (models, parsers, classifier, hook settings; no UI), `Sources/Rounds` (app), `Sources/rounds-hook` (hook helper that Claude Code and Codex run). Tests: `Tests/RoundsCoreTests`.
 
@@ -38,7 +38,7 @@ Code: `Sources/RoundsCore` (models, parsers, classifier, hook settings; no UI), 
 - Native SwiftUI and AppKit components with default styling first.
 - Colour is information: orange means needs input, blue means running; hover is grey and selection is the accent, and the two never look alike.
 - Update the spec in the same commit as a behaviour change.
-- Docs are current or in an `archive/` folder: a change that makes a doc wrong fixes it in the same commit. Record each owner decision on Bouncer mode in `docs/router-workspace/decisions.md` when the owner makes it.
+- Docs are current or in an `archive/` folder: a change that makes a doc wrong fixes it in the same commit. Record each owner decision on Bouncer mode in `docs/bouncer-mode/decisions.md` when the owner makes it.
 - Docs and UI copy: ASD-STE100 Simplified Technical English, no em or en dashes.
 - Commit each change; never push without the user's go-ahead.
 - Release notes: before the tag, a cheaper model (in Claude Code, a Sonnet subagent, `model: "sonnet"`) drafts the version's `CHANGELOG.md` section from `scripts/release-notes.sh v<previous> HEAD HenryQW/rounds` and the rules at the top of `CHANGELOG.md`. The main agent checks the draft against those rules, shows it to the user, and commits it with `VERSION` (website/docs/release.md).

@@ -3,7 +3,7 @@ import Foundation
 import Testing
 @testable import RoundsCore
 
-@Suite struct WorkspaceTests {
+@Suite struct BarTests {
     @discardableResult
     private func git(_ arguments: String...) throws -> String {
         let process = Process(), output = Pipe()
@@ -37,15 +37,15 @@ import Testing
         let base = try tempDir()
         defer { try? FileManager.default.removeItem(at: base) }
         let plain = try folder(base.appending(path: "plain"))
-        #expect(try inspectWorkspaceFolder(plain.path) == .noRepository)
+        #expect(try inspectBarFolder(plain.path) == .noRepository)
 
         let repo = try folder(base.appending(path: "repo"))
         let child = try folder(repo.appending(path: "records"))
         try git("-C", repo.path, "init", "--quiet")
-        #expect(try inspectWorkspaceFolder(child.path) == .repository(root: resolved(repo), remotes: []))
-        try git("-C", repo.path, "remote", "add", "origin", "https://example.invalid/team/workspace.git")
-        #expect(try inspectWorkspaceFolder(child.path) == .repository(
-            root: resolved(repo), remotes: [WorkspaceRemote(name: "origin", url: "https://example.invalid/team/workspace.git")]))
+        #expect(try inspectBarFolder(child.path) == .repository(root: resolved(repo), remotes: []))
+        try git("-C", repo.path, "remote", "add", "origin", "https://example.invalid/team/bar.git")
+        #expect(try inspectBarFolder(child.path) == .repository(
+            root: resolved(repo), remotes: [BarRemote(name: "origin", url: "https://example.invalid/team/bar.git")]))
     }
 
     @Test func sourceCommitFollowsOnlyTheNamedRef() throws {
@@ -57,16 +57,16 @@ import Testing
         try git("-C", repo.path, "update-ref", ref, first)
         let second = try commit(in: repo, message: "Next")
         try #require(first != second)
-        #expect(try resolveWorkspaceSourceCommit(in: repo.path, sourceRef: ref) == first)
+        #expect(try resolveBarSourceCommit(in: repo.path, sourceRef: ref) == first)
 
         try git("-C", repo.path, "update-ref", ref, second)
-        #expect(try resolveWorkspaceSourceCommit(in: repo.path, sourceRef: ref) == second)
+        #expect(try resolveBarSourceCommit(in: repo.path, sourceRef: ref) == second)
 
         // A revision expression could still find this tag after the exact reference is deleted.
         try git("-C", repo.path, "update-ref", "refs/tags/\(ref)", first)
         try git("-C", repo.path, "update-ref", "-d", ref)
-        #expect(throws: WorkspaceError.gitFailed("Git could not read the local source reference.")) {
-            try resolveWorkspaceSourceCommit(in: repo.path, sourceRef: ref)
+        #expect(throws: BarError.gitFailed("Git could not read the local source reference.")) {
+            try resolveBarSourceCommit(in: repo.path, sourceRef: ref)
         }
     }
 
@@ -80,9 +80,9 @@ import Testing
         try git("-C", repo.path, "config", "core.precomposeUnicode", "false")
         try git("-C", repo.path, "update-ref", decomposed, revision)
         try git("-C", repo.path, "pack-refs", "--all")
-        #expect(try resolveWorkspaceSourceCommit(in: repo.path, sourceRef: decomposed) == revision)
-        #expect(throws: WorkspaceError.gitFailed("Git could not read the local source reference.")) {
-            try resolveWorkspaceSourceCommit(in: repo.path, sourceRef: composed)
+        #expect(try resolveBarSourceCommit(in: repo.path, sourceRef: decomposed) == revision)
+        #expect(throws: BarError.gitFailed("Git could not read the local source reference.")) {
+            try resolveBarSourceCommit(in: repo.path, sourceRef: composed)
         }
     }
 
@@ -93,8 +93,8 @@ import Testing
         let commit = try commit(in: repo)
         for ref in ["main", "HEAD", commit, "--all", "refs/heads/main^0", "refs/heads/main~0",
                     "refs/heads/main@{0}", "refs//heads/main", "refs/heads/main\0extra"] {
-            #expect(throws: WorkspaceError.gitFailed("Use a valid full Git reference name under refs/.")) {
-                try resolveWorkspaceSourceCommit(in: repo.path, sourceRef: ref)
+            #expect(throws: BarError.gitFailed("Use a valid full Git reference name under refs/.")) {
+                try resolveBarSourceCommit(in: repo.path, sourceRef: ref)
             }
         }
     }
@@ -110,8 +110,8 @@ import Testing
         let ref = "refs/tags/blob"
         try git("-C", repo.path, "update-ref", ref, blob)
         try git("-C", repo.path, "replace", "-f", blob, commit)
-        #expect(throws: WorkspaceError.gitFailed("The source reference does not resolve to a locally available commit.")) {
-            try resolveWorkspaceSourceCommit(in: repo.path, sourceRef: ref)
+        #expect(throws: BarError.gitFailed("The source reference does not resolve to a locally available commit.")) {
+            try resolveBarSourceCommit(in: repo.path, sourceRef: ref)
         }
     }
 
@@ -125,7 +125,7 @@ import Testing
         try git("-C", repo.path, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
                 "-c", "tag.gpgSign=false", "tag", "-a", "result", "-m", "Fixture tag")
         try git("-C", repo.path, "worktree", "add", "--quiet", "--detach", linked.path)
-        #expect(try resolveWorkspaceSourceCommit(in: linked.path, sourceRef: "refs/tags/result") == commit)
+        #expect(try resolveBarSourceCommit(in: linked.path, sourceRef: "refs/tags/result") == commit)
     }
 
     @Test func sourceCommitDoesNotUseTheParentRepository() throws {
@@ -134,8 +134,8 @@ import Testing
         try git("-C", repo.path, "init", "--quiet", "--initial-branch=main")
         _ = try commit(in: repo)
         let child = try folder(repo.appending(path: "child"))
-        #expect(throws: WorkspaceError.notRepository) {
-            try resolveWorkspaceSourceCommit(in: child.path, sourceRef: "refs/heads/main")
+        #expect(throws: BarError.notRepository) {
+            try resolveBarSourceCommit(in: child.path, sourceRef: "refs/heads/main")
         }
     }
 
@@ -150,8 +150,8 @@ import Testing
         try git("-C", repo.path, "config", "remote.origin.promisor", "true")
         let object = repo.appending(path: ".git/objects/\(commit.prefix(2))/\(commit.dropFirst(2))")
         try FileManager.default.removeItem(at: object)
-        #expect(throws: WorkspaceError.self) {
-            try resolveWorkspaceSourceCommit(in: repo.path, sourceRef: "refs/heads/main")
+        #expect(throws: BarError.self) {
+            try resolveBarSourceCommit(in: repo.path, sourceRef: "refs/heads/main")
         }
         let objects = try git("-C", repo.path, "--no-lazy-fetch", "rev-list", "--objects", "--missing=print", "--all")
         #expect(objects.split(separator: "\n").contains("?\(commit)"))
@@ -161,20 +161,20 @@ import Testing
         let base = try tempDir()
         defer { try? FileManager.default.removeItem(at: base) }
         let taken = try folder(base.appending(path: "taken"))
-        let existing = taken.appending(path: workspaceFileName)
+        let existing = taken.appending(path: barFileName)
         try Data("keep".utf8).write(to: existing)
-        #expect(throws: WorkspaceError.fileExists) { try createWorkspaceRepository(in: taken.path, name: "Team") }
+        #expect(throws: BarError.fileExists) { try createBarRepository(in: taken.path, name: "Team") }
         #expect(try Data(contentsOf: existing) == Data("keep".utf8))
         #expect(!FileManager.default.fileExists(atPath: taken.appending(path: ".git").path))
 
         let fresh = try folder(base.appending(path: "fresh"))
-        #expect(throws: WorkspaceError.invalidName) { try createWorkspaceRepository(in: fresh.path, name: "  ") }
-        try createWorkspaceRepository(in: fresh.path, name: "Team workspace")
-        let file = try JSONSerialization.jsonObject(with: Data(contentsOf: fresh.appending(path: workspaceFileName))) as? [String: Any]
+        #expect(throws: BarError.invalidName) { try createBarRepository(in: fresh.path, name: "  ") }
+        try createBarRepository(in: fresh.path, name: "Team bar")
+        let file = try JSONSerialization.jsonObject(with: Data(contentsOf: fresh.appending(path: barFileName))) as? [String: Any]
         #expect(file?["formatVersion"] as? Int == 1)
-        #expect(file?["name"] as? String == "Team workspace")
-        #expect(try inspectWorkspaceFolder(fresh.path) == .repository(root: resolved(fresh), remotes: []))
-        #expect(throws: WorkspaceError.alreadyRepository) { try createWorkspaceRepository(in: fresh.path, name: "Again") }
+        #expect(file?["name"] as? String == "Team bar")
+        #expect(try inspectBarFolder(fresh.path) == .repository(root: resolved(fresh), remotes: []))
+        #expect(throws: BarError.alreadyRepository) { try createBarRepository(in: fresh.path, name: "Again") }
     }
 
     @Test func changedRemoteSetNeedsNewAcknowledgement() throws {
@@ -182,47 +182,47 @@ import Testing
         defer { try? FileManager.default.removeItem(at: base) }
         let repo = try folder(base.appending(path: "repo"))
         try git("-C", repo.path, "init", "--quiet")
-        try git("-C", repo.path, "remote", "add", "origin", "https://example.invalid/team/workspace.git")
-        var settings = WorkspaceSettings()
-        try settings.setWorkspace(repo.path)
-        #expect(settings.workspaceProblem(try inspectWorkspaceFolder(repo.path)) == .remotesNotAcknowledged)
-        guard case .repository(_, let remotes) = try inspectWorkspaceFolder(repo.path) else { Issue.record("no repository"); return }
+        try git("-C", repo.path, "remote", "add", "origin", "https://example.invalid/team/bar.git")
+        var settings = BarSettings()
+        try settings.setBar(repo.path)
+        #expect(settings.barProblem(try inspectBarFolder(repo.path)) == .remotesNotAcknowledged)
+        guard case .repository(_, let remotes) = try inspectBarFolder(repo.path) else { Issue.record("no repository"); return }
         try settings.acknowledgeRemotes(remotes)
-        #expect(settings.workspaceProblem(try inspectWorkspaceFolder(repo.path)) == nil)
+        #expect(settings.barProblem(try inspectBarFolder(repo.path)) == nil)
 
-        try git("-C", repo.path, "remote", "add", "backup", "git@example.invalid:team/workspace.git")
-        #expect(settings.workspaceProblem(try inspectWorkspaceFolder(repo.path)) == .remotesNotAcknowledged)
+        try git("-C", repo.path, "remote", "add", "backup", "git@example.invalid:team/bar.git")
+        #expect(settings.barProblem(try inspectBarFolder(repo.path)) == .remotesNotAcknowledged)
         try git("-C", repo.path, "remote", "remove", "backup")
-        try git("-C", repo.path, "remote", "set-url", "origin", "https://example.invalid/other/workspace.git")
-        #expect(settings.workspaceProblem(try inspectWorkspaceFolder(repo.path)) == .remotesNotAcknowledged)
+        try git("-C", repo.path, "remote", "set-url", "origin", "https://example.invalid/other/bar.git")
+        #expect(settings.barProblem(try inspectBarFolder(repo.path)) == .remotesNotAcknowledged)
 
         // A push target set as a URL in configuration is not listed by `git remote -v`, but still needs acknowledgement.
-        try git("-C", repo.path, "remote", "set-url", "origin", "https://example.invalid/team/workspace.git")
-        #expect(settings.workspaceProblem(try inspectWorkspaceFolder(repo.path)) == nil)
+        try git("-C", repo.path, "remote", "set-url", "origin", "https://example.invalid/team/bar.git")
+        #expect(settings.barProblem(try inspectBarFolder(repo.path)) == nil)
         try git("-C", repo.path, "config", "remote.pushDefault", "https://example.invalid/elsewhere.git")
-        #expect(settings.workspaceProblem(try inspectWorkspaceFolder(repo.path)) == .remotesNotAcknowledged)
+        #expect(settings.barProblem(try inspectBarFolder(repo.path)) == .remotesNotAcknowledged)
     }
 
-    @Test func workspaceMustStayItsOwnRepositoryRoot() throws {
+    @Test func barMustStayItsOwnRepositoryRoot() throws {
         let base = try tempDir()
         defer { try? FileManager.default.removeItem(at: base) }
         let outer = try folder(base.appending(path: "outer"))
         try git("-C", outer.path, "init", "--quiet")
-        let inner = try folder(outer.appending(path: "workspace"))
+        let inner = try folder(outer.appending(path: "bar"))
         try git("-C", inner.path, "init", "--quiet")
-        var settings = WorkspaceSettings()
-        try settings.setWorkspace(inner.path)
-        #expect(settings.workspaceProblem(try inspectWorkspaceFolder(inner.path)) == nil)
+        var settings = BarSettings()
+        try settings.setBar(inner.path)
+        #expect(settings.barProblem(try inspectBarFolder(inner.path)) == nil)
         // Without its own repository, the folder resolves to the outer repository and must not pass.
         try FileManager.default.removeItem(at: inner.appending(path: ".git"))
-        #expect(settings.workspaceProblem(try inspectWorkspaceFolder(inner.path)) == .notRepository)
+        #expect(settings.barProblem(try inspectBarFolder(inner.path)) == .notRepository)
     }
 
     @Test func displayHidesCredentialsInRemoteURLs() {
-        let remote = WorkspaceRemote(name: "origin", url: "https://user:secret-token@example.invalid/team/workspace.git")
+        let remote = BarRemote(name: "origin", url: "https://user:secret-token@example.invalid/team/bar.git")
         #expect(!remote.displayURL.contains("secret-token"))
         #expect(!remote.displayURL.contains("user"))
-        #expect(remote.displayURL.contains("example.invalid/team/workspace.git"))
+        #expect(remote.displayURL.contains("example.invalid/team/bar.git"))
     }
 
     @Test func detailFolderMustBePrivateRealAndOutsideRepository() throws {
@@ -245,9 +245,9 @@ import Testing
         #expect(checkDetailFolder(base.appending(path: "missing").path, repositoryRoot: repo.path) == .missing)
         #expect(checkDetailFolder(good.path, repositoryRoot: repo.path) == nil)
 
-        var settings = WorkspaceSettings()
-        try settings.setWorkspace(repo.path)
-        #expect(throws: WorkspaceError.detailFolderInvalid(.insideRepository)) {
+        var settings = BarSettings()
+        try settings.setBar(repo.path)
+        #expect(throws: BarError.detailFolderInvalid(.insideRepository)) {
             try settings.approveDetailFolder(inside.path, for: .unclassified, repositoryRoot: repo.path)
         }
         #expect(settings.detailFolders.isEmpty)
@@ -257,13 +257,13 @@ import Testing
         let base = try tempDir()
         defer { try? FileManager.default.removeItem(at: base) }
         let repo = try folder(base.appending(path: "repo"))
-        try createWorkspaceRepository(in: repo.path, name: "Team")
+        try createBarRepository(in: repo.path, name: "Team")
         let details = try folder(base.appending(path: "details"))
         let organization = UUID(), other = UUID()
-        let store = WorkspaceSettingsStore(url: base.appending(path: "workspace-settings.json"))
+        let store = BarSettingsStore(url: base.appending(path: "bar-settings.json"))
         #expect(!store.mayStoreTaskDetails(for: organization))
         try store.update { settings in
-            try settings.setWorkspace(repo.path)
+            try settings.setBar(repo.path)
             try settings.approveDetailFolder(details.path, for: .organization(organization), repositoryRoot: repo.path)
         }
         #expect(store.mayStoreTaskDetails(for: organization))
@@ -271,7 +271,7 @@ import Testing
         #expect(!store.mayStoreTaskDetails(for: nil))
 
         // A remote added after setup needs an acknowledgement before task details are stored.
-        try git("-C", repo.path, "remote", "add", "origin", "https://example.invalid/team/workspace.git")
+        try git("-C", repo.path, "remote", "add", "origin", "https://example.invalid/team/bar.git")
         #expect(!store.mayStoreTaskDetails(for: organization))
         try git("-C", repo.path, "remote", "remove", "origin")
         #expect(store.mayStoreTaskDetails(for: organization))
@@ -282,22 +282,22 @@ import Testing
         #expect(!store.mayStoreTaskDetails(for: organization))
         #expect(try store.load().detailFolderProblem(for: .organization(organization), repositoryRoot: repo.path) == .replaced)
 
-        // A different workspace folder removes every approval.
+        // A different bar folder removes every approval.
         let next = try folder(base.appending(path: "next"))
-        try store.update { try $0.setWorkspace(next.path) }
+        try store.update { try $0.setBar(next.path) }
         #expect(try store.load().detailFolders.isEmpty)
     }
 
     @Test func corruptOrUnknownSettingsFailClosed() throws {
         let base = try tempDir()
         defer { try? FileManager.default.removeItem(at: base) }
-        let url = base.appending(path: "workspace-settings.json")
-        let store = WorkspaceSettingsStore(url: url)
+        let url = base.appending(path: "bar-settings.json")
+        let store = BarSettingsStore(url: url)
         for content in ["{not json", #"{"version":2,"detailFolders":{}}"#,
                         #"{"version":1,"detailFolders":{"someone":{"path":"/tmp","device":1,"inode":2}}}"#] {
             try Data(content.utf8).write(to: url)
-            #expect(throws: WorkspaceError.malformedData) { try store.load() }
-            #expect(throws: WorkspaceError.malformedData) { try store.update { $0.withdrawAcknowledgement() } }
+            #expect(throws: BarError.malformedData) { try store.load() }
+            #expect(throws: BarError.malformedData) { try store.update { $0.withdrawAcknowledgement() } }
             #expect(try Data(contentsOf: url) == Data(content.utf8))
             #expect(!store.mayStoreTaskDetails(for: nil))
         }

@@ -13,12 +13,12 @@ Local task records are built. A local runtime verifies dispatch, Blocked continu
 | Read | Purpose |
 |---|---|
 | [AGENTS.md](../../../AGENTS.md), [DESIGN.md](../../../DESIGN.md), [GLOSSARY.md](../../../GLOSSARY.md) | Project rules, existing components and product terms |
-| [Spec 2.7](../../spec.md#27-pi-sessions), [2.8](../../spec.md#28-tickets), [3](../../spec.md#3-classification) | Organization checks, workspace setup and session classification; include every subsection |
+| [Spec 2.7](../../spec.md#27-pi-sessions), [2.8](../../spec.md#28-tickets), [3](../../spec.md#3-classification) | Organization checks, bar setup and session classification; include every subsection |
 | This brief, [01](01-bouncer-mode.md), [02](02-node-harness-host.md), [slice index](README.md) | Scope, adapter boundary and Node Host prerequisites |
 | [Overview](../overview.md), [decisions](../decisions.md), [context](../CONTEXT.md) | Agreed behavior, owner decisions and task/session distinction |
 | [Bouncer review](../archive/bouncer-review.md), [plan](../archive/plan.md) | Evidence and proposals; proposals do not replace owner decisions |
-| [Workspace.swift](../../../Sources/RoundsCore/Workspace.swift), [TaskGraph.swift](../../../Sources/RoundsCore/TaskGraph.swift), [TaskDetailStore.swift](../../../Sources/RoundsCore/TaskDetailStore.swift), [TaskRecordStore.swift](../../../Sources/RoundsCore/TaskRecordStore.swift) | Actual setup checks, graph validation and detail publication contracts |
-| [Workspace tests](../../../Tests/RoundsCoreTests/WorkspaceTests.swift), [graph tests](../../../Tests/RoundsCoreTests/TaskGraphTests.swift), [detail tests](../../../Tests/RoundsCoreTests/TaskDetailStoreTests.swift), [record tests](../../../Tests/RoundsCoreTests/TaskRecordStoreTests.swift) | Existing boundaries and regression coverage |
+| [Bar.swift](../../../Sources/RoundsCore/Bar.swift), [TaskGraph.swift](../../../Sources/RoundsCore/TaskGraph.swift), [TaskDetailStore.swift](../../../Sources/RoundsCore/TaskDetailStore.swift), [TaskRecordStore.swift](../../../Sources/RoundsCore/TaskRecordStore.swift) | Actual setup checks, graph validation and detail publication contracts |
+| [Bar tests](../../../Tests/RoundsCoreTests/BarTests.swift), [graph tests](../../../Tests/RoundsCoreTests/TaskGraphTests.swift), [detail tests](../../../Tests/RoundsCoreTests/TaskDetailStoreTests.swift), [record tests](../../../Tests/RoundsCoreTests/TaskRecordStoreTests.swift) | Existing boundaries and regression coverage |
 | Pinned Pi source listed under Contracts | Conversation creation, child ownership, tool exposure and scheduling |
 
 Read the living-docs skill, section "Slice brief", before changing this brief. The checked source is `~/.local/share/magpie/shared-skills/skills/living-docs/SKILL.md` on `vps`.
@@ -41,8 +41,8 @@ Sub-step 1 can merge before slice 02. Sub-steps 2 and 3 require its completed ho
 
 | Path or boundary | Sub-step | Role |
 |---|---|---|
-| [TaskInterface.swift](../../../Sources/RoundsCore/TaskInterface.swift) | 1 | Implements local task operations through the workspace storage check |
-| [Workspace.swift](../../../Sources/RoundsCore/Workspace.swift) | 1 | Checks folder readiness and resolves the approved detail folder |
+| [TaskInterface.swift](../../../Sources/RoundsCore/TaskInterface.swift) | 1 | Implements local task operations through the bar storage check |
+| [Bar.swift](../../../Sources/RoundsCore/Bar.swift) | 1 | Checks folder readiness and resolves the approved detail folder |
 | [TaskGraph.swift](../../../Sources/RoundsCore/TaskGraph.swift), [TaskDetailStore.swift](../../../Sources/RoundsCore/TaskDetailStore.swift), [TaskRecordStore.swift](../../../Sources/RoundsCore/TaskRecordStore.swift) | 1 | Own graph validation, immutable revisions and detail-first linking |
 | [TaskInterfaceTests.swift](../../../Tests/RoundsCoreTests/TaskInterfaceTests.swift) | 1 | Exercises local calls with temporary stores |
 | [harness-task-dispatch.mjs](../../../Resources/harness-task-dispatch.mjs), [harness-container-run.mjs](../../../Resources/harness-container-run.mjs) | 2, 3 | Bind local runs to Harness conversations, check restart state and import the exact result revision |
@@ -60,7 +60,7 @@ No new window design belongs here. Use the chosen slice 01 components. The Node 
 | Boundary | Contract |
 |---|---|
 | Scope | Each call supplies its organization scope and exact authorized graph/detail destinations. Do not infer authority from assignment text or a Git remote. |
-| First check | Each `TaskInterface` call checks `WorkspaceSettingsStore.mayStoreTaskDetails(for:)`. A false result stops the operation before it accesses the stores. |
+| First check | Each `TaskInterface` call checks `BarSettingsStore.mayStoreTaskDetails(for:)`. A false result stops the operation before it accesses the stores. |
 | Destination | The interface resolves the approved folder with `taskDetailFolder(for:)` and checks it against the caller's detail destination. |
 | Authorization | The caller supplies separate authority for graph values and detail values at their exact destinations. A detail link grant covers its reference, generation, timestamp and viewed-status reset. |
 | Unclassified input | A nil organization selects the existing unclassified folder. It grants no model transmission. Do not convert a conflicting classification into an unclassified permission. |
@@ -118,7 +118,7 @@ A Pi task identifier, conversation identifier and Rounds graph task identifier a
 
 ```mermaid
 flowchart TD
-    A[Local task request] --> B[Check workspace and exact storage authority]
+    A[Local task request] --> B[Check bar and exact storage authority]
     B --> C[Create graph task and publish linked details]
     C --> D{Dispatch prerequisites resolved?}
     D -->|No| E[Keep local task; do not dispatch]
@@ -131,7 +131,7 @@ flowchart TD
 
 ### Sub-step 1: local task records
 
-- `TaskInterface` takes an explicit workspace scope and exact store destinations. An explicit setup call initializes the graph.
+- `TaskInterface` takes an explicit bar scope and exact store destinations. An explicit setup call initializes the graph.
 - Creation publishes and links assignment details after the graph save. Inspection outcomes carry the task identifier.
 - Reads authorize the graph snapshot and any linked details. Revisions preserve each value that the edit leaves unchanged.
 - The caller can update graph state and acknowledge a viewed result through the existing graph validation.
@@ -173,7 +173,7 @@ This brief defines no clone deletion schedule, checkpoint replacement or new Dec
 
 | Sub-step | Case, boundary first | Required observation |
 |---|---|---|
-| 1 | Missing workspace, malformed settings, unacknowledged changed remotes, or absent approval | The first storage check rejects; neither graph nor details changes |
+| 1 | Missing bar, malformed settings, unacknowledged changed remotes, or absent approval | The first storage check rejects; neither graph nor details changes |
 | 1 | Approved folder disappears, is replaced, becomes a symlink, or loses private ownership/permissions | A fresh operation rejects the destination; no alternate directory receives the data |
 | 1 | Organization A is approved; B and unclassified are not | Calls for B and nil fail; A cannot authorize them |
 | 1 | Folder readiness succeeds but graph or detail values lack destination authorization | Reject before either write; remote acknowledgement cannot substitute |

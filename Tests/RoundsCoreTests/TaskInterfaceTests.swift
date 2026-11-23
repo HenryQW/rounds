@@ -10,24 +10,24 @@ import Testing
         let repository: URL
         let graph: TaskGraphStore
         let details: TaskDetailStore
-        let settings: WorkspaceSettingsStore
+        let settings: BarSettingsStore
         let organizationID = UUID()
-        var interface: TaskInterface { TaskInterface(workspace: settings) }
+        var interface: TaskInterface { TaskInterface(bar: settings) }
 
         init(initializeGraph: Bool = true) throws {
             root = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
                 .appending(path: "task-interface-\(UUID().uuidString)")
-            repository = root.appending(path: "workspace", directoryHint: .isDirectory)
+            repository = root.appending(path: "bar", directoryHint: .isDirectory)
             graph = TaskGraphStore(directory: root.appending(path: "graph", directoryHint: .isDirectory))
             details = TaskDetailStore(directory: root.appending(path: "details", directoryHint: .isDirectory))
-            settings = WorkspaceSettingsStore(url: root.appending(path: "settings.json"))
+            settings = BarSettingsStore(url: root.appending(path: "settings.json"))
             for directory in [root, repository, graph.directory, details.directory] {
                 try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
                                                         attributes: [.posixPermissions: 0o700])
             }
-            try createWorkspaceRepository(in: repository.path, name: "Test workspace")
+            try createBarRepository(in: repository.path, name: "Test bar")
             try settings.update {
-                try $0.setWorkspace(repository.path)
+                try $0.setBar(repository.path)
                 try $0.approveDetailFolder(details.directory.path, for: .organization(organizationID),
                                           repositoryRoot: repository.path)
             }
@@ -36,7 +36,7 @@ import Testing
 
         deinit { try? FileManager.default.removeItem(at: root) }
 
-        func access(scope: WorkspaceScope? = nil, graphDirectory: URL? = nil, detailDirectory: URL? = nil,
+        func access(scope: BarScope? = nil, graphDirectory: URL? = nil, detailDirectory: URL? = nil,
                     allowsGraph: @escaping (TaskGraphValues, URL) -> Bool = { _, _ in true },
                     allowsDetails: @escaping (UUID, TaskDetails, URL) -> Bool = { _, _, _ in true }) -> TaskStorageAuthorization {
             let id: UUID?
@@ -800,7 +800,7 @@ import Testing
                     let access = TaskStorageAuthorization(organizationID: organizationID, graphDirectory: graph.directory,
                                                           detailDirectory: detailStore.directory,
                                                           allowsGraph: { _, _ in true }, allowsDetails: { _, _, _ in true })
-                    try TaskInterface(workspace: settings).revise(checkoutTask, expecting: reference, using: access, at: at) {
+                    try TaskInterface(bar: settings).revise(checkoutTask, expecting: reference, using: access, at: at) {
                         $0.progress.append(progress)
                     }
                 }
@@ -872,20 +872,20 @@ import Testing
         #expect(after.task.detailReference == stored.task.detailReference && after.details == stored.details)
     }
 
-    @Test(arguments: ["missing workspace", "malformed settings", "changed remotes", "absent approval"])
+    @Test(arguments: ["missing bar", "malformed settings", "changed remotes", "absent approval"])
     func incompleteSetupRejectsEveryWrite(problem: String) throws {
         let f = try Fixture()
         let record = try f.create(values)
         let before = try f.graphData(), detailsBefore = try f.detailData()
         switch problem {
-        case "missing workspace":
+        case "missing bar":
             try FileManager.default.removeItem(at: f.settings.url)
         case "malformed settings":
             try Data("broken settings".utf8).write(to: f.settings.url)
         case "changed remotes":
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            process.arguments = ["-C", f.repository.path, "remote", "add", "origin", "https://example.invalid/workspace.git"]
+            process.arguments = ["-C", f.repository.path, "remote", "add", "origin", "https://example.invalid/bar.git"]
             try process.run()
             process.waitUntilExit()
             #expect(process.terminationStatus == 0)
@@ -1089,9 +1089,9 @@ import Testing
     @Test func concurrentSettingsEditRejectsStaleSnapshot() throws {
         let f = try Fixture()
         let settings = f.settings
-        let scope = WorkspaceScope.organization(f.organizationID)
+        let scope = BarScope.organization(f.organizationID)
         var calls = 0
-        #expect(throws: WorkspaceError.changedOnDisk) {
+        #expect(throws: BarError.changedOnDisk) {
             try settings.update { _ in
                 calls += 1
                 let completed = DispatchSemaphore(value: 0)
@@ -1100,7 +1100,7 @@ import Testing
                 }
                 guard completed.wait(timeout: .now() + 2) == .success else {
                     Issue.record("Concurrent settings update was blocked")
-                    throw WorkspaceError.changedOnDisk
+                    throw BarError.changedOnDisk
                 }
             }
         }
@@ -1143,7 +1143,7 @@ import Testing
     @Test func organizationApprovalDoesNotAuthorizeOtherScopes() throws {
         let f = try Fixture()
         let before = try f.graphData()
-        for scope: WorkspaceScope in [.organization(UUID()), .unclassified] {
+        for scope: BarScope in [.organization(UUID()), .unclassified] {
             #expect(throws: TaskInterfaceError.storageNotReady) {
                 try f.interface.create(details: values, using: f.access(scope: scope))
             }
@@ -1465,7 +1465,7 @@ import Testing
         let f = try Fixture()
         let record = try f.create(values)
         let settings = f.settings
-        let scope = WorkspaceScope.organization(f.organizationID)
+        let scope = BarScope.organization(f.organizationID)
         var interface = f.interface
         interface.writeRecord = { store, taskID, previous, details, at, _, _, _ in
             try settings.update { $0.withdrawApproval(for: scope) }
@@ -1579,7 +1579,7 @@ import Testing
             }
             Issue.record("A link succeeded while settings were locked")
         } catch let error as TaskRecordLinkError {
-            #expect(error.underlyingError as? WorkspaceError == .changedOnDisk)
+            #expect(error.underlyingError as? BarError == .changedOnDisk)
             #expect(try f.details.read(taskID: record.task.id, revisionID: error.revisionID).progress.count == 1)
         }
         #expect(try f.graph.load().tasks.first?.detailReference == record.task.detailReference)
@@ -1716,7 +1716,7 @@ import Testing
             $0.assignment = revisedAssignment
         }
         guard case .saved(let revisionID) = write else { Issue.record("Revision was not saved"); return }
-        let reopened = TaskInterface(workspace: WorkspaceSettingsStore(url: f.settings.url))
+        let reopened = TaskInterface(bar: BarSettingsStore(url: f.settings.url))
         let current = try reopened.read(first.task.id, using: f.access())
         #expect(current.task.detailRevisionID == revisionID && current.task.detailGeneration == 2)
         #expect(current.details?.assignment == revisedAssignment && current.details?.result == result)
