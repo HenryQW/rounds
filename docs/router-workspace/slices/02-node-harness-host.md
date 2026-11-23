@@ -124,7 +124,7 @@ A disposable client used container-use v0.4.2 and Dagger v0.18.14 on Docker Desk
 | Transport | The bridge starts the pinned server with a private home and a fixed local engine. It supplies the source, revision and environment identity. Requests and replies have size and time limits. |
 | Tools | A run can create or open one environment, update its title and read, list, write, edit or delete files. The bridge permits only the built-in container config. |
 | Commands | A trusted host can opt in to foreground commands with the patched client. The bridge binds the source and environment and accepts only the command and optional explanation. The reply gives the exit status after the client saves the result. |
-| Engine | The startup script writes the capability policy and installs worker rules before Dagger starts. The bridge checks the startup script, policy and worker rules against each engine start. An engine restart during a call invalidates its response. |
+| Engine | The startup script writes the capability policy and installs worker rules before Dagger starts. With no proxy configured, it denies all worker egress. The bridge checks the startup script, policy and worker rules at each engine start. A restart during a call invalidates its response. |
 
 Run `scripts/build-container-use.sh` with Go 1.24.3 or later to build the private client from the pinned source. The patch disables Dagger nesting for foreground execution and sets a distinct server version. The bridge checks that version before it sends a tool call. After a version refusal, it verifies the existing run before it releases the lock. The stock [command handler] enables nesting, which lets a nested [HTTP request] run beyond the worker firewall.
 
@@ -132,10 +132,12 @@ The client removes skipped untracked build files from the private Git worktree a
 
 The disposable restart check reopened a command result and a skipped build file after the engine restarted. The worker reached the allowed proxy route. It could not reach the denied route, the origin directly or the image mirror directly. The bridge also refused a dirty checkout, a changed startup script and a missing firewall rule in the preceding restart check.
 
+The local dispatch runtime checks for pending Harness work before a submission. It requires a trusted recovery check and matches the recorded conversations, saved run identities and run directory contents. An unknown or interrupted run stops scheduling. The disposable workflow reopens the database and engine with this check. See [slice 03](03-dispatch-and-results.md#local-runtime).
+
 ### Production registration gates
 
-- Verify the production proxy allowlist and direct mirror denial with the foreground worker.
-- Reconcile stored runs with the Harness database and verified process identities before scheduling resumes. A run with an outstanding lock requires verified recovery before it can reopen.
+- Configure one approved proxy and verify its allowlist and direct mirror denial with the foreground worker.
+- Connect the recovery check to the app's local task records and verified process cleanup. A run with an outstanding lock requires verified recovery before it can reopen.
 - Define the policy for the remaining tools and for saved configuration changes. The local bridge uses the built-in config and a single verified environment.
 
 [command handler]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/environment/environment.go#L235-L245

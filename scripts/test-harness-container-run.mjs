@@ -114,6 +114,39 @@ test("imports the pinned commit into a private run and reopens it from disk", as
     assert.equal(f.calls(), before);
 });
 
+test("imports only verified local results into their original repositories", async t => {
+    const [left, right] = await Promise.all([fixture(t), fixture(t)]);
+    for (const f of [left, right]) await f.open().create(f.create);
+    await writeFile(join(left.worktree, "result.txt"), "First result\n");
+    git(left.worktree, "add", "result.txt");
+    git(left.worktree, "commit", "-qm", "First result");
+    git(left.checkout, "fetch", "-q", "container-use", environment);
+    left.saveState();
+    await assert.rejects(left.open().inspect(), /changed since ownership/);
+    // A fixture restart must not accept a source revision that changed outside a locked call.
+    const result = await right.open().inspect();
+    const repository = right.options.source;
+    const before = git(repository, "rev-parse", "HEAD");
+    await writeFile(join(repository, "selected.txt"), "Unrelated edit\n");
+    await assert.rejects(right.open().importResult({ ...result, environment: "wrong-environment" }), /verified run/);
+    await assert.rejects(right.open().importResult({ ...result, revision: before }), /verified run/);
+    const ref = `refs/remotes/container-use/${environment}`;
+    git(repository, "update-ref", ref, before);
+    await assert.rejects(right.open().importResult(result), /different container result/);
+    assert.equal(git(repository, "rev-parse", ref), before);
+    git(repository, "update-ref", "-d", ref);
+    assert.deepEqual(await right.open().importResult(result), { ref, revision: result.revision });
+    assert.deepEqual(await right.open().importResult(result), { ref, revision: result.revision });
+    assert.equal(git(repository, "rev-parse", ref), result.revision);
+    assert.equal(git(repository, "rev-parse", "HEAD"), before);
+    assert.equal(await readFile(join(repository, "selected.txt"), "utf8"), "Unrelated edit\n");
+    assert.equal(git(left.options.source, "for-each-ref", ref), "");
+    await rename(repository, repository + "-original");
+    await mkdir(repository);
+    git(repository, "init", "-q", "--template=");
+    await assert.rejects(right.open().importResult(result), /repository does not match/);
+});
+
 test("requires a private physical root, a safe run and a full commit ID", async t => {
     const f = await fixture(t);
     const link = join(f.options.folder, "linked");

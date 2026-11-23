@@ -1,6 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { once } from "node:events";
+import { constants } from "node:fs";
 import { lstat, mkdir, open, readFile, readdir, realpath, rename, rmdir } from "node:fs/promises";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -25,9 +26,14 @@ const gitOptions = ["-c", "core.attributesFile=/dev/null", "-c", "core.fileMode=
     "-c", "gc.auto=0", "-c", "maintenance.auto=false"];
 
 function git(cwd, ...args) {
-    const result = spawnSync("/usr/bin/git", [...gitOptions, ...args], {
-        cwd, env: gitEnv, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"],
-    });
+    const stdio = ["ignore", "pipe", "pipe"];
+    // macOS has no directory paths under /dev/fd. Inherit the verified
+    // directory descriptor and change into it before Git opens repository state.
+    const result = typeof cwd === "number"
+        ? spawnSync("/usr/bin/perl", ["-e", 'open(my $dir, "<&=3") or die; chdir($dir) or die; exec @ARGV or die', "--",
+            "/usr/bin/git", "--git-dir=.", ...gitOptions, ...args],
+            { env: gitEnv, encoding: "utf8", stdio: [...stdio, cwd] })
+        : spawnSync("/usr/bin/git", [...gitOptions, ...args], { cwd, env: gitEnv, encoding: "utf8", stdio });
     // Git diagnostics can contain the stored state. Only report the command name.
     requireThat(result.status === 0 && !result.stderr, `Container run Git ${args[0]} check failed.`);
     return result.stdout;
@@ -139,8 +145,8 @@ async function repositoryConfig(path, bare, extra = new Map()) {
     return { config: digest(raw), core: new Map([...settings].filter(([key]) => key.startsWith("core."))) };
 }
 
-function refs(path) {
-    return new Map(git(path, "for-each-ref", "--format=%(refname)%00%(objectname)%00%(symref)")
+function refs(path, ...only) {
+    return new Map(git(path, "for-each-ref", "--format=%(refname)%00%(objectname)%00%(symref)", ...only)
         .split("\n").filter(Boolean).map(line => {
             const [ref, oid, symref] = line.split("\0");
             requireThat(objectID.test(oid) && symref === "", "Invalid container run Git ref.");
@@ -332,10 +338,37 @@ export function openContainerRun({ folder, run, source, revision }) {
             head, notes, log: log ?? null, ...note } };
     }
 
+    async function readSaved() {
+        const paths = await basePaths();
+        const raw = await read(record, true);
+        const saved = parseJSON(raw, "Invalid container run ownership record.");
+        requireThat(saved && Object.entries(binding).every(([key, value]) => saved[key] === value) && !await entry(temporary),
+            "Container run ownership does not match the request.");
+        const { environment } = saved;
+        const before = await inspect(environment, paths);
+        requireThat(isDeepStrictEqual(before.snapshot, saved.snapshot), "Container run state changed since ownership was recorded.");
+        return { before, paths, raw, saved };
+    }
+
+    async function sourceIdentity() {
+        requireThat(await realpath(source) === source, "Container input repository must be physical.");
+        const location = await directory(source);
+        requireThat(git(source, "rev-parse", "--show-toplevel") === source + "\n", "Container input is not a repository root.");
+        const paths = git(source, "rev-parse", "--path-format=absolute", "--git-dir", "--git-common-dir").trimEnd().split("\n");
+        requireThat(paths.length === 2, "Could not resolve the container input Git directories.");
+        const identity = [location];
+        for (const path of paths) {
+            requireThat(await realpath(path) === path, "Container input Git directory must be physical.");
+            identity.push(await directory(path));
+        }
+        return { identity, common: paths[1] };
+    }
+
     return {
         create(invoke, prepare) {
             return locked(async (verifyLock, call) => {
                 requireThat(!await entry(root), "Container run already has state.");
+                const original = await sourceIdentity();
                 const prepared = await prepare?.();
                 for (const path of locations.slice(1)) await mkdir(path, { mode: 0o700 });
                 git(checkout, "init", "--quiet", "--template=", "--object-format=sha1");
@@ -349,21 +382,48 @@ export function openContainerRun({ folder, run, source, revision }) {
                 requireThat(isDeepStrictEqual(core, initial.core) && snapshot.sourceState.index === initial.index &&
                     !await entry(record), "Container source metadata changed during creation.");
                 requireThat(entries.size === 1, "Foreign container state notes.");
+                requireThat(isDeepStrictEqual(await sourceIdentity(), original), "Container input repository changed during creation.");
                 await verifyLock();
-                await save(record, temporary, { ...binding, environment, snapshot });
+                await save(record, temporary, { ...binding, original: original.identity, environment, snapshot });
                 return value;
+            });
+        },
+        inspect() {
+            return locked(async () => {
+                const { saved } = await readSaved();
+                return { environment: saved.environment, revision: saved.snapshot.head };
+            });
+        },
+        importResult({ environment, revision: result }) {
+            return locked(async verifyLock => {
+                const { saved } = await readSaved();
+                requireThat(saved.environment === environment && saved.snapshot.head === result, "Container result does not match the verified run.");
+                const original = await sourceIdentity();
+                requireThat(isDeepStrictEqual(original.identity, saved.original), "Container result repository does not match the verified run.");
+                const ref = `refs/remotes/container-use/${environment}`;
+                const destination = await open(original.common, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+                try {
+                    requireThat(isDeepStrictEqual(identity(await destination.stat({ bigint: true })), original.identity[2]),
+                        "Container result repository changed before import.");
+                    await verifyLock();
+                    requireThat(isDeepStrictEqual(await sourceIdentity(), original), "Container result repository changed before import.");
+                    const current = refs(destination.fd, ref).get(ref);
+                    if (current !== result) {
+                        requireThat(current === undefined, "A different container result already owns the repository reference.");
+                        git(destination.fd, "fetch", "--quiet", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", "--", checkout, result);
+                        requireThat(git(destination.fd, "rev-parse", "--verify", `${result}^{commit}`).trimEnd() === result,
+                            "Could not verify the imported result revision.");
+                        git(destination.fd, "update-ref", "--no-deref", ref, result, "0".repeat(40));
+                    }
+                    requireThat(isDeepStrictEqual(await sourceIdentity(), original), "Container result repository changed during import.");
+                    return { ref, revision: result };
+                } finally { await destination.close(); }
             });
         },
         use(invoke, prepare) {
             return locked(async (verifyLock, call) => {
-                const paths = await basePaths();
-                const raw = await read(record, true);
-                const saved = parseJSON(raw, "Invalid container run ownership record.");
-                requireThat(saved && Object.entries(binding).every(([key, value]) => saved[key] === value) && !await entry(temporary),
-                    "Container run ownership does not match the request.");
+                const { before, paths, raw, saved } = await readSaved();
                 const { environment } = saved;
-                const before = await inspect(environment, paths);
-                requireThat(isDeepStrictEqual(before.snapshot, saved.snapshot), "Container run state changed since ownership was recorded.");
                 const prepared = await prepare?.();
                 const value = await call(invoke, { checkout, home, revision, environment }, prepared);
                 const after = await inspect(environment, paths);
@@ -384,7 +444,7 @@ export function openContainerRun({ folder, run, source, revision }) {
                 const expectedNotes = new Map(before.entries).set(next.head, next.noteBlob);
                 requireThat(isDeepStrictEqual(after.entries, expectedNotes), "Unexpected container state note changes.");
                 await verifyLock();
-                if (!isDeepStrictEqual(next, old)) await save(record, temporary, { ...binding, environment, snapshot: next });
+                if (!isDeepStrictEqual(next, old)) await save(record, temporary, { ...saved, snapshot: next });
                 return value;
             });
         },

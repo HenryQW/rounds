@@ -12,13 +12,14 @@ const engineImage = "registry.dagger.io/engine@sha256:56b68be5d9fc8e0a4e7c8db759
 const dockerID = /^[a-f0-9]{64}$/;
 
 export function engineEgressVerifier({ docker, socket, startupScript, container, network, worker, proxy, port }) {
+    const denyAll = proxy === undefined && port === undefined;
     if (![docker, socket, startupScript].every(path => typeof path === "string" && isAbsolute(path) && !path.includes("\0")) ||
         ![container, network].every(id => typeof id === "string" && dockerID.test(id)) ||
         typeof worker !== "string" || !/^[a-z0-9]{1,14}$/.test(worker) ||
-        !isIPv4(proxy) || !Number.isInteger(port) || port < 1 || port > 65535) {
+        (!denyAll && (typeof proxy !== "string" || !isIPv4(proxy) || !Number.isInteger(port) || port < 1 || port > 65535))) {
         throw new Error("Invalid Dagger engine egress settings.");
     }
-    const parameters = [worker, proxy, String(port)];
+    const parameters = denyAll ? [worker] : [worker, proxy, String(port)];
     const read = async (args, signal) => (await execFile(docker, ["--host", `unix://${socket}`, ...args], {
         env: { PATH: "/usr/bin:/bin", HOME: "/var/empty" },
         timeout: 10_000,
