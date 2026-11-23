@@ -67,6 +67,8 @@ final class HoverCard {
     }
 
     /// The card's size changed (data came): it keeps its place under the mark.
+    static let width: CGFloat = 280
+
     func resize(_ size: CGSize) {
         guard shown != nil, size.width > 0, size.height > 0 else { return }
         place(size)
@@ -80,15 +82,24 @@ final class HoverCard {
         TicketStore.shared.hovered(row)
         let panel = self.panel ?? makePanel()
         self.panel = panel
-        // SwiftUI lays out the card now, so it shows at its size.
-        panel.contentView?.layoutSubtreeIfNeeded()
-        place(panel.contentView?.fittingSize ?? .zero)
+        fit()
         window.addChildWindow(panel, ordered: .above)
+        // SwiftUI can show the new content one turn later; with the same size as the last card, no size change comes.
+        DispatchQueue.main.async { if self.shown != nil { self.fit() } }
+    }
+
+    /// SwiftUI lays out the card now, so it shows at its size.
+    private func fit() {
+        panel?.contentView?.layoutSubtreeIfNeeded()
+        place(panel?.contentView?.fittingSize ?? .zero)
     }
 
     /// Under the mark, with its trailing edge on the mark's; above the mark when there is no room below; inside the screen.
     private func place(_ size: CGSize) {
         guard let panel, let visible = PanelController.shared.panel?.screen?.visibleFrame else { return }
+        // The width is the card's own: a size from before SwiftUI's layout is empty, and would put the card to the
+        // right of the mark, off the screen. An empty height keeps the last one until the layout gives the new one.
+        let size = CGSize(width: Self.width, height: size.height > 0 ? size.height : panel.frame.height)
         var origin = NSPoint(x: anchor.maxX - size.width, y: anchor.minY - 4 - size.height)
         if origin.y < visible.minY { origin.y = anchor.maxY + 4 }
         origin.x = min(max(origin.x, visible.minX), visible.maxX - size.width)
@@ -140,7 +151,7 @@ private struct HoverCardView: View {
                 }
             }
             .padding(4)
-            .frame(width: 280, alignment: .leading)
+            .frame(width: HoverCard.width, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
             // Flat, with a hairline and no shadow (DESIGN.md).
             .background(Color(nsColor: .windowBackgroundColor), in: .rect(cornerRadius: 8))
