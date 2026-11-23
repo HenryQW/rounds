@@ -597,14 +597,20 @@ private struct PRMark: View {
 
     /// The shape says the state too, so colour is not the only cue. No state: the grey open symbol. White on a selected row.
     private var symbol: some View {
-        let grey = Color(nsColor: .secondaryLabelColor)
-        let (name, color): (String, Color) = switch newest.state {
-        case .open: ("arrow.triangle.pull", .green)
-        case .merged: ("arrow.triangle.merge", .purple)
-        case .closed: ("xmark.circle", grey)
-        case nil: ("arrow.triangle.pull", grey)
-        }
+        let (name, color) = pullRequestSymbol(newest.state)
         return Image(systemName: name).foregroundStyle(prominence == .increased ? .white : color)
+    }
+}
+
+/// A PR's symbol and colour by its GitHub state, for the mark and the hover card: green open, purple merged, grey
+/// closed; no state is the grey open symbol.
+func pullRequestSymbol(_ state: PullRequestLink.State?) -> (name: String, color: Color) {
+    let grey = Color(nsColor: .secondaryLabelColor)
+    return switch state {
+    case .open: ("arrow.triangle.pull", .green)
+    case .merged: ("arrow.triangle.merge", .purple)
+    case .closed: ("xmark.circle", grey)
+    case nil: ("arrow.triangle.pull", grey)
     }
 }
 

@@ -197,7 +197,12 @@ private struct HoverCardView: View {
             card.close()
         } label: {
             VStack(alignment: .leading, spacing: 2) {
-                Text(text.heading).font(.caption).foregroundStyle(.secondary)
+                // The state symbol of the mark: a PR's has the state colour, a ticket's is grey.
+                HStack(spacing: 4) {
+                    stateSymbol(ticket)
+                    Text(text.heading).foregroundStyle(.secondary)
+                }
+                .font(.caption)
                 if let title = text.title { Text(title).fontWeight(.medium).lineLimit(2) }
                 if let details = text.details { Text(details).font(.caption).foregroundStyle(.secondary) }
                 ForEach(text.notes, id: \.self) { Text($0).font(.caption).foregroundStyle(.secondary) }
@@ -212,6 +217,13 @@ private struct HoverCardView: View {
         .onHover { inside in
             if inside { card.hoveredItem = ticket.url } else if card.hoveredItem == ticket.url { card.hoveredItem = nil }
         }
+    }
+
+    private func stateSymbol(_ ticket: Ticket) -> some View {
+        let (name, color) = ticket.service == .pullRequest
+            ? pullRequestSymbol(ticket.stateType.flatMap { PullRequestLink.State(rawValue: $0.uppercased()) })
+            : (ticket.symbol, Color(nsColor: .secondaryLabelColor))
+        return Image(systemName: name).foregroundStyle(color)
     }
 
     private func offline(_ service: TicketService) -> Bool {
