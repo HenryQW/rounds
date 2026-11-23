@@ -77,6 +77,10 @@ final class HoverCard {
 
     /// The card's size changed (data came): it keeps its place under the mark.
     static let width: CGFloat = 280
+    /// About three items and a part of the next one, so a longer list shows that it scrolls.
+    static let maxHeight: CGFloat = 260
+    /// The height of all items, from layout.
+    var listHeight: CGFloat = 0
 
     func resize(_ size: CGSize) {
         guard shown != nil, size.width > 0, size.height > 0 else { return }
@@ -145,7 +149,7 @@ final class HoverCard {
     }
 }
 
-/// At most three items, then "and 2 more". Tickets come from the row as the list shows it now; a PR's data from
+/// Every item; a list taller than `HoverCard.maxHeight` scrolls. Tickets come from the row as the list shows it now; a PR's data from
 /// `TicketStore`, so the card changes when data comes.
 private struct HoverCardView: View {
     let card: HoverCard
@@ -153,15 +157,18 @@ private struct HoverCardView: View {
     var body: some View {
         if let shown = card.shown {
             let items = items(shown.row, shown.kind)
-            VStack(alignment: .leading, spacing: 2) {
-                ForEach(items.prefix(3), id: \.url) { item($0) }
-                if items.count > 3 {
-                    Text("and \(items.count - 3) more").font(.caption).foregroundStyle(.secondary).padding(.horizontal, 8).padding(.vertical, 4)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(items, id: \.url) { item($0) }
                 }
+                .padding(4)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { card.listHeight = $0 }
             }
-            .padding(4)
-            .frame(width: HoverCard.width, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
+            .scrollBounceBehavior(.basedOnSize)
+            // A scroll view has no height of its own: the card is as tall as its items, up to the limit.
+            .frame(width: HoverCard.width, height: min(card.listHeight, HoverCard.maxHeight))
+            .clipShape(.rect(cornerRadius: 8))
             // Flat, with a hairline and no shadow (DESIGN.md).
             .background(Color(nsColor: .windowBackgroundColor), in: .rect(cornerRadius: 8))
             .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.separator, lineWidth: 0.5))
