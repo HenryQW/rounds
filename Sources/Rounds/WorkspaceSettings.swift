@@ -45,6 +45,12 @@ final class WorkspaceSettingsState {
         if case .repository(let root, _) = inspection { root } else { nil }
     }
 
+    /// The folder is the root of its repository and has no problem, so the repository section would only repeat it.
+    var rootIsFolder: Bool {
+        guard let folder, let root = repositoryRoot, !inspecting else { return false }
+        return root == folder && settings.workspaceProblem(inspection ?? .noRepository) != .folderChanged
+    }
+
     var remotes: [WorkspaceRemote] {
         if case .repository(_, let remotes) = inspection { remotes } else { [] }
     }
@@ -219,7 +225,7 @@ struct WorkspaceSections: View {
             folderSection
                 // Remotes can change while the page is closed; read them again when it opens.
                 .onAppear { state.refresh() }
-            if state.folder != nil { repositorySection }
+            if state.folder != nil && !state.rootIsFolder { repositorySection }
             if state.isWorkspace {
                 remoteSection
                 detailSection
@@ -248,9 +254,10 @@ struct WorkspaceSections: View {
             if state.inspecting {
                 LabeledContent { ProgressView().controlSize(.small) } label: { Text("Checking the folder").labelColumn() }
             } else if let root = state.repositoryRoot {
-                LabeledContent { Text(abbreviate(root)).lineLimit(1).truncationMode(.middle).help(root) } label: {
-                    described("Repository root", "Rounds uses this Git repository.")
+                LabeledContent { EmptyView() } label: {
+                    described("Repository root", abbreviate(root))
                 }
+                .help(root)
                 if state.settings.workspaceProblem(state.inspection ?? .noRepository) == .folderChanged {
                     Text("The workspace folder was moved or replaced. Choose it again.").foregroundStyle(.orange)
                 }
@@ -358,8 +365,9 @@ struct WorkspaceSections: View {
         }
     }
 
+    /// A plain header, as on the other pages. The first header after the page title needs a gap; see "Sounds".
     private func step(_ number: Int, _ title: String) -> some View {
-        Label(title, systemImage: "\(number).circle").font(.headline).foregroundStyle(.primary)
+        Text(title).font(.headline).foregroundStyle(.primary).padding(.top, number == 1 ? 12 : 0)
     }
 
     private func abbreviate(_ path: String) -> String { (path as NSString).abbreviatingWithTildeInPath }
