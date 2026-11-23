@@ -5,7 +5,7 @@ Build slices of Bouncer mode, in build order. Each slice has its own tests and s
 | # | Slice | Brief | State |
 |---|---|---|---|
 | 01 | Bouncer mode | [01-bouncer-mode.md](01-bouncer-mode.md) | Details |
-| 02 | Node Harness host | [02-node-harness-host.md](02-node-harness-host.md) | Built: 02a lifecycle and 02b Bouncer. Planned: 02c tool bridge |
+| 02 | Node Harness host | [02-node-harness-host.md](02-node-harness-host.md) | Lifecycle, Bouncer and local container bridge built. Production tool registration remains open. |
 | 03 | Dispatch and results | [03-dispatch-and-results.md](03-dispatch-and-results.md) | Local task records built. Dispatch and branch intake remain planned. |
 | 04 | Approval gate and publication | [04-approval-and-publication.md](04-approval-and-publication.md) | Local approval records built. Durable signal delivery remains planned. |
 

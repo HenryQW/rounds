@@ -6,7 +6,7 @@ Rounds starts and stops one Node Host that runs a pi-durable Harness. The Bounce
 
 ## State
 
-Details, 2026-11-22. Parts 02a (lifecycle) and 02b (Bouncer) are built. Part 02c (container tool bridge) remains open. The [container configuration contract](#container-configuration-contract) records the verified input paths and the first bridge checks.
+Parts 02a (lifecycle) and 02b (Bouncer) are built. Part 02c has a local container bridge with a restricted tool set. Production registration remains open. See the [container configuration contract](#container-configuration-contract).
 
 Built files and checks are in the [02a walkthrough](02/walkthrough/README.md).
 
@@ -76,7 +76,8 @@ Read these files in the pi source at commit `5a14e69c067d40dfbff4f2fff7d3b34c897
 | 02a | `Tests/RoundsCoreTests/NodeHarnessHostTests.swift` | Lifecycle and ownership regressions with local child fixtures |
 | 02a | `docs/spec.md`, this brief, `docs/router-workspace/slices/README.md` | Current behavior and remaining parts |
 | 02b | `Sources/RoundsCore/HarnessBouncer.swift`, `Sources/Rounds/BouncerModel.swift`, `Resources/harness-bouncer.mjs`, `Resources/harness-magpie.mjs` | Open, project and control the durable conversation |
-| 02c | `Resources/harness-host.mjs` and a new adjacent container tool wrapper | Add the pinned container tool bridge after its open requirements are settled |
+| 02c, local | `Resources/harness-container-use.mjs`, `Resources/harness-container-run.mjs`, `Resources/harness-engine-egress.mjs`, `scripts/harness-engine-egress.sh` | Call the pinned server with a verified private run and worker firewall |
+| 02c, registration | `Resources/harness-host.mjs` | Add tools when the production requirements pass |
 
 ## Container configuration contract
 
@@ -114,11 +115,28 @@ A disposable client used container-use v0.4.2 and Dagger v0.18.14 on Docker Desk
 | Network after restart | The engine restart cleared the firewall. Installing the forwarding rules before the first job let Dagger's network setup put its accept rules first. Both workers could reach the mirror again. A second restart with a filter before the forwarding stage blocked both paths and preserved the proxy checks. |
 | Reopen after restart | `Update` persisted a file marker and the probe saved an owned run record. A fresh client read the marker after an engine restart and on a fresh engine with a new volume. The probe's preflight rejected a dirty source checkout and a changed note. |
 
+### Local bridge
+
+| Boundary | Behavior |
+|---|---|
+| Checkout and state | The bridge imports a pinned revision into a fresh private repository. A lock holds through preflight, the upstream call and readback. The ownership record binds the checkout, fork, worktree, saved Git note, container identity and configuration. |
+| Restart | A fresh client reopens recorded state after verification. A failed engine check before dispatch releases the lock. An outstanding lock from an uncertain call blocks reopen. |
+| Transport | The bridge starts the pinned server with a private home and a fixed local engine. It supplies the source, revision and environment identity. Requests and replies have size and time limits. |
+| Tools | A run can create or open one environment, update its title and read, list, write, edit or delete files. The bridge permits only the built-in container config. |
+| Engine | The startup script writes the capability policy and installs worker rules before Dagger starts. The bridge checks the startup script, policy and worker rules against each engine start. An engine restart during a call invalidates its response. |
+
+The bridge refuses commands because the pinned [command handler] enables nesting. A nested [HTTP request] runs in the engine, beyond the worker firewall.
+
+The disposable restart check reopened a saved file and verified proxy allow and deny requests from a worker. The bridge refused a dirty checkout, a changed startup script and a missing firewall rule.
+
 ### Production registration gates
 
-- Hold exclusive ownership of the private checkout and state through every upstream call. Verify the actual note, run identity and checkout before each reopen. Refuse config-less notes before the upstream fallback runs.
-- Apply and verify worker egress controls at engine startup and restart. Verify that Dagger's network setup leaves them effective before scheduling work. Keep mirror access available to the engine and block it for workers. Test the production proxy allowlist with both ordinary and nested workers.
-- Reconcile stored runs, local records, checkout ownership and live process identity before scheduling resumes. The live reopen checks used a probe run record. The production host still needs a bridge that performs this reconciliation.
+- Prevent nested engine-side requests from bypassing the egress policy before admitting commands. Verify the production proxy allowlist and direct mirror denial.
+- Reconcile stored runs with the Harness database and verified process identities before scheduling resumes. A run with an outstanding lock requires verified recovery before it can reopen.
+- Define the policy for the remaining tools and for saved configuration changes. The local bridge uses the built-in config and a single verified environment.
+
+[command handler]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/environment/environment.go#L235-L245
+[HTTP request]: https://github.com/dagger/dagger/blob/v0.18.14/core/http.go#L72
 
 [Creation]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/repository/repository.go#L185-L239
 [file loader]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/environment/config.go#L146-L160
@@ -250,5 +268,5 @@ The main review checked both new failure paths and their regression tests.
 - Define restart behavior for model requests made by Bartenders and Barbacks. The Bouncer aborts interrupted requests before it resumes scheduling.
 - The shared engine version must match the container-use release. Nesting still lets code in a container start normal containers on that engine.
 - Choose the one egress allowlist for version one. An allowed domain can still receive data from the container. Use an IP address for the proxy. The engine DNS did not resolve Docker aliases in the earlier feasibility probe.
-- Implement and verify the [production registration gates](#production-registration-gates). Check refusal before an upstream tool call for a dirty host config, a linked config and unverified reopen state.
+- Complete the [production registration gates](#production-registration-gates) before adding tools to the Harness registry.
 - Verify the identity of a process before Rounds signals it. A detached descendant can escape process-group cleanup.
