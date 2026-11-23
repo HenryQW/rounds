@@ -83,7 +83,7 @@ func failedLocalApprovalSaveKeepsAttentionAndHidesCards(error: any Error) async 
                                               urls: urls, destinationRef: "refs/heads/result"))
     let request = ApprovalRequest(id: UUID(), taskID: taskID, repositoryID: UUID(), organizationID: nil,
                                   resultRevisionID: UUID(), resultDigest: String(repeating: "b", count: 64),
-                                  snapshot: snapshot, actions: [action], createdAt: now, checkedAt: now)
+                                  snapshot: snapshot, actions: [action], createdAt: now, checkedAt: now, harnessBinding: nil)
     let card = ApprovalCard(local: ApprovalRecord(request: request))
     var thread = BouncerThread()
     thread.replaceLocalApprovals(for: taskID, with: [card])

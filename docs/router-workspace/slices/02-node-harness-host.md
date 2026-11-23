@@ -6,7 +6,7 @@ Rounds starts and stops one Node Host that runs a pi-durable Harness. The Bounce
 
 ## State
 
-Details, 2026-11-22. Parts 02a (lifecycle) and 02b (Bouncer) are built. Part 02c (container tool bridge) remains open.
+Parts 02a (lifecycle) and 02b (Bouncer) are built. Part 02c has a local container bridge with a restricted tool set. Production registration remains open. See the [container configuration contract](#container-configuration-contract).
 
 Built files and checks are in the [02a walkthrough](02/walkthrough/README.md).
 
@@ -76,7 +76,81 @@ Read these files in the pi source at commit `5a14e69c067d40dfbff4f2fff7d3b34c897
 | 02a | `Tests/RoundsCoreTests/NodeHarnessHostTests.swift` | Lifecycle and ownership regressions with local child fixtures |
 | 02a | `docs/spec.md`, this brief, `docs/router-workspace/slices/README.md` | Current behavior and remaining parts |
 | 02b | `Sources/RoundsCore/HarnessBouncer.swift`, `Sources/Rounds/BouncerModel.swift`, `Resources/harness-bouncer.mjs`, `Resources/harness-magpie.mjs` | Open, project and control the durable conversation |
-| 02c | `Resources/harness-host.mjs` and a new adjacent container tool wrapper | Add the pinned container tool bridge after its open requirements are settled |
+| 02c, local | `Resources/harness-container-use.mjs`, `Resources/harness-container-run.mjs`, `Resources/harness-engine-egress.mjs`, `scripts/harness-engine-egress.sh` | Call the pinned server with a verified private run and worker firewall |
+| 02c, registration | `Resources/harness-host.mjs` | Add tools when the production requirements pass |
+
+## Container configuration contract
+
+The container-use v0.4.2 tag points to `89ebe7765ec067a07c51de104822056eb217c1b9`. These reads supply configuration independently of the selected source revision.
+
+| Operation | Configuration read in v0.4.2 |
+|---|---|
+| Create environment | The selected Git ref supplies the source tree. The host source checkout supplies `.container-use/environment.json`. [Creation] and [file loader] |
+| Reopen environment | Saved Git notes supply the config and container identity. If saved config is absent, the environment worktree supplies `.container-use/environment.json`. [State lookup] and [reopen] |
+| Build a container | A `secrets` entry goes to the Dagger client's secret resolver. The Dagger engine associates the request with the calling client. [Container config] and [client association] |
+
+*Default for the first bridge fixture*: Use a Rounds-owned disposable source checkout with fresh Git metadata and an isolated state directory. Pin the source revision. Keep the checkout and state inaccessible to agents. Use the built-in configuration. Refuse a configuration file or symbolic link at `.container-use/environment.json`, or a linked `.container-use` directory, before a creation request. This keeps the first check independent of repository setup commands, images and secret references.
+
+A selected Git ref does not pin the configuration that the host reads. Keep the validated checkout and state under Rounds control from the check through the upstream read. The bridge supplies the source path and environment identifier. It uses a Rounds-owned local fork and rejects inherited `container-use` remotes or Git notes. [Repository open]
+
+Before any call that loads an existing environment, verify its identifier, source revision and stored state against the run record. Refuse missing, foreign or unverified state before calling the tool. This includes records without config, which otherwise let the upstream loader read the environment worktree. [Tool load]
+
+The local probes used the release source with different markers in the selected revision, host `HEAD` and host working file. The host loader read the working file. The reopen loader used saved configuration when present. With configuration absent from the saved record, it followed a linked directory in the environment worktree. The probes reached the source and state loaders without running Dagger.
+
+The offline fixture runs with `node --test scripts/test-container-admission.mjs`. The host check also runs it with the bundled Node when `ROUNDS_HARNESS_PAYLOAD` is set. Without a payload, the host check reports that it skipped the fixture. It creates temporary Git checkouts, run records and saved-state files. A counted stub records each admitted create or load. The tests cover a clean create, config files and links, missing config or state, identity and revision mismatches, a foreign container identity, and state changes after an allowed load. A create rejects existing remotes and Git notes. A load checks the remote names and URLs, and notes refs and object IDs, against the run record. A modeled create followed by load accepts matching owned metadata. The fixture uses its own JSON state model and a sample built-in config. It does not simulate the fallback worktree read, parse upstream Git notes or exercise container-use.
+
+The fixture accepts empty metadata on load when the run record expects none. It checks `HEAD` and assumes private, stable inputs during each call. Production opens the Harness with an empty tool registry.
+
+### Live upstream checks
+
+A disposable client used container-use v0.4.2 and Dagger v0.18.14 on Docker Desktop for macOS. The probe used a fresh Git repository, an isolated engine, a private image mirror and a test proxy. It started the client with a minimal environment and used a generated secret.
+
+| Check | Observed result |
+|---|---|
+| Creation and reopen | `Create` saved the built-in config and used the pinned source tree. `Get` read `refs/notes/container-use-state` and preferred saved config over a linked `.container-use` directory. Removing only `config` from the note made `Get` read through the link. Removing the note made `Get` fail before fallback. |
+| Private checkout and state | The owner, device, inode and permissions of the tracked paths stayed stable through `Get` and `Run`. The checkout and state roots used mode `0700`. The source revision, local fork remote, worktree revision and note identity stayed stable. The guest could read a source file and could see neither the private host root nor `.git`. |
+| Secret resolution | A host working config resolved an `env://` value through the Dagger client. `Create` failed with the same config when the next client lacked the value. The probe printed only success markers. |
+| Network, internal Docker network alone | `Run` received the proxy settings. The allowed proxy route reached the test origin, and the denied route returned status `403`. Direct connections to the test origin and a public address failed. The public name lookup failed. Both the original command and a nested Dagger worker could connect directly to the private image mirror. |
+| Network, with worker firewall | The firewall allowed worker traffic to the proxy address and port. It blocked other traffic from the worker bridge. Both workers lost direct access to the mirror. The proxy allow and deny checks still passed. |
+| Network after restart | The engine restart cleared the firewall. Installing the forwarding rules before the first job let Dagger's network setup put its accept rules first. Both workers could reach the mirror again. A second restart with a filter before the forwarding stage blocked both paths and preserved the proxy checks. |
+| Reopen after restart | `Update` persisted a file marker and the probe saved an owned run record. A fresh client read the marker after an engine restart and on a fresh engine with a new volume. The probe's preflight rejected a dirty source checkout and a changed note. |
+
+### Local bridge
+
+| Boundary | Behavior |
+|---|---|
+| Checkout and state | The bridge imports a pinned revision into a fresh private repository. A lock holds through preflight, the upstream call and readback. The ownership record binds the checkout, fork, worktree, saved Git note, container identity and configuration. |
+| Restart | A fresh client reopens recorded state after verification. A failed engine check before dispatch releases the lock. An outstanding lock from an uncertain call blocks reopen. |
+| Transport | The bridge starts the pinned server with a private home and a fixed local engine. It supplies the source, revision and environment identity. Requests and replies have size and time limits. |
+| Tools | A run can create or open one environment, update its title and read, list, write, edit or delete files. The bridge permits only the built-in container config. |
+| Commands | A trusted host can opt in to foreground commands with the patched client. The bridge binds the source and environment and accepts only the command and optional explanation. The reply gives the exit status after the client saves the result. |
+| Engine | The startup script writes the capability policy and installs worker rules before Dagger starts. With no proxy configured, it denies all worker egress. The bridge checks the startup script, policy and worker rules at each engine start. A restart during a call invalidates its response. |
+
+Run `scripts/build-container-use.sh` with Go 1.24.3 or later to build the private client from the pinned source. The patch disables Dagger nesting for foreground execution and sets a distinct server version. The bridge checks that version before it sends a tool call. After a version refusal, it verifies the existing run before it releases the lock. The stock [command handler] enables nesting, which lets a nested [HTTP request] run beyond the worker firewall.
+
+The client removes skipped untracked build files from the private Git worktree after staging. Those files stay in the saved container state. A nonzero exit status gives a failed tool reply and preserves the saved result.
+
+The disposable restart check reopened a command result and a skipped build file after the engine restarted. The worker reached the allowed proxy route. It could not reach the denied route, the origin directly or the image mirror directly. The bridge also refused a dirty checkout, a changed startup script and a missing firewall rule in the preceding restart check.
+
+The local dispatch runtime checks for pending Harness work before a submission. It requires a trusted recovery check and matches the recorded conversations, saved run identities and run directory contents. An unknown or interrupted run stops scheduling. The disposable workflow reopens the database and engine with this check. See [slice 03](03-dispatch-and-results.md#local-runtime).
+
+### Production registration gates
+
+- Configure one approved proxy and verify its allowlist and direct mirror denial with the foreground worker.
+- Connect the recovery check to the app's local task records and verified process cleanup. A run with an outstanding lock requires verified recovery before it can reopen.
+- Define the policy for the remaining tools and for saved configuration changes. The local bridge uses the built-in config and a single verified environment.
+
+[command handler]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/environment/environment.go#L235-L245
+[HTTP request]: https://github.com/dagger/dagger/blob/v0.18.14/core/http.go#L72
+
+[Creation]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/repository/repository.go#L185-L239
+[file loader]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/environment/config.go#L146-L160
+[State lookup]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/repository/git.go#L323-L340
+[reopen]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/environment/environment.go#L90-L110
+[Container config]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/environment/environment.go#L131-L151
+[client association]: https://github.com/dagger/dagger/blob/v0.18.14/core/schema/secret.go#L66-L98
+[Repository open]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/repository/repository.go#L78-L118
+[Tool load]: https://github.com/dagger/container-use/blob/89ebe7765ec067a07c51de104822056eb217c1b9/mcpserver/tools.go#L59-L97
 
 ## Lifecycle contract
 
@@ -101,7 +175,7 @@ Read these files in the pi source at commit `5a14e69c067d40dfbff4f2fff7d3b34c897
 | Ready | Open SQLite, then open the Harness. Return health only after both succeed. Swift checks the protocol version, request identity, source commit and paused state. |
 | Running | Keep one host for this mode lifetime. Health reports real Harness inspection. The Bouncer shares the host pipes with lifecycle commands. |
 | Stop | Ask for shutdown and close input. Wait for graceful exit, then send `SIGTERM`, then `SIGKILL` after bounded waits. Reap the child and check group members. |
-| Restart | Clean only the verified recorded group. A mismatched process identity blocks startup. Detached descendants and work reconciliation remain Open. |
+| Restart | Clean the verified recorded group. If a recorded child is still live outside the group, keep the record and block startup. Retry after the child exits. |
 
 ```mermaid
 flowchart LR
@@ -197,8 +271,7 @@ The main review checked both new failure paths and their regression tests.
 
 - Check the live Magpie service before release. The conversation fixture uses a loopback provider.
 - Define restart behavior for model requests made by Bartenders and Barbacks. The Bouncer aborts interrupted requests before it resumes scheduling.
-- The shared engine version must match the container-use release. Nesting still lets code in a container start normal containers on that engine.
-- Choose the one egress allowlist for version one. An allowed domain can still receive data from the container. The proxy address must be an IP address, because the engine DNS does not resolve Docker aliases.
-- Check whether secret references in a repository's `.container-use/environment.json` resolve on the host when an environment starts from an agent branch.
-- Verify the identity of a process before Rounds signals it. A detached descendant can escape process-group cleanup.
-- After a restart, reconcile run identity, process state, checkout ownership and local-only records before work resumes.
+- The shared engine version must match the container-use release. Keep nesting disabled for admitted tools on that engine.
+- Choose the one egress allowlist for version one. An allowed domain can still receive data from the container. Use an IP address for the proxy. The engine DNS did not resolve Docker aliases in the earlier feasibility probe.
+- Complete the [production registration gates](#production-registration-gates) before adding tools to the Harness registry.
+- Account for descendants that detach before Rounds records their birth identity. A recorded child that detaches blocks startup until it exits.

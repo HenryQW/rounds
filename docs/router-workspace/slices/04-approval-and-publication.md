@@ -6,7 +6,7 @@ Rounds pushes a branch or opens a draft pull request for a result only after the
 
 ## State
 
-Details, 2026-11-22. The 04a code uses the integrated 01c cards and 03 local task interface. An authorized test fixture supplies a local result. The app has no caller for `showLocalApprovals`. Slice 03 dispatch and task mapping must supply real task identifiers, organization scope and fresh graph and detail grants. Workspace folder setup supplies readiness, not those grants. Until then, the app cannot discover or display saved local approvals. See Open for the later steps.
+Local records save requests, answers and a binding to one Harness tool call. A local fixture verifies durable delivery. The running app needs task identifiers, organization scope and current storage grants to show or deliver a saved answer. See [Open](#open) for production publication.
 
 ## Depends
 
@@ -37,7 +37,7 @@ Each row is a separate merge. Merge 04a first; 04b adds no publication capabilit
 |---|---|---|
 | 04a: local approval records | Store a request and answer; recheck the local revision and remote URL after restart; connect card decisions to stored answers. | Local repository fixtures prove storage and rechecks. App registration awaits real task context and storage grants. No container, model or network is needed for the fixtures. |
 | 04b: durable gate connection | Connect stored requests and answers to a sleeping Pi task, using an inert test tool and a fake provider. | Proves persistence and signal recovery independently of the publication guard. No agent dispatch or protected tool is enabled. |
-| 04c: publication | **not detailed; blocked by Open item 1**. Barback requests also depend on Open item 2. | A later merge can add publication only after ownership, recovery, review and the complete guard are specified and verified. |
+| 04c: publication | Local action guard with an inert executor. Real publication depends on the open ownership, recovery and review requirements. | Verify action order and recovery before adding a protected transport. |
 
 No sub-step detailed here runs a real push or creates a real pull request. Sub-step 04c has no executor, command recipe or live acceptance test in this brief.
 
@@ -195,15 +195,15 @@ Stop after the stored answer. Do not call the Node Host, `harness.signal`, a mod
 
 The host adapter accepts answers only from the Rounds decision path. It exposes no answer tool to agents. This interface rule does not resolve the authority boundary in Open item 1.
 
-Do not dispatch a real Bartender or Barback through this gate. Bartender review of Barback requests is not detailed; it remains Open item 2. No model decides whether to approve.
+The local gate rechecks the stored decision before delivery and again when the tool wakes. It commits a receipt with the signal. A retry reads that receipt even after the tool ends. The gate checks for unrelated tasks and submissions before it resumes scheduling. The fixture uses an inert tool. A Bartender review path for Barback requests remains open.
 
 Keep Needs input local unless the organization permits the specific remote alert destination. Recheck that permission when sending a queued alert. Unknown permission keeps it local.
 
 ### 04c: publication
 
-**not detailed; blocked by Open item 1**. Barback publication also waits for Open item 2.
+The local execution guard accepts only the next exact action in the saved approval. It checks the repository and the trusted action verifier, then saves a start record. It checks both again before it invokes the supplied executor. A confirmed outcome saves completion. An uncertain outcome blocks retry and replacement requests.
 
-The required outcome remains one request for the exact push and draft pull request actions of one result, with each action checked. These details specify no executable publication path. An answered card or delivered signal cannot enable one.
+Tests use an inert executor. The required outcome remains one request for the exact push and draft pull request actions of one result. Production needs the protected transport and recovery checks in [Open](#open). Barback publication also needs its review path.
 
 ## Tests
 

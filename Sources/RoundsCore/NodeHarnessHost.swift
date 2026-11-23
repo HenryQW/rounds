@@ -468,7 +468,7 @@ public actor NodeHarnessHost {
         while true {
             do { return try record.members() }
             catch is HostInspectionPending {
-                guard ContinuousClock.now < deadline else { throw HarnessHostError("Cannot verify a Harness group member.") }
+                guard ContinuousClock.now < deadline else { throw HarnessHostError("Cannot verify a Harness process.") }
                 try? await Task.sleep(for: .milliseconds(20))
             }
         }
@@ -499,6 +499,17 @@ struct HostProcessRecord: Codable, Sendable {
         return proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size ? info : nil
     }
 
+    private static func liveInfo(_ pid: pid_t) throws -> proc_bsdinfo? {
+        if let info = Self.info(pid) { return info.pbi_status == SZOMB ? nil : info }
+        var state = kinfo_proc()
+        var size = MemoryLayout<kinfo_proc>.stride
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+        if sysctl(&mib, 4, &state, &size, nil, 0) == 0,
+           size == 0 || state.kp_proc.p_stat == Int8(SZOMB) { return nil }
+        if kill(pid, 0) != 0, errno == ESRCH { return nil }
+        throw HostInspectionPending()
+    }
+
     func members() throws -> [HostProcessIdentity] {
         guard pid > 1, uid == getuid(), UUID(uuidString: marker) != nil else {
             throw HarnessHostError("Invalid Harness process record. Cleanup stopped.")
@@ -516,19 +527,12 @@ struct HostProcessRecord: Codable, Sendable {
         guard count >= 0, count < size else { throw HarnessHostError("Cannot inspect the full Harness process group.") }
         var live: [pid_t: proc_bsdinfo] = [:]
         for member in pids.prefix(Int(count) / MemoryLayout<pid_t>.stride) where member > 0 {
-            guard let info = Self.info(member) else {
-                var state = kinfo_proc()
-                var stateSize = MemoryLayout<kinfo_proc>.stride
-                var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, member]
-                if sysctl(&mib, 4, &state, &stateSize, nil, 0) == 0,
-                   stateSize == 0 || state.kp_proc.p_stat == Int8(SZOMB) { continue }
-                if kill(member, 0) != 0, errno == ESRCH { continue }
-                throw HostInspectionPending()
-            }
-            if info.pbi_status == SZOMB { continue }
-            guard info.pbi_uid == uid, info.pbi_pgid == pid else {
+            guard let info = try Self.liveInfo(member) else { continue }
+            guard info.pbi_uid == uid else {
                 throw HarnessHostError("Harness group ownership could not be proved. Cleanup stopped.")
             }
+            // A process can move after the group snapshot. Retry the inspection.
+            guard info.pbi_pgid == pid else { throw HostInspectionPending() }
             live[member] = info
         }
         var verified: Set<pid_t> = []
@@ -541,11 +545,20 @@ struct HostProcessRecord: Codable, Sendable {
             verified.insert(pid)
         }
         for known in descendants {
+            guard known.pid > 1, known.pid != pid else {
+                throw HarnessHostError("Invalid Harness child record. Cleanup stopped.")
+            }
             if let info = live[known.pid] {
-                guard known.seconds == info.pbi_start_tvsec, known.microseconds == info.pbi_start_tvusec else {
+                guard known.matchesBirth(info) else {
                     throw HarnessHostError("Harness child identity changed. Cleanup stopped.")
                 }
                 verified.insert(known.pid)
+            } else if let info = try Self.liveInfo(known.pid), known.matchesBirth(info) {
+                // A group signal cannot stop an escaped child. Keep its record and block startup.
+                guard info.pbi_pgid == pid else {
+                    throw HarnessHostError("A recorded Harness child left its process group. Cleanup stopped.")
+                }
+                throw HostInspectionPending()
             }
         }
         // Only an observed parent chain can admit a new member. Recorded births also work after reparenting.
@@ -591,6 +604,10 @@ struct HostProcessIdentity: Codable, Equatable, Sendable {
     let pid: pid_t
     let seconds: UInt64
     let microseconds: UInt64
+
+    func matchesBirth(_ info: proc_bsdinfo) -> Bool {
+        seconds == info.pbi_start_tvsec && microseconds == info.pbi_start_tvusec
+    }
 }
 
 private struct HostFrame: Decodable { let event: String? }

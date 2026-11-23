@@ -196,7 +196,7 @@ import Testing
         let request = ApprovalRequest(id: old.id, taskID: old.taskID, repositoryID: old.repositoryID,
                                       organizationID: old.organizationID, resultRevisionID: old.resultRevisionID,
                                       resultDigest: try approvalResultDigest(result), snapshot: old.snapshot, actions: old.actions,
-                                      createdAt: old.createdAt, checkedAt: old.checkedAt)
+                                      createdAt: old.createdAt, checkedAt: old.checkedAt, harnessBinding: old.harnessBinding)
         let revision = try fixture.store.details.write(taskID: fixture.taskID, assignment: details.assignment, result: result,
                                                        progress: details.progress, decisions: details.decisions,
                                                        approvals: [ApprovalRecord(request: request)], resultRevisionID: old.resultRevisionID)
@@ -425,6 +425,84 @@ import Testing
             $0.progress.append(TaskProgress(summary: "Checked the outcome", actor: "Fixture", time: Date()))
         }
         #expect(try fixture.reload().details?.approvals == [saved])
+    }
+
+    @Test func localApprovalBindsTheAnswerToOneHarnessCall() throws {
+        let fixture = try ApprovalFixture()
+        let binding = ApprovalHarnessBinding(taskID: 42, conversationID: 7, callID: "tool-1")
+        let request = try fixture.store.interface.requestApproval(for: fixture.taskID, expecting: fixture.initial.task.detailReference,
+                                                                  repositoryID: fixture.repositoryID, repository: fixture.checkout,
+                                                                  sourceRef: fixture.sourceRef, remote: "origin", actions: fixture.actions,
+                                                                  using: fixture.store.access(), harnessBinding: binding).request
+        func read(_ binding: ApprovalHarnessBinding) throws -> ApprovalAnswer? {
+            try fixture.store.interface.verifiedApprovalAnswer(request.id, for: fixture.taskID, binding: binding,
+                                                               using: fixture.store.access())
+        }
+        #expect(try read(binding) == nil)
+        _ = try fixture.answer(request.id, .approved)
+        #expect(try read(binding)?.decision == .approved)
+        let wrong = ApprovalHarnessBinding(taskID: binding.taskID, conversationID: binding.conversationID, callID: "tool-2")
+        #expect(throws: ApprovalError.boundTaskUnverified) { _ = try read(wrong) }
+        try ApprovalFixture.git(fixture.checkout, "remote", "set-url", "origin", "https://example.invalid/other/repo.git")
+        #expect(throws: ApprovalError.stale) { _ = try read(binding) }
+        let current = try fixture.reload()
+        #expect(current.details?.approvals.last?.invalidatedAt != nil)
+        #expect(throws: ApprovalError.boundTaskUnverified) {
+            _ = try fixture.request(expecting: current.task.detailReference)
+        }
+    }
+
+    @Test func localApprovalExecutesOnlyTheNextStoredAction() throws {
+        let fixture = try ApprovalFixture()
+        let pending = try fixture.request()
+        let request = pending.request
+        let first = request.actions[0], second = request.actions[1]
+        var executed: [ApprovalAction] = []
+        func run(_ id: UUID, verified: Bool = true) throws {
+            try fixture.store.interface.executeApprovedAction(id, requestID: request.id, taskID: fixture.taskID,
+                                                              using: fixture.store.access(), verify: { _, _ in verified }) {
+                executed.append($0)
+            }
+        }
+        #expect(throws: ApprovalError.actionNotApproved) { try run(first.id) }
+        _ = try fixture.answer(request.id, .approved)
+        #expect(throws: ApprovalError.actionNotApproved) { try run(second.id) }
+        #expect(throws: ApprovalError.actionNotApproved) { try run(first.id, verified: false) }
+        var checks = 0
+        #expect(throws: ApprovalError.actionNotApproved) {
+            try fixture.store.interface.executeApprovedAction(first.id, requestID: request.id, taskID: fixture.taskID,
+                                                              using: fixture.store.access(), verify: { _, _ in
+                checks += 1
+                return checks == 1
+            }) { executed.append($0) }
+        }
+        #expect(checks == 2)
+        #expect(executed.isEmpty)
+        #expect(try fixture.reload().details?.approvals.last?.execution == nil)
+        try run(first.id)
+        #expect(throws: ApprovalError.actionNotApproved) { try run(first.id) }
+        try run(second.id)
+        #expect(executed == [first, second])
+        #expect(try fixture.reload().details?.approvals.last?.execution == [.completed, .completed])
+    }
+
+    @Test func localApprovalBlocksReplayAfterUncertainExecution() throws {
+        let fixture = try ApprovalFixture()
+        let request = try fixture.request().request
+        let action = request.actions[0]
+        _ = try fixture.answer(request.id, .approved)
+        var calls = 0
+        for _ in 0..<2 {
+            #expect(throws: ApprovalError.executionUncertain) {
+                try fixture.store.interface.executeApprovedAction(action.id, requestID: request.id, taskID: fixture.taskID,
+                                                                  using: fixture.store.access(), verify: { _, _ in true }) { _ in
+                    calls += 1
+                    throw ApprovalError.snapshotUnavailable
+                }
+            }
+        }
+        #expect(calls == 1)
+        #expect(try fixture.reload().details?.approvals.last?.execution == [.started])
     }
 
     @Test func localApprovalRejectsUnauthorizedMalformedAndUnknownInputs() throws {

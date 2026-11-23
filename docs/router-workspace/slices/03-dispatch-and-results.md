@@ -6,7 +6,7 @@ The Bouncer gives a task to a Bartender and gets its result back. The result arr
 
 ## State
 
-Built 2026-11-22 for sub-step 1, local task records. Sub-steps 2 and 3 remain planned. See [Open](#open) for their blockers.
+Local task records are built. A local runtime verifies dispatch, Blocked continuation and result intake across two disposable repositories. The running app still needs the integrations in [Open](#open).
 
 ## Read first, in full
 
@@ -34,8 +34,8 @@ Sub-step 1 can merge before slice 02. Sub-steps 2 and 3 require its completed ho
 | Sub-step | State | Deliverable | Validation |
 |---|---|---|---|
 | 1 | Built | Local task interface over the existing graph and detail stores | Calls with temporary stores exercise storage and authorization without a runtime host |
-| 2 | Planned | Bouncer dispatch and result tools, Bartender execution, and Blocked continuation through the slice 02 host | Prove one repository run and a durable result before result intake |
-| 3 | Planned | Result branch intake, result presentation and the two-repository acceptance scenario | Verify local fetch and cross-repository coordination without publication |
+| 2 | Local fixture | Bartender execution and Blocked continuation with a trusted authority adapter | Reopen the database and the same container after an engine restart |
+| 3 | Local fixture | Verified branch intake and a two-repository dependency workflow | Read both exact result revisions and confirm both checkouts keep their working tree changes |
 
 ## Files
 
@@ -45,7 +45,8 @@ Sub-step 1 can merge before slice 02. Sub-steps 2 and 3 require its completed ho
 | [Workspace.swift](../../../Sources/RoundsCore/Workspace.swift) | 1 | Checks folder readiness and resolves the approved detail folder |
 | [TaskGraph.swift](../../../Sources/RoundsCore/TaskGraph.swift), [TaskDetailStore.swift](../../../Sources/RoundsCore/TaskDetailStore.swift), [TaskRecordStore.swift](../../../Sources/RoundsCore/TaskRecordStore.swift) | 1 | Own graph validation, immutable revisions and detail-first linking |
 | [TaskInterfaceTests.swift](../../../Tests/RoundsCoreTests/TaskInterfaceTests.swift) | 1 | Exercises local calls with temporary stores |
-| Node Host entry, extension registry, wrapper and tests delivered by slice 02 | 2, 3 | Extend those files; record their actual paths here after slice 02, before implementation |
+| [harness-task-dispatch.mjs](../../../Resources/harness-task-dispatch.mjs), [harness-container-run.mjs](../../../Resources/harness-container-run.mjs) | 2, 3 | Bind local runs to Harness conversations, check restart state and import the exact result revision |
+| [test-harness-task-dispatch.mjs](../../../scripts/test-harness-task-dispatch.mjs) | 2, 3 | Verify the workflow with SQLite, a fixture model and an optional disposable engine |
 | [BouncerAdapter.swift](../../../Sources/RoundsCore/BouncerAdapter.swift), [Bouncer.swift](../../../Sources/RoundsCore/Bouncer.swift), [BouncerModel.swift](../../../Sources/Rounds/BouncerModel.swift) | 2, 3 | Extend the durable adapter and project records into existing task/report/question events |
 | [Bouncer tests](../../../Tests/RoundsCoreTests/BouncerTests.swift) and slice 02 host tests | 2, 3 | Check protocol boundaries and real branch intake; do not restore the removed Pi process adapter |
 | [Spec](../../spec.md), this brief, [slice index](README.md) | Each | Record only behavior that the sub-step implements and verifies |
@@ -151,7 +152,7 @@ flowchart TD
 - Resolve local-only record routing and Barback incorporation before enabling their integration paths.
 - Verify the result's repository and environment against the accepted run record. Reject a branch name alone as proof.
 - Fetch `container-use/<env>` into the task's real repository through a Rounds-owned fetch operation. Check the fetched revision against the result.
-- Expect container-use to add its local `container-use` remote. Recheck remote acknowledgement before further workspace storage operations if the workspace remote set changes.
+- Fetch directly from the verified private run. Create `refs/remotes/container-use/<env>` only if it is absent or already names the verified revision.
 - Keep the real working tree unchanged during fetch. Do not treat fetch as publication or approval to merge.
 - Project accepted records into the existing task sidebar and report/question components. Use the resolved state mapping.
 - Register two repositories and complete one dependency workflow across them. Verify every handoff and each repository's result separately.
@@ -159,9 +160,16 @@ flowchart TD
 
 This brief defines no clone deletion schedule, checkpoint replacement or new Decision Record coverage. Preserve existing supplied decisions and recovery evidence.
 
+### Local runtime
+
+- A trusted adapter supplies enrollment, instructions, the model, the handoff and permission to store each result. The runtime rechecks that grant before container operations, model requests and result intake.
+- The Harness database binds the task and detail identifiers to a conversation and a private run. Blocked work accepts a current answer and opens the same clone. Uncertain work blocks a replacement.
+- Done includes the revision read after validation. The runtime compares it to the saved result before importing. The fetch and reference update use the verified Git directory.
+- The local workflow uses a fixture model and fixture authority. The running Bouncer still needs task registration, local record integration, task presentation and the agreed review path for Barback results.
+
 ## Tests
 
-[Local task tests](../../../Tests/RoundsCoreTests/TaskInterfaceTests.swift) exercise sub-step 1. The rows for sub-steps 2 and 3 are acceptance cases for future work. Run Rounds tests through `scripts/test.sh`.
+[Local task tests](../../../Tests/RoundsCoreTests/TaskInterfaceTests.swift) exercise sub-step 1. The local workflow covers sub-steps 2 and 3 where indicated above. Run Rounds tests through `scripts/test.sh`.
 
 | Sub-step | Case, boundary first | Required observation |
 |---|---|---|
@@ -202,7 +210,7 @@ The local task measures describe the built interface. Dispatch and intake measur
 | Concurrent writers per checkout | Agreed maximum 1 | Reject a second writer; assert ownership in dispatch and restart tests |
 | Initial workflow repositories | Agreed minimum 2 | Complete one dependency workflow across 2 registered repositories |
 | Protected actions in this slice | None permitted | 0; inspect exposed tools and assert no publication calls during acceptance |
-| Sub-steps | 1 built, 2 planned | Complete the relevant acceptance cases for each planned sub-step |
+| Sub-steps | 1 built, 2 verified with local fixtures | Run the remaining cases through the app once the authority adapter and state projection exist |
 
 ## Decided
 

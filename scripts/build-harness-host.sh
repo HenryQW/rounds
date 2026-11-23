@@ -42,3 +42,13 @@ cp "$NODE" "$ROOT/.build/harness-host/node"
 "$ROOT/scripts/check-harness-node.sh" "$ROOT/.build/harness-host/node" "$ROOT/.build/harness-host/host.mjs" "$PIN"
 printf '%s\n' "$PIN" > "$ROOT/.build/harness-host/commit"
 "$ROOT/.build/harness-host/node" --check "$ROOT/.build/harness-host/host.mjs"
+
+if [ "${ROUNDS_TEST_HARNESS_WORKFLOW:-0}" = 1 ]; then
+    for TEST in test-harness-approval-gate.mjs test-harness-task-dispatch.mjs; do
+        cp "$ROOT/scripts/$TEST" .
+        node_modules/.bin/esbuild "$TEST" --bundle --platform=node --format=esm \
+            --outfile="$WORK/$TEST" \
+            --banner:js='import { createRequire as __createRequire } from "node:module"; const require = __createRequire(import.meta.url);'
+    done
+    "$NODE" --test "$WORK/test-harness-approval-gate.mjs" "$WORK/test-harness-task-dispatch.mjs"
+fi

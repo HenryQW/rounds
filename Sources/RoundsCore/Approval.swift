@@ -92,6 +92,26 @@ private func sameDestinationBytes(_ lhs: [String], _ rhs: [String]) -> Bool {
     lhs.count == rhs.count && zip(lhs, rhs).allSatisfy { left, right in left.utf8.elementsEqual(right.utf8) }
 }
 
+public struct ApprovalHarnessBinding: Codable, Equatable, Sendable {
+    public let taskID: Int
+    public let conversationID: Int
+    public let callID: String
+
+    public init(taskID: Int, conversationID: Int, callID: String) {
+        (self.taskID, self.conversationID, self.callID) = (taskID, conversationID, callID)
+    }
+
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.taskID == rhs.taskID && lhs.conversationID == rhs.conversationID && lhs.callID.utf8.elementsEqual(rhs.callID.utf8)
+    }
+
+    fileprivate var isValid: Bool {
+        let maximumSafeInteger = 9_007_199_254_740_991
+        return (1...maximumSafeInteger).contains(taskID) && (1...maximumSafeInteger).contains(conversationID) &&
+            !callID.isEmpty && callID.utf8.count <= 1024 && !callID.utf8.contains(0)
+    }
+}
+
 public struct ApprovalRequest: Codable, Equatable, Identifiable, Sendable {
     public let id: UUID
     public let taskID: UUID
@@ -103,11 +123,12 @@ public struct ApprovalRequest: Codable, Equatable, Identifiable, Sendable {
     public let actions: [ApprovalAction]
     public let createdAt: Date
     public let checkedAt: Date
+    public let harnessBinding: ApprovalHarnessBinding?
 
     func validate(taskID: UUID) throws {
         let remoteNames = snapshot.remotes.map(\.name)
         guard self.taskID == taskID, !actions.isEmpty, Set(actions.map(\.id)).count == actions.count,
-              checkedAt >= createdAt, resultDigest.utf8.count == 64,
+              checkedAt >= createdAt, resultDigest.utf8.count == 64, harnessBinding?.isValid != false,
               snapshot.folder.path.hasPrefix("/"), !snapshot.folder.path.utf8.contains(0),
               validApprovalRef(snapshot.sourceRef), validApprovalRevision(snapshot.revision),
               snapshot.annotatedSourceObject.map({ validApprovalRevision($0) && $0 != snapshot.revision }) != false,
@@ -155,11 +176,15 @@ public struct ApprovalAnswer: Codable, Equatable, Sendable {
     public let answeredAt: Date
 }
 
+enum ApprovalExecution: String, Codable, Sendable { case started, completed }
+
 public struct ApprovalRecord: Codable, Equatable, Identifiable, Sendable {
     public var id: UUID { request.id }
     public let request: ApprovalRequest
     public internal(set) var answer: ApprovalAnswer?
     public internal(set) var invalidatedAt: Date?
+    // An absent journal is valid for records saved before action execution.
+    var execution: [ApprovalExecution]?
 
     static func validate(_ records: [Self], taskID: UUID) throws {
         guard Set(records.map(\.id)).count == records.count,
@@ -173,6 +198,12 @@ public struct ApprovalRecord: Codable, Equatable, Identifiable, Sendable {
             if let invalidatedAt = record.invalidatedAt, invalidatedAt < (record.answer?.answeredAt ?? record.request.checkedAt) {
                 throw ApprovalError.invalidRequest
             }
+            if let execution = record.execution {
+                guard record.answer?.decision == .approved, !execution.isEmpty, execution.count <= record.request.actions.count,
+                      execution.dropLast().allSatisfy({ $0 == .completed }) else {
+                    throw ApprovalError.invalidRequest
+                }
+            }
         }
     }
 
@@ -185,6 +216,7 @@ public struct ApprovalRecord: Codable, Equatable, Identifiable, Sendable {
 public enum ApprovalError: LocalizedError, Equatable {
     case invalidRequest, resultMismatch, unknownRequest, alreadyAnswered, stale, snapshotUnavailable, needsInspection
     case userAnswerNotAuthorized, credentialAddressInText
+    case actionNotApproved, executionUncertain, boundTaskUnverified
 
     public var errorDescription: String? {
         switch self {
@@ -197,6 +229,9 @@ public enum ApprovalError: LocalizedError, Equatable {
         case .needsInspection: "Check local task storage before saving another decision."
         case .userAnswerNotAuthorized: "Only a response from the approval card can save a decision."
         case .credentialAddressInText: "Remove the address with sign-in details before saving."
+        case .actionNotApproved: "Rounds could not verify approval for this action."
+        case .executionUncertain: "Check the outcome of the previous action before publishing again."
+        case .boundTaskUnverified: "Rounds could not verify the Harness task for this approval."
         }
     }
 }
