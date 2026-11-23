@@ -23,6 +23,10 @@ final class OrganizationSettingsState {
     var warning: String?
     var addingOrganization = false
     var organizationName = ""
+    var permissionOrganization: OrganizationPolicy.Organization?
+    var confirmRecovery = false
+    var permissionDestination: OrganizationDestination?
+    var confirmPermission = false
     private(set) var addedDirectories: [String] = appDefaults.stringArray(forKey: addedKey) ?? []
     var store: OrganizationPolicyStore { OrganizationPolicyStore(url: directory.appending(path: "organization-policy.json")) }
 
@@ -200,8 +204,6 @@ final class OrganizationSettingsState {
 struct OrganizationSettingsView: View {
     let model: AppModel
     @Bindable private var state = OrganizationSettingsState.shared
-    @State private var permissionOrganization: OrganizationPolicy.Organization?
-    @State private var confirmRecovery = false
 
     private var paths: [String] {
         let stored = state.policy.rules.compactMap { rule -> String? in
@@ -226,7 +228,7 @@ struct OrganizationSettingsView: View {
                 if let warning = state.warning { Text(warning).foregroundStyle(.orange).textSelection(.enabled) }
                 if !state.loaded && !state.needsRecovery && state.mayRetry { Button("Retry") { state.retry() } }
                 if state.needsRecovery {
-                    Button("Recover Rules…") { confirmRecovery = true }
+                    Button("Recover Rules…") { state.confirmRecovery = true }
                 }
                 if state.loaded {
                     ViewThatFits(in: .horizontal) {
@@ -245,14 +247,18 @@ struct OrganizationSettingsView: View {
             }
             .padding(20)
         }
-        .alert("Recover organization rules?", isPresented: $confirmRecovery) {
+        .alert("Recover organization rules?", isPresented: $state.confirmRecovery) {
             Button("Cancel", role: .cancel) {}
             Button("Recover Rules", role: .destructive) { state.recoverRules() }
         } message: {
             Text("Rounds will remove all remote permissions. Review and allow each destination again.")
         }
-        .sheet(item: $permissionOrganization) { organization in
+        .sheet(item: $state.permissionOrganization) { organization in
             OrganizationPermissionsView(organization: organization)
+        }
+        .onDisappear {
+            state.confirmRecovery = false
+            state.permissionOrganization = nil
         }
         .sheet(isPresented: $state.addingOrganization) {
             VStack(alignment: .leading, spacing: 16) {
@@ -284,7 +290,7 @@ struct OrganizationSettingsView: View {
                     VStack(alignment: .leading, spacing: 8) {
                         projectList(paths.filter { organization(for: $0) == item.id }, target: item.id)
                         Divider()
-                        Button("Review Permissions…") { permissionOrganization = item }
+                        Button("Review Permissions…") { state.permissionOrganization = item }
                     }
                 }
             }
@@ -330,8 +336,6 @@ private struct OrganizationPermissionsView: View {
     @Bindable private var state = OrganizationSettingsState.shared
     @Bindable private var pushes = PushStore.shared
     @Bindable private var tickets = TicketStore.shared
-    @State private var selected: OrganizationDestination?
-    @State private var confirming = false
 
     private var destinations: [OrganizationDestination] {
         pushes.organizationDestinations + tickets.organizationDestinations
@@ -361,7 +365,10 @@ private struct OrganizationPermissionsView: View {
                     if allowed {
                         Button("Revoke") { state.setPermission(organization: organization.id, destination: destination, allowed: false) }
                     } else {
-                        Button("Review…") { selected = destination; confirming = true }
+                        Button("Review…") {
+                            state.permissionDestination = destination
+                            state.confirmPermission = true
+                        }
                     }
                 }
                 Divider()
@@ -374,7 +381,11 @@ private struct OrganizationPermissionsView: View {
             pushes.prepareOrganizationDestinations()
             tickets.prepareOrganizationDestinations()
         }
-        .alert("Allow this destination?", isPresented: $confirming, presenting: selected) { destination in
+        .onDisappear {
+            state.confirmPermission = false
+            state.permissionDestination = nil
+        }
+        .alert("Allow this destination?", isPresented: $state.confirmPermission, presenting: state.permissionDestination) { destination in
             Button("Cancel", role: .cancel) {}
             Button("Allow") { state.setPermission(organization: organization.id, destination: destination, allowed: true) }
         } message: { destination in

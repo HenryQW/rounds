@@ -247,7 +247,7 @@ test("does not bless a failed or invalid update", async t => {
                 await writeFile(join(f.worktree, "leftover.txt"), "partial\n");
                 throw new Error("Transport failed");
             }
-        })));
+        })), complete ? /Invalid container run state note/ : /Transport failed/);
         assert.equal(await readFile(f.record, "utf8"), before);
         assert.equal((await lstat(f.lock)).isDirectory(), true);
         await f.closed();
