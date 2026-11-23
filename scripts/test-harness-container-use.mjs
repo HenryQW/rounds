@@ -21,7 +21,7 @@ import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
 
 const log = fileURLToPath(new URL("events", import.meta.url));
-const mode = readFileSync(new URL("mode", import.meta.url), "utf8");
+const [mode, version, name] = readFileSync(new URL("mode", import.meta.url), "utf8").split("\n");
 function record(event, fields = {}) {
     appendFileSync(log, JSON.stringify({ event, pid: process.pid, ...fields }) + "\n");
 }
@@ -49,7 +49,7 @@ input.on("line", line => {
         const init = JSON.stringify({ jsonrpc: "2.0", id: request.id, result: {
             protocolVersion: mode === "version" ? "2025-06-18" : "2024-11-05",
             capabilities: { tools: { listChanged: true } },
-            serverInfo: { name: "Dagger", version: "1.0.0" },
+            serverInfo: { name, version },
         } });
         process.stdout.write(init.slice(0, 20));
         setTimeout(() => process.stdout.write(init.slice(20) + "\n"), 10);
@@ -99,7 +99,8 @@ async function fixture(t) {
     const docker = join(root, "docker");
     const socket = join(root, "docker.sock");
     const events = join(root, "events");
-    const mode = value => writeFile(join(root, "mode"), value);
+    const mode = (value, version = "1.0.0", name = "Dagger") =>
+        writeFile(join(root, "mode"), [value, version, name].join("\n"));
     await Promise.all([
         mkdir(home, { mode: 0o700 }), mkdir(checkout, { mode: 0o700 }),
         writeFile(binary, `#!${await realpath(process.execPath)}\n${fake}`, { mode: 0o700 }),
@@ -279,6 +280,60 @@ test("rejects unapproved tools, arguments, executable paths and engine before sp
     await assert.rejects(cancelled("environment_create", { title: "fixture" }, { signal: controller.signal }), { name: "AbortError" });
     assert.deepEqual(f.count, { admitted: 4, verified: 1, readback: 0 });
     assert.deepEqual(f.log(), []);
+});
+
+test("foreground commands require a boolean opt-in and admit only command and explanation", async t => {
+    const f = await fixture(t);
+    for (const foregroundCommands of ["true", 1, null]) {
+        assert.throws(() => containerUse({ ...f.options, foregroundCommands }), /must be a boolean/);
+    }
+    const name = "environment_run_cmd";
+    const command = "printf ready";
+    await assert.rejects(f.invoke(name, { command }), /unavailable/);
+    const invoke = containerUse({ ...f.options, foregroundCommands: true });
+    const invalid = [
+        [{}, /Missing command/],
+        [{ command: "" }, /Invalid command/],
+        [{ command: "printf\0ready" }, /Invalid command/],
+        [{ command: 7 }, /Invalid command/],
+        [{ command, explanation: true }, /Invalid explanation/],
+        [{ command: "🚀".repeat(270_000) }, /request exceeds the byte limit/],
+        [{ command, explanation: "🚀".repeat(270_000) }, /request exceeds the byte limit/],
+    ];
+    for (const [args, error] of invalid) await assert.rejects(invoke(name, args), error);
+    for (const key of ["shell", "background", "ports", "use_entrypoint", "source", "environment", "environment_source", "environment_id"]) {
+        await assert.rejects(invoke(name, { command, [key]: null }), /Unsupported argument/);
+    }
+    assert.deepEqual(f.count, { admitted: 0, verified: 0, readback: 0 });
+    assert.deepEqual(f.log(), []);
+});
+
+test("foreground variant is required before dispatch and runs with host bindings and readback", async t => {
+    const f = await fixture(t);
+    f.state.environment = environment;
+    const foregroundVersion = "1.0.0-rounds-foreground-v1";
+    const name = "environment_run_cmd";
+    const command = "printf ready";
+    const invoke = containerUse({ ...f.options, foregroundCommands: true });
+    const incompatible = /Incompatible container-use initialization/;
+    await assert.rejects(invoke(name, { command }), incompatible);
+    await f.mode("ok", `${foregroundVersion}-extra`);
+    await assert.rejects(invoke("environment_open", {}), incompatible);
+    await f.mode("ok", foregroundVersion, "Other");
+    await assert.rejects(invoke(name, { command }), incompatible);
+    await f.mode("ok", foregroundVersion);
+    await assert.rejects(f.invoke("environment_open", {}), incompatible);
+    const requests = () => f.log().flatMap(event => event.request ? [event.request] : []);
+    assert.deepEqual(requests().map(request => request.method), Array(4).fill("initialize"));
+    assert.deepEqual(f.count, { admitted: 4, verified: 8, readback: 4 });
+
+    const args = { command, explanation: "Check foreground output" };
+    assert.deepEqual(await invoke(name, args), textResult("done 🧪"));
+    assert.deepEqual(requests().slice(4).map(request => request.method), ["initialize", "notifications/initialized", "tools/call"]);
+    assert.deepEqual(requests().at(-1).params, {
+        name, arguments: { ...args, environment_source: f.checkout, environment_id: environment },
+    });
+    assert.deepEqual(f.count, { admitted: 5, verified: 10, readback: 5 });
 });
 
 test("completed tool errors use verified readback and create errors leave no binding", async t => {

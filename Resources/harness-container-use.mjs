@@ -14,8 +14,8 @@ const dockerEngine = /^docker-container:\/\/[a-f0-9]{64}$/;
 
 const string = value => typeof value === "string";
 const nonempty = value => string(value) && value.length > 0;
-const path = value => nonempty(value) && !value.includes("\0");
-const absolute = value => path(value) && isAbsolute(value);
+const nonemptyNulFree = value => nonempty(value) && !value.includes("\0");
+const absolute = value => nonemptyNulFree(value) && isAbsolute(value);
 const boolean = value => typeof value === "boolean";
 const lineNumber = value => Number.isSafeInteger(value) && value > 0;
 const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
@@ -28,21 +28,23 @@ const tools = {
     environment_open: {},
     environment_update_metadata: { optional: { title: string } },
     environment_file_read: {
-        required: { target_file: path },
+        required: { target_file: nonemptyNulFree },
         optional: { should_read_entire_file: boolean, [startLine]: lineNumber, [endLine]: lineNumber },
     },
-    environment_file_list: { required: { path } },
-    environment_file_write: { required: { target_file: path, contents: string } },
+    environment_file_list: { required: { path: nonemptyNulFree } },
+    environment_file_write: { required: { target_file: nonemptyNulFree, contents: string } },
     environment_file_edit: {
-        required: { target_file: path, search_text: nonempty, replace_text: string },
+        required: { target_file: nonemptyNulFree, search_text: nonempty, replace_text: string },
         optional: { which_match: string },
     },
-    environment_file_delete: { required: { target_file: path } },
+    environment_file_delete: { required: { target_file: nonemptyNulFree } },
+    environment_run_cmd: { required: { command: nonemptyNulFree } },
 };
 
-function toolArguments(name, args) {
+function toolArguments(name, args, foregroundCommands) {
     if (name === "environment_list") throw new Error("Environment listing is unavailable for a single verified run.");
-    if (typeof name !== "string" || !Object.hasOwn(tools, name)) {
+    if (typeof name !== "string" || !Object.hasOwn(tools, name) ||
+        (name === "environment_run_cmd" && !foregroundCommands)) {
         throw new Error("This container-use tool is unavailable in the local bridge.");
     }
     if (!object(args) || ![Object.prototype, null].includes(Object.getPrototypeOf(args))) {
@@ -125,7 +127,9 @@ function toolResult(result) {
     return result;
 }
 
-function callUpstream(binary, home, env, name, args, signal) {
+class InitializationMismatch extends Error {}
+
+function callUpstream(binary, serverVersion, home, env, name, args, signal) {
     const call = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name, arguments: args } }) + "\n";
     if (Buffer.byteLength(call) > byteLimit) throw new Error("The container-use request exceeds the byte limit.");
 
@@ -156,9 +160,9 @@ function callUpstream(binary, home, env, name, args, signal) {
             const result = response(line, id);
             if (id === 1) {
                 if (!object(result) || result.protocolVersion !== protocolVersion ||
-                    result.serverInfo?.name !== "Dagger" || result.serverInfo?.version !== "1.0.0" ||
+                    result.serverInfo?.name !== "Dagger" || result.serverInfo?.version !== serverVersion ||
                     !object(result.capabilities?.tools)) {
-                    throw new Error("Incompatible container-use initialization response.");
+                    throw new InitializationMismatch("Incompatible container-use initialization response.");
                 }
                 id = 2;
                 child.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n');
@@ -236,7 +240,9 @@ function executable(file) {
 }
 
 // Paths and their containing directories must come from the trusted host.
-export function containerUse({ binary, daggerCLI, docker, socket, engine, run, verifyEngine }) {
+export function containerUse({ binary, daggerCLI, docker, socket, engine, run, verifyEngine, foregroundCommands = false }) {
+    if (!boolean(foregroundCommands)) throw new Error("Container-use foregroundCommands must be a boolean.");
+    const serverVersion = foregroundCommands ? "1.0.0-rounds-foreground-v1" : "1.0.0";
     if (![binary, daggerCLI, docker].every(executable) || basename(docker) !== "docker") {
         throw new Error("Container-use, Dagger and Docker need trusted absolute executable paths.");
     }
@@ -249,7 +255,7 @@ export function containerUse({ binary, daggerCLI, docker, socket, engine, run, v
     const searchPath = [...new Set([dirname(docker), "/usr/bin", "/bin", "/usr/sbin", "/sbin"])].join(":");
 
     return async (name, args, { signal } = {}) => {
-        const validated = toolArguments(name, args);
+        const validated = toolArguments(name, args, foregroundCommands);
         const create = name === "environment_create";
         if (signal !== undefined && !(signal instanceof AbortSignal)) throw new Error("Invalid cancellation signal.");
         signal?.throwIfAborted();
@@ -270,7 +276,13 @@ export function containerUse({ binary, daggerCLI, docker, socket, engine, run, v
                 ? { from_git_ref: revision } : { environment_id: environment }) };
             signal?.throwIfAborted();
             const env = childEnvironment(home, searchPath, daggerCLI, socket, engine);
-            const value = await callUpstream(binary, home, env, name, bound, signal);
+            let value;
+            try { value = await callUpstream(binary, serverVersion, home, env, name, bound, signal); }
+            catch (error) {
+                if (create || !(error instanceof InitializationMismatch)) throw error;
+                // No tool call was sent. Verify the existing run before releasing its lock.
+                value = error;
+            }
             const after = await verifyEngine(engine, engineRequest);
             signal?.throwIfAborted();
             if (after !== generation) throw new Error("The Dagger engine restarted during the container-use call.");
@@ -289,7 +301,11 @@ export function containerUse({ binary, daggerCLI, docker, socket, engine, run, v
             }
             return { environment: result.id, value };
         }
-        if (!create) return run.use(invoke, prepare);
+        if (!create) {
+            const value = await run.use(invoke, prepare);
+            if (value instanceof InitializationMismatch) throw value;
+            return value;
+        }
         try { return await run.create(invoke, prepare); }
         catch (error) {
             if (error instanceof CreateToolError) return error.value;

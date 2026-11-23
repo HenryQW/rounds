@@ -123,15 +123,18 @@ A disposable client used container-use v0.4.2 and Dagger v0.18.14 on Docker Desk
 | Restart | A fresh client reopens recorded state after verification. A failed engine check before dispatch releases the lock. An outstanding lock from an uncertain call blocks reopen. |
 | Transport | The bridge starts the pinned server with a private home and a fixed local engine. It supplies the source, revision and environment identity. Requests and replies have size and time limits. |
 | Tools | A run can create or open one environment, update its title and read, list, write, edit or delete files. The bridge permits only the built-in container config. |
+| Commands | A trusted host can opt in to foreground commands with the patched client. The bridge binds the source and environment and accepts only the command and optional explanation. The reply gives the exit status after the client saves the result. |
 | Engine | The startup script writes the capability policy and installs worker rules before Dagger starts. The bridge checks the startup script, policy and worker rules against each engine start. An engine restart during a call invalidates its response. |
 
-The bridge refuses commands because the pinned [command handler] enables nesting. A nested [HTTP request] runs in the engine, beyond the worker firewall.
+Run `scripts/build-container-use.sh` with Go 1.24.3 or later to build the private client from the pinned source. The patch disables Dagger nesting for foreground execution and sets a distinct server version. The bridge checks that version before it sends a tool call. After a version refusal, it verifies the existing run before it releases the lock. The stock [command handler] enables nesting, which lets a nested [HTTP request] run beyond the worker firewall.
 
-The disposable restart check reopened a saved file and verified proxy allow and deny requests from a worker. The bridge refused a dirty checkout, a changed startup script and a missing firewall rule.
+The client removes skipped untracked build files from the private Git worktree after staging. Those files stay in the saved container state. A nonzero exit status gives a failed tool reply and preserves the saved result.
+
+The disposable restart check reopened a command result and a skipped build file after the engine restarted. The worker reached the allowed proxy route. It could not reach the denied route, the origin directly or the image mirror directly. The bridge also refused a dirty checkout, a changed startup script and a missing firewall rule in the preceding restart check.
 
 ### Production registration gates
 
-- Prevent nested engine-side requests from bypassing the egress policy before admitting commands. Verify the production proxy allowlist and direct mirror denial.
+- Verify the production proxy allowlist and direct mirror denial with the foreground worker.
 - Reconcile stored runs with the Harness database and verified process identities before scheduling resumes. A run with an outstanding lock requires verified recovery before it can reopen.
 - Define the policy for the remaining tools and for saved configuration changes. The local bridge uses the built-in config and a single verified environment.
 
@@ -266,7 +269,7 @@ The main review checked both new failure paths and their regression tests.
 
 - Check the live Magpie service before release. The conversation fixture uses a loopback provider.
 - Define restart behavior for model requests made by Bartenders and Barbacks. The Bouncer aborts interrupted requests before it resumes scheduling.
-- The shared engine version must match the container-use release. Nesting still lets code in a container start normal containers on that engine.
+- The shared engine version must match the container-use release. Keep nesting disabled for admitted tools on that engine.
 - Choose the one egress allowlist for version one. An allowed domain can still receive data from the container. Use an IP address for the proxy. The engine DNS did not resolve Docker aliases in the earlier feasibility probe.
 - Complete the [production registration gates](#production-registration-gates) before adding tools to the Harness registry.
 - Verify the identity of a process before Rounds signals it. A detached descendant can escape process-group cleanup.
