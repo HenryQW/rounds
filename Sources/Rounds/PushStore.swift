@@ -50,7 +50,9 @@ final class PushStore {
 
     /// nil until the Keychain is read.
     @ObservationIgnored private var values: [PushChannel: [String: String]]?
+    private(set) var organizationDestinations: [OrganizationDestination] = []
     @ObservationIgnored private var loading = false
+    @ObservationIgnored private var valueRevisions: [PushChannel: Int] = [:]
     /// Tests asked for while the Keychain read runs.
     @ObservationIgnored private var tests: Set<PushChannel> = []
     @ObservationIgnored private var queue = PushQueue()
@@ -76,13 +78,21 @@ final class PushStore {
     func check(_ rows: [SessionRow]) {
         guard !Demo.isOn else { return }
         if sounds { playSound(rows) }
-        guard !channels.isEmpty else { return }
+        guard !channels.isEmpty, OrganizationSettingsState.shared.hasLease else { return }
         // The first check after the read only learns, so events from before it do not send.
-        guard let values else { return load() }
+        guard let values, !loading else { if !loading { load() }; return }
         let idle = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: CGEventType(rawValue: ~0)!)
         for row in queue.check(rows, states: states, idle: idle, awayMinutes: awayMinutes) {
             let message = PushMessage(row)
-            for channel in channels { send(channel, message, values[channel] ?? [:]) }
+            for channel in channels {
+                let current = values[channel] ?? [:]
+                guard let destination = destination(channel, values: current) else { continue }
+                _ = try? OrganizationSettingsState.shared.withPolicy { policy in
+                    guard policy.allowsTransmission(sessionDirectory: row.cwd, gitRemote: .unknown,
+                                                    service: destination.service, destinationIdentity: destination.identity) else { return }
+                    send(channel, message, current)
+                }
+            }
         }
     }
 
@@ -100,48 +110,55 @@ final class PushStore {
     /// pass, else the line for the Connect sheet. The log names the channel and the result, never the values.
     func verify(_ channel: PushChannel, values: [String: String]) async -> String? {
         guard !Demo.isOn else { return nil }
+        guard OrganizationSettingsState.shared.hasLease else { return "Another Rounds instance manages organization permissions." }
         let checks: [PushCheck]
         do { checks = try channel.checks(values: values) } catch { return error.text }
         for check in checks {
             var request = check.request
             request.timeoutInterval = 15
-            let answer = try? await URLSession.shared.data(for: request)
+            let answer = try? await OutboundSession.noRedirects.data(for: request)
             if let failure = channel.checkFailure(check, status: (answer?.1 as? HTTPURLResponse)?.statusCode, body: answer?.0) {
-                log.info("push: \(channel.rawValue, privacy: .public) check failed, \(failure, privacy: .public)")
+                log.info("push: \(channel.rawValue, privacy: .public) check failed")
                 return failure
             }
         }
         return nil
     }
 
-    func save(_ channel: PushChannel, values new: [String: String]) {
-        guard !Demo.isOn else { return }
-        keychainIO.async {
-            PushValues.save(channel, new)
-            // After a read that started before the save, which brings the old values.
-            DispatchQueue.main.async { MainActor.assumeIsolated { self.values?[channel] = new } }
-        }
-        values?[channel] = new
-        channels.insert(channel)
-        failures[channel] = nil
+    @discardableResult
+    func save(_ channel: PushChannel, values new: [String: String]) -> Bool {
+        guard !Demo.isOn, OrganizationSettingsState.shared.hasLease else { return false }
+        if destination(channel, values: values?[channel] ?? [:]) != destination(channel, values: new),
+           !OrganizationSettingsState.shared.resetPermissions(service: "push-\(channel.rawValue)") { return false }
         if values == nil { load() }
+        valueRevisions[channel, default: 0] += 1
+        if values == nil { values = [:] }
+        values?[channel] = new
+        keychainIO.async { PushValues.save(channel, new) }
+        channels.insert(channel)
+        refreshOrganizationDestinations()
+        failures[channel] = nil
+        return true
     }
 
     func remove(_ channel: PushChannel) {
         guard !Demo.isOn else { return }
-        keychainIO.async {
-            PushValues.delete(channel)
-            DispatchQueue.main.async { MainActor.assumeIsolated { self.values?[channel] = nil } }
+        guard OrganizationSettingsState.shared.resetPermissions(service: "push-\(channel.rawValue)") else {
+            failures[channel] = "Could not update organization permissions. Open Organizations to resolve the error."
+            return
         }
+        valueRevisions[channel, default: 0] += 1
+        keychainIO.async { PushValues.delete(channel) }
         values?[channel] = nil
         channels.remove(channel)
+        refreshOrganizationDestinations()
         failures[channel] = nil
         // A channel set up later learns the current events first.
         if channels.isEmpty { queue = PushQueue() }
     }
 
     func sendTest(_ channel: PushChannel) {
-        guard !Demo.isOn, channels.contains(channel) else { return }
+        guard !Demo.isOn, channels.contains(channel), OrganizationSettingsState.shared.hasLease else { return }
         guard let values else {
             tests.insert(channel)
             return load()
@@ -149,20 +166,59 @@ final class PushStore {
         send(channel, PushMessage(title: "Rounds test", body: "Notifications work.", urgent: false), values[channel] ?? [:])
     }
 
+    func prepareOrganizationDestinations() {
+        if values == nil && !channels.isEmpty { load() }
+    }
+
     /// Once, at first need, off the main thread, so a Keychain prompt never blocks the app.
     private func load() {
         guard !loading else { return }
         loading = true
         let names = channels
+        let revisions = valueRevisions
         keychainIO.async {
             let read = Dictionary(uniqueKeysWithValues: names.compactMap { c in PushValues.read(c).map { (c, $0) } })
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
-                    self.values = read
+                    var merged = self.values ?? [:]
+                    for channel in names where self.valueRevisions[channel, default: 0] == revisions[channel, default: 0] {
+                        merged[channel] = read[channel]
+                    }
+                    self.values = merged
+                    self.loading = false
+                    self.refreshOrganizationDestinations()
                     self.tests.forEach(self.sendTest)
                     self.tests = []
                 }
             }
+        }
+    }
+
+    /// Destination identity changes when the channel's configured endpoint or credentials change.
+    private func destination(_ channel: PushChannel, values: [String: String]) -> OrganizationDestination? {
+        guard (try? channel.request(for: PushMessage(title: "", body: "", urgent: false), values: values)) != nil else { return nil }
+        let normalized = Dictionary(uniqueKeysWithValues: channel.fields.map { field in
+            let value = values[field.key]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return (field.key, value.isEmpty ? field.defaultValue ?? "" : value)
+        })
+        let detail: String
+        switch channel {
+        case .telegram: detail = "Chat \(normalized["chat"] ?? "")"
+        case .bark:
+            var endpoint = URLComponents(string: normalized["server"] ?? "")
+            endpoint?.user = nil
+            endpoint?.password = nil
+            endpoint?.path = ""
+            endpoint?.query = nil
+            endpoint?.fragment = nil
+            detail = endpoint?.string ?? "Bark server"
+        }
+        return makeOrganizationDestination(service: "push-\(channel.rawValue)", fields: normalized, title: channel.title, detail: detail)
+    }
+
+    private func refreshOrganizationDestinations() {
+        organizationDestinations = channels.sorted { $0.rawValue < $1.rawValue }.compactMap { channel in
+            values?[channel].flatMap { destination(channel, values: $0) }
         }
     }
 
@@ -172,7 +228,7 @@ final class PushStore {
         var request: URLRequest
         do { request = try channel.request(for: message, values: values) } catch { return sent(channel, failure: error.text) }
         request.timeoutInterval = 15
-        URLSession.shared.dataTask(with: request) { data, response, _ in
+        OutboundSession.noRedirects.dataTask(with: request) { data, response, _ in
             let status = (response as? HTTPURLResponse)?.statusCode
             let failure = if let data, let status { channel.failure(status: status, body: data) } else { "Network error" as String? }
             DispatchQueue.main.async { MainActor.assumeIsolated { self.sent(channel, failure: failure) } }
@@ -180,7 +236,7 @@ final class PushStore {
     }
 
     private func sent(_ channel: PushChannel, failure: String?) {
-        log.info("push: \(channel.rawValue, privacy: .public), \(failure ?? "sent", privacy: .public)")
+        log.info("push: \(channel.rawValue, privacy: .public), \(failure == nil ? "sent" : "failed", privacy: .public)")
         failures[channel] = failure
     }
 }

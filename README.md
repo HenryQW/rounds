@@ -66,7 +66,7 @@ The version is in `VERSION`. The design is in [DESIGN.md](DESIGN.md), the words 
 
 ## Privacy
 
-Rounds reads local session files, the state its hooks and pi extension write, and herdr's local socket. It sends nothing to any server except the update check and the ticket lookups (Linear when you add an API key, GitHub when gh is signed in), which send only branch names, PR links and issue IDs. **Report a Bug** in Settings opens a GitHub issue page with the versions filled in, and you choose whether to send it.
+Rounds reads local session files, the state its hooks and pi extension write, and herdr's local socket. It checks for updates. Ticket lookups and remote alerts need an organization rule and permission for each destination. Unknown or conflicting projects stay local. Linear and GitHub lookups send branch names, pull request links and issue IDs. Telegram and Bark alerts send the session state, title, detail and folder name. **Report a Bug** in Settings opens a GitHub issue page with the versions filled in, and you choose whether to send it.
 
 ## License
 

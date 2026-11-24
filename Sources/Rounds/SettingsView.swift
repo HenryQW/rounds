@@ -32,7 +32,7 @@ final class SettingsState {
 
 /// The Settings pages in the sidebar (spec 5.4), each with a title and one line on what it is for.
 enum SettingsPage: String, CaseIterable, Identifiable {
-    case general, pill, filters, agents, tickets, notifications, history, keys
+    case general, pill, filters, agents, organizations, bar, tickets, notifications, history, keys
     var id: Self { self }
 
     var title: String {
@@ -41,6 +41,8 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .pill: "Pill"
         case .filters: "Filters"
         case .agents: "Agents"
+        case .organizations: "Organizations"
+        case .bar: "Bar"
         case .tickets: "Tickets"
         case .notifications: "Notifications"
         case .history: "History"
@@ -54,6 +56,8 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .pill: "sidebar.right"
         case .filters: "line.3.horizontal.decrease.circle"
         case .agents: "sparkles"
+        case .organizations: "person.2"
+        case .bar: "folder.badge.gearshape"
         case .tickets: "ticket"
         case .notifications: "bell"
         case .history: "chart.bar"
@@ -67,6 +71,8 @@ enum SettingsPage: String, CaseIterable, Identifiable {
         case .pill: "The pill at the screen edge and the window it opens."
         case .filters: "What Last Call counts, and when a session is Aged."
         case .agents: "Where the live state of each session comes from."
+        case .organizations: "Which organizations may send session information."
+        case .bar: "Where coordination records and task details stay."
         case .tickets: "Shows the Linear and GitHub issues of each session."
         case .notifications: "Sounds on this Mac, and remote messages when you are away."
         case .history: "When agents waited for you, in the last 90 days."
@@ -81,8 +87,9 @@ struct SettingsView: View {
     @Bindable private var drawer = DrawerSettings.shared
     @Bindable private var updater = Updater.shared
     @Bindable private var push = PushStore.shared
+    @Bindable private var bouncer = BouncerModel.shared
 
-    /// Eight pages in a sidebar (spec 5.4), each a short grouped form under its title.
+    /// Settings pages in a sidebar (spec 5.4).
     var body: some View {
         NavigationSplitView {
             List(SettingsPage.allCases, selection: $state.page) { Label($0.title, systemImage: $0.symbol) }
@@ -96,6 +103,8 @@ struct SettingsView: View {
             case .pill: page(.pill) { pill }
             case .filters: page(.filters) { filters }
             case .agents: page(.agents) { sources }
+            case .organizations: OrganizationSettingsView(model: model)
+            case .bar: page(.bar) { BarSections(state: BarSettingsState.shared) }
             case .tickets: page(.tickets) { tickets }
             case .notifications: page(.notifications) { notifications }
             case .history:
@@ -281,6 +290,10 @@ struct SettingsView: View {
                 described("Session window shortcut", "Opens or closes the session window.")
             }
             .help("Works in any app. With no shortcut, open the window from the pill.")
+            Toggle(isOn: $bouncer.on) {
+                described("Bouncer mode", "The pill opens the Bouncer Window. The shortcut opens the session window.")
+            }
+            .help("The Bouncer runs pi without tools in the bar folder. The pill's right-click menu also opens the session window.")
         } footer: {
             footer(state.error ?? state.recorder.message)
         }
@@ -381,13 +394,22 @@ struct SettingsView: View {
         }
     }
 
-    private var keys: some View {
+    @ViewBuilder private var keys: some View {
         Section {
             ForEach(Self.cheatsheet, id: \.action) { item in
                 LabeledContent { keycaps(item.keys) } label: { Text(item.action).labelColumn() }
             }
         } footer: {
             footer(nil, help: "The keys work while the session window is in front.")
+        }
+        if bouncer.on {
+            Section {
+                ForEach(Self.bouncerCheatsheet, id: \.action) { item in
+                    LabeledContent { keycaps(item.keys) } label: { Text(item.action).labelColumn() }
+                }
+            } header: {
+                Text("Bouncer Window")
+            }
         }
     }
 
@@ -461,6 +483,8 @@ struct SettingsView: View {
                 }
             }
             .help("Rounds runs gh from Homebrew or ~/.local/bin; sign in with gh auth login. It sends GitHub only repository names and PR and issue numbers.")
+        } footer: {
+            footer(store.linearPermissionError)
         }
     }
 
@@ -627,6 +651,7 @@ struct SettingsView: View {
             Text("Make a personal API key in Linear: Settings, Account, Security and access. Read permission is enough. The key stays in your Keychain.")
                 .font(.callout).foregroundStyle(.secondary)
             SecureField("Linear API key", text: $state.linearKey, prompt: Text("Paste the API key")).labelsHidden()
+            if let error = TicketStore.shared.linearPermissionError { Text(error).foregroundStyle(.red) }
             HStack {
                 Spacer()
                 Button("Cancel") { state.linearSheet = false }
@@ -681,9 +706,10 @@ struct SettingsView: View {
                         state.pushChecking = false
                         if let failure {
                             state.pushError = failure
-                        } else {
-                            push.save(channel, values: values)
+                        } else if push.save(channel, values: values) {
                             state.pushSheet = nil
+                        } else {
+                            state.pushError = "Could not update organization permissions. Open Organizations to resolve the error."
                         }
                     }
                 } label: {
@@ -722,7 +748,7 @@ struct SettingsView: View {
     })
 
     private func saveLinearKey() {
-        TicketStore.shared.setLinearKey(state.linearKey)
+        guard TicketStore.shared.setLinearKey(state.linearKey) else { return }
         state.linearKey = ""
         state.linearSheet = false
     }
@@ -741,6 +767,16 @@ struct SettingsView: View {
         ("Clear the search, then close", "[Esc]"),
         ("More actions", "Right-click a row"),
         ("Move the pill along the edge", "[⌘] and drag"),
+    ]
+
+    /// Keys of the Bouncer Window (BouncerWindowController.handle); keep in step with spec 5.9.
+    private static let bouncerCheatsheet: [(action: String, keys: String)] = [
+        ("New task", "[⌘][N]"),
+        ("Select the next or previous row", "[⌃][Tab] [⌃][⇧][Tab]"),
+        ("Send", "[Return]"),
+        ("Add a line", "[⇧][Return]"),
+        ("Close the popover, or stop the reply", "[Esc]"),
+        ("Close the window", "[⌘][W]"),
     ]
 
     /// "[⌘][1] to [⌘][5]": each bracketed key in a small keycap with a hairline, the words between as text, and a

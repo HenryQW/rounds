@@ -61,11 +61,12 @@ public func firstUserPrompt(claudeTranscript data: Data) -> String? {
 }
 
 /// `projectsRoot/<cwd with each non-alphanumeric char as "-">/<id>.jsonl`, else a scan of `projectsRoot/*/<id>.jsonl`.
-public func transcriptURL(cwd: String, cliSessionId: String, projectsRoot: URL) -> URL? {
+public func transcriptURL(cwd: String, cliSessionId: String, projectsRoot: URL, allowFallback: Bool = true) -> URL? {
     let fm = FileManager.default
     let folder = String(cwd.map { $0.isASCII && ($0.isLetter || $0.isNumber) ? $0 : "-" })
     let direct = projectsRoot.appending(path: folder).appending(path: "\(cliSessionId).jsonl")
     if fm.fileExists(atPath: direct.path) { return direct }
+    guard allowFallback else { return nil }
     for dir in (try? fm.contentsOfDirectory(at: projectsRoot, includingPropertiesForKeys: nil)) ?? [] {
         let candidate = dir.appending(path: "\(cliSessionId).jsonl")
         if fm.fileExists(atPath: candidate.path) { return candidate }

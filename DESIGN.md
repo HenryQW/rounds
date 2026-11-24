@@ -81,6 +81,8 @@ Rounds is a background utility, so its design gets out of the way. It uses nativ
 
 Colour is information. Orange means a session needs the user, blue means it runs, green means a result is ready (the pill turns green, still, while only unseen results wait: Ready, Finished, Stopped), red means a failure, grey means nothing to do. The Served tile is the one exception: its symbol is green, for drinks served. The PR mark takes GitHub's colours on its symbol only: green open, purple merged, grey closed (not red, which means a failure). The ticket mark is grey: its shape gives the ticket's state (a circle, a half-filled circle, a check, a cross), as orange and blue already mean session states. Hover is a grey fill and selection is the system accent, and the two never look alike.
 
+In the planned task area, short state labels can use the same colour as their state marks. Keep body text neutral. Show a state word as well as its colour.
+
 Rounds blue (#0A6BDB) is the one brand colour: the app icon (a white glass two-thirds full, with an orange bubble), the running pill and the Another round? banner. White text on it keeps about 5:1; system blue gives about 4:1, which is too low. The author link uses henry.wang's Decisive Cobalt (#1D4ED8), or its Evidence Blue (#8FB3FF) in dark mode.
 
 ## Typography
@@ -102,7 +104,7 @@ Only live work moves, and it moves like a round of drinks. A working row shows a
 ## Do and Don't
 
 - **Do** use a native control before a custom one.
-- **Do** show a state with its colour on a small mark (a dot, a symbol), not a filled card.
+- **Do** show a state with colour on a small mark or a short label, not a filled card.
 - **Do** keep puns to the tile names, the banner and the motion.
 - **Do** put views of the same data (charts, breakdowns by project or agent) behind a segmented control, one view at a time: the page stays short, so the user scrolls less.
 - **Don't** add a second brand colour, a gradient or a shadow.

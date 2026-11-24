@@ -13,5 +13,6 @@ let package = Package(
             // scripts/bundle.sh puts Sparkle.framework in Contents/Frameworks.
             linkerSettings: [.unsafeFlags(["-Xlinker", "-rpath", "-Xlinker", "@executable_path/../Frameworks"])]),
         .testTarget(name: "RoundsCoreTests", dependencies: ["RoundsCore"], resources: [.copy("Fixtures")]),
+        .testTarget(name: "RoundsAppTests", dependencies: ["Rounds", "RoundsCore"]),
     ]
 )

@@ -59,6 +59,30 @@ _Avoid_: provider, integration, sink
 The repository a session belongs to; worktrees join their repository.
 _Avoid_: repo, workspace, folder
 
+**Bar**:
+A Git repository that holds the coordination records of Bouncer mode. Each bar is a workspace for the Bouncer and its Bartenders. It is not a project; application code stays in its own repositories.
+_Avoid_: workspace, root folder, router repo
+
+**Task detail folder**:
+A private local folder that the user approves for the task details of one organization, or of unclassified projects. The bar does not back it up.
+_Avoid_: detail store (alone), cache
+
+## Planned coordination roles
+
+These roles describe the planned Bouncer mode. They do not describe current Rounds behavior. A task can outlive a session or span several sessions.
+
+**Bouncer**:
+The user-facing agent that assigns repository tasks to Bartenders and coordinates their results. It makes routine decisions and decides which results need the user's attention. Rounds host code, not the Bouncer, shows each approval request to the user.
+_Avoid_: router agent
+
+**Bartender**:
+An agent that carries out a repository task in its own container environment on its own branch and reports to the Bouncer. One repository can have multiple Bartenders in separate worktrees. A Bartender can delegate bounded work to Barbacks.
+_Avoid_: repository agent, network server
+
+**Barback**:
+A subagent that carries out bounded work for a Bartender and reports to that Bartender. It cannot delegate further or request input directly from the user.
+_Avoid_: worker, runner
+
 ## States
 
 **State**:
@@ -163,12 +187,20 @@ Claude Code's record of a session's messages.
 ## Window
 
 **Pill**:
-The tab at a screen edge that shows the counts and opens the session window. It shows the Your Turn count: red while a session in it failed, orange while one needs input, and green while it holds only results (Ready, Finished, Stopped); with no Your Turn session it turns blue with the running count while sessions run. It rings (peeks out) only while a wait is not yet seen. It is the app's only entry point.
+The tab at a screen edge that shows the counts and opens the session window. It shows the Your Turn count: red while a session in it failed, orange while one needs input, and green while it holds only results (Ready, Finished, Stopped); with no Your Turn session it turns blue with the running count while sessions run. It rings (peeks out) only while a wait is not yet seen. It is the app's only entry point. In Bouncer mode it shows only what waits for the user in the Bouncer: orange with that count, ringing while anything waits, else empty and still; a click opens the Bouncer Window.
 _Avoid_: handle, badge, edge tab
 
 **Session window**:
 The window that slides out from the pill's edge with the filter bar and the list.
 _Avoid_: drawer, panel, popover
+
+**Bouncer**:
+In Bouncer mode (Settings > General), the agent that the user talks to in the Bouncer Window. The role is in Planned coordination roles.
+_Avoid_: router agent
+
+**Bouncer Window**:
+The normal window that a click on the pill opens in Bouncer mode. It holds the Bouncer conversation, the questions and approvals that wait for the user, and the composer.
+_Avoid_: Task View, chat window
 
 **Filter bar**:
 The tiles and agent toggles above the list.
