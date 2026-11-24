@@ -82,7 +82,7 @@ Build the slices in the order of [slices/README.md](slices/README.md). Each slic
 
 - Decide how Rounds verifies permission for each alert or ticket service.
 - Add a trusted checkout registry before Settings supports Git remote rules. A matching Git remote is not proof of checkout ownership. Keep unknown remotes and unmatched sessions local, and recheck permission before each outbound request.
-- One bar for each organization: decide how Settings records each organization's remote owners (host and owner, such as `github.com/HenryQW`), and how the check reads an SSH host alias. A push to a personal fork of another organization's repository is refused unless that fork's owner is listed.
+- One owner for each organization: decide how the push check reads an SSH host alias (such as `git@github-work:Evermark/hub`) before it compares the owner.
 - A task that spans two organizations: split it into one task in each bar; the Bouncer links them only in its own local view, so neither bar names the other organization's work.
 - The bar setup in Settings (spec 2.7.2) is still the single bar with detail folders; rebuild it for one bar for each organization.
 - Before you plan a complex function, search for suitable open-source projects. Reuse or adapt existing tools when they fit.
