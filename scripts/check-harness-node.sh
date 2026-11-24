@@ -34,7 +34,8 @@ printf '%s\n' "$LIBRARIES" | LC_ALL=C awk '
     }
 '
 
-if ! lipo -verify_arch arm64 "$NODE"; then
+# The input comes first: an older lipo (Xcode 16) reads every word after -verify_arch as an architecture.
+if ! lipo "$NODE" -verify_arch arm64; then
     echo "Node has no Apple silicon arm64 slice: $NODE" >&2
     exit 1
 fi
