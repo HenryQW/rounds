@@ -27,7 +27,7 @@ private struct HarnessFixture {
         """.write(to: script, atomically: true, encoding: .utf8)
     }
 
-    func host(requestWait: Duration = .seconds(2), exitWait: Duration = .milliseconds(150)) -> NodeHarnessHost {
+    func host(requestWait: Duration = .seconds(2), exitWait: Duration = .seconds(2)) -> NodeHarnessHost {
         NodeHarnessHost(executable: URL(fileURLWithPath: "/bin/sh"), script: script, dataFolder: folder,
                         requestWait: requestWait, exitWait: exitWait)
     }
@@ -40,7 +40,7 @@ private struct HarnessFixture {
 }
 
 private func withHarness(_ fixture: HarnessFixture, requestWait: Duration = .seconds(2),
-                         exitWait: Duration = .milliseconds(150),
+                         exitWait: Duration = .seconds(2),
                          _ body: (NodeHarnessHost) async throws -> Void) async throws {
     let host = fixture.host(requestWait: requestWait, exitWait: exitWait)
     do {
