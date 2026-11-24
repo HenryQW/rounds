@@ -242,20 +242,19 @@ struct OrganizationBarRows: View {
         let owner = state.owner(for: organization)
         let path = state.barPath(for: organization)
         VStack(alignment: .leading, spacing: 8) {
-            LabeledContent {
-                Button("Change…") { state.editOwner(organization) }
-            } label: {
+            // Outside a Form, LabeledContent does not push its control to the trailing edge.
+            HStack {
                 described("Owner", owner ?? "Not set")
+                Spacer()
+                Button("Change…") { state.editOwner(organization) }
             }
-            LabeledContent {
-                HStack {
-                    if state.pendingFolders[organization.id] != nil {
-                        Button("Create Repository…") { state.askCreate(for: organization.id) }
-                    }
-                    Button("Choose…") { state.chooseBar(for: organization.id, projectFolders: projectFolders) }
-                }
-            } label: {
+            HStack {
                 described("Bar", path.map(abbreviate) ?? "Not set").help(path ?? "")
+                Spacer()
+                if state.pendingFolders[organization.id] != nil {
+                    Button("Create Repository…") { state.askCreate(for: organization.id) }
+                }
+                Button("Choose…") { state.chooseBar(for: organization.id, projectFolders: projectFolders) }
             }
             if state.checks[organization.id] == .checking {
                 ProgressView().controlSize(.small)
