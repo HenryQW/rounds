@@ -40,7 +40,8 @@ jobs:
           { echo "TAG=$TAG"; echo "ROUNDS_VERSION=$VERSION"; echo "ROUNDS_SHORT_VERSION=$VERSION beta ($SHA)"; } >> "$GITHUB_ENV"
 
       - name: Test
-        run: swift test
+        # A parallel run makes the Git and timing tests time out under load.
+        run: swift test --no-parallel
 
       - name: Require the Harness payload artifact
         env:

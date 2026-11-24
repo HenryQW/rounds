@@ -39,7 +39,8 @@ jobs:
         run: scripts/check-tap-token.sh 0
 
       - name: Test
-        run: swift test
+        # A parallel run makes the Git and timing tests time out under load.
+        run: swift test --no-parallel
 
       - name: Require the Harness payload artifact
         env:
