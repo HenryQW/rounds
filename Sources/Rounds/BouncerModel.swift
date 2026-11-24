@@ -116,13 +116,13 @@ final class BouncerModel {
         if Demo.isOn {
             made = DemoBouncer()
         } else {
-            let helpers = Bundle.main.bundleURL.appending(path: "Contents/Helpers/harness-host")
-            guard FileManager.default.isExecutableFile(atPath: helpers.appending(path: "node").path),
-                  FileManager.default.fileExists(atPath: helpers.appending(path: "host.mjs").path) else {
+            let node = Bundle.main.bundleURL.appending(path: "Contents/Helpers/harness-host/node")
+            guard FileManager.default.isExecutableFile(atPath: node.path),
+                  let script = Bundle.main.url(forResource: "host", withExtension: "mjs", subdirectory: "harness-host") else {
                 thread.apply(.failed("The Harness host is missing. Build the app with its host resources."))
                 return
             }
-            let host = NodeHarnessHost(executable: helpers.appending(path: "node"), script: helpers.appending(path: "host.mjs"),
+            let host = NodeHarnessHost(executable: node, script: script,
                                    dataFolder: URL.applicationSupportDirectory.appending(path: "Rounds/harness"))
             self.host = host
             made = HarnessBouncer(host: host)

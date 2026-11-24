@@ -434,6 +434,7 @@ struct SettingsView: View {
     private var tickets: some View {
         let store = TicketStore.shared
         let linear: (line: String, problem: Bool) = switch store.linearStatus {
+        case _ where store.linearKeychainError != nil: ("Could not access Keychain.", true)
         case .connected(let workspace) where store.hasLinearKey: ("Issues in \(workspace).", false)
         case .invalidKey where store.hasLinearKey: ("Linear did not accept the key.", true)
         default: ("Titles and states of issues.", false)
@@ -446,7 +447,9 @@ struct SettingsView: View {
         }
         return Section {
             integrationRow("Linear", linear.line, problem: linear.problem, logo: serviceLogo("linear", Self.linearColor)) {
-                if store.hasLinearKey {
+                if store.linearKeyBusy {
+                    statusLabel("Checking Keychain", .gray)
+                } else if store.hasLinearKey {
                     let (word, color): (String, Color) = switch store.linearStatus {
                     case .connected: ("Connected", .green)
                     case .invalidKey: ("Key not valid", .orange)
@@ -458,10 +461,13 @@ struct SettingsView: View {
                         Button("Change Key…") { state.linearSheet = true }
                         Button("Remove Key") { store.removeLinearKey() }
                     }
+                } else if store.linearKeychainError == .read {
+                    Button("Try Again") { store.retryLinearKey() }
                 } else {
                     Button("Connect…") { state.linearSheet = true }
                 }
             }
+            .onAppear { store.prepareOrganizationDestinations() }
             .help("Make a personal API key in Linear: Settings, Account, Security and access. Read permission is enough. Rounds sends Linear only branch names, PR links and issue IDs. The key stays in your Keychain.")
             integrationRow("GitHub", github.line, problem: github.problem, logo: serviceLogo("github", Self.githubColor)) {
                 let status: (word: String, color: Color)? = switch store.githubStatus {
@@ -480,7 +486,7 @@ struct SettingsView: View {
             }
             .help("Rounds runs gh from Homebrew or ~/.local/bin; sign in with gh auth login. It sends GitHub only repository names and PR and issue numbers.")
         } footer: {
-            footer(store.linearPermissionError)
+            footer(store.linearPermissionError ?? store.linearKeychainError?.rawValue)
         }
     }
 
@@ -639,23 +645,27 @@ struct SettingsView: View {
 
     /// Asks for the Linear key (spec 5.4); Return saves.
     private var linearSheet: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        let store = TicketStore.shared
+        return VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 logoTile(serviceLogo("linear", Self.linearColor))
                 Text("Connect Linear").font(.headline)
             }
             Text("Make a personal API key in Linear: Settings, Account, Security and access. Read permission is enough. The key stays in your Keychain.")
                 .font(.callout).foregroundStyle(.secondary)
-            SecureField("Linear API key", text: $state.linearKey, prompt: Text("Paste the API key")).labelsHidden()
-            if let error = TicketStore.shared.linearPermissionError { Text(error).foregroundStyle(.red) }
+            SecureField("Linear API key", text: $state.linearKey, prompt: Text("Paste the API key"))
+                .labelsHidden().disabled(store.linearKeyBusy)
+            if let error = store.linearPermissionError ?? store.linearKeychainError?.rawValue { Text(error).foregroundStyle(.red) }
             HStack {
                 Spacer()
                 Button("Cancel") { state.linearSheet = false }
+                    .disabled(store.linearKeyBusy)
                 Button("Save Key", action: saveLinearKey)
                     .keyboardShortcut(.defaultAction)
-                    .disabled(state.linearKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(store.linearKeyBusy || state.linearKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
+        .interactiveDismissDisabled(store.linearKeyBusy)
         .padding(20)
         .frame(width: 460)
     }
@@ -744,9 +754,11 @@ struct SettingsView: View {
     })
 
     private func saveLinearKey() {
-        guard TicketStore.shared.setLinearKey(state.linearKey) else { return }
-        state.linearKey = ""
-        state.linearSheet = false
+        let state = state
+        TicketStore.shared.setLinearKey(state.linearKey) {
+            state.linearKey = ""
+            state.linearSheet = false
+        }
     }
 
     /// Keys of the session window (PanelController.handle and the row menu); keep in step with spec 5.2. Each key in

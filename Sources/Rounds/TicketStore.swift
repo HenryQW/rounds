@@ -1,7 +1,6 @@
 import Foundation
 import Observation
 import RoundsCore
-import Security
 
 /// Linear and GitHub tickets of the rows the window lists (spec "Tickets"). It finds each row's lookups (branch, PRs,
 /// first-prompt refs), fetches the due ones from Linear (HTTP) and GitHub (`gh`), and keeps them in a cache file.
@@ -19,7 +18,15 @@ final class TicketStore {
     /// nil until the first check of `gh` answers. A change regroups, as rows hide their guesses without `gh`.
     private(set) var githubStatus: GitHubStatus? { didSet { if githubStatus != oldValue { changed() } } }
     private(set) var hasLinearKey = false
+    private(set) var linearKeyBusy = false
+    private(set) var linearKeychainError: LinearKeychainError?
     private(set) var linearPermissionError: String?
+
+    enum LinearKeychainError: String {
+        case read = "Could not read the Linear key from Keychain."
+        case save = "Could not save the Linear key to Keychain."
+        case remove = "Could not remove the Linear key from Keychain."
+    }
 
     var organizationDestinations: [OrganizationDestination] {
         var result: [OrganizationDestination] = []
@@ -49,7 +56,6 @@ final class TicketStore {
     private var cache = TicketCache()
     /// nil until the Keychain is read; empty when there is no key.
     @ObservationIgnored private var key: String?
-    @ObservationIgnored private var keyLoading = false
     /// The team keys of the key's workspace, from each Linear answer: a bare identifier with another prefix is no ticket.
     @ObservationIgnored private var teamKeys: Set<String> = []
     /// The workspace of the last answer that named one: an answer with null data names none but proves the key works.
@@ -123,15 +129,25 @@ final class TicketStore {
     }
 
     func prepareOrganizationDestinations() {
-        guard !Demo.isOn else { return }
+        guard !Demo.isOn, key == nil, !linearKeyBusy, linearKeychainError == nil else { return }
         // At first need, off the main thread, so a Keychain prompt never blocks launch.
-        if key == nil && !keyLoading {
-            keyLoading = true
-            keychainIO.async {
-                let key = LinearKey.read() ?? ""
-                DispatchQueue.main.async { MainActor.assumeIsolated { if self.key == nil { self.use(key) } } }
+        linearKeyBusy = true
+        keychainIO.async {
+            let result = Result { try LinearKey.read() }
+            DispatchQueue.main.async {
+                self.linearKeyBusy = false
+                switch result {
+                case .success(let key): self.use(key)
+                case .failure: self.linearKeychainError = .read
+                }
             }
         }
+    }
+
+    func retryLinearKey() {
+        guard linearKeychainError == .read else { return }
+        linearKeychainError = nil
+        prepareOrganizationDestinations()
     }
 
     /// A row under the pointer: its tickets are fetched again after 1 minute, not 10.
@@ -507,30 +523,48 @@ final class TicketStore {
 
     // MARK: Key
 
-    @discardableResult
-    func setLinearKey(_ newKey: String) -> Bool {
-        let k = newKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !Demo.isOn, !k.isEmpty else { return false }
-        guard k != key else { return true }
-        guard OrganizationSettingsState.shared.resetPermissions(service: "ticket-linear") else {
-            linearPermissionError = "Could not update organization permissions. Open Organizations to resolve the error."
-            return false
-        }
-        linearPermissionError = nil
-        keychainIO.async { LinearKey.save(k) }
-        changeKey(k)
-        return true
+    func setLinearKey(_ newKey: String, onSave: @escaping @MainActor @Sendable () -> Void) {
+        let key = newKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        updateLinearKey(key, onSuccess: onSave)
     }
 
     func removeLinearKey() {
-        guard !Demo.isOn else { return }
+        updateLinearKey("") {}
+    }
+
+    private func updateLinearKey(_ newKey: String, onSuccess: @escaping @MainActor @Sendable () -> Void) {
+        guard !Demo.isOn, !linearKeyBusy else { return }
+        if newKey == key {
+            linearPermissionError = nil
+            linearKeychainError = nil
+            onSuccess()
+            return
+        }
+        // Revoke first so a restart after a Keychain write cannot restore an old grant.
         guard OrganizationSettingsState.shared.resetPermissions(service: "ticket-linear") else {
             linearPermissionError = "Could not update organization permissions. Open Organizations to resolve the error."
             return
         }
         linearPermissionError = nil
-        keychainIO.async { LinearKey.delete() }
-        changeKey("")
+        linearKeychainError = nil
+        linearKeyBusy = true
+        keychainIO.async {
+            let result = Result {
+                if newKey.isEmpty { try LinearKey.delete() }
+                else { try LinearKey.save(newKey) }
+            }
+            DispatchQueue.main.async {
+                self.linearKeyBusy = false
+                switch result {
+                case .success:
+                    self.changeKey(newKey)
+                    onSuccess()
+                case .failure:
+                    self.linearKeychainError = newKey.isEmpty ? .remove : .save
+                }
+            }
+        }
     }
 
     /// A new key clears `.invalidKey` and the wait, and makes every Linear lookup due.
@@ -650,26 +684,4 @@ private func runCommand(_ path: String, _ arguments: [String]) -> CommandOutput?
     stop.cancel()
     let read = pipes.wait(timeout: .now() + 2) == .success
     return CommandOutput(status: process.terminationStatus, stdout: read ? stdout : Data(), stderr: read ? stderr : Data(), timedOut: stopped)
-}
-
-/// The Linear key in the login Keychain: service `com.henryqw.rounds.linear`, account `api-key`. Never in a file or a log.
-private enum LinearKey {
-    static var item: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "com.henryqw.rounds.linear", kSecAttrAccount as String: "api-key"]
-    }
-
-    static func read() -> String? {
-        var data: AnyObject?
-        let status = SecItemCopyMatching(item.merging([kSecReturnData as String: true]) { $1 } as CFDictionary, &data)
-        if status != errSecSuccess && status != errSecItemNotFound { log.error("tickets: Keychain read failed (\(status))") }
-        return (data as? Data).map { String(decoding: $0, as: UTF8.self) }
-    }
-
-    static func save(_ key: String) {
-        SecItemDelete(item as CFDictionary)
-        let status = SecItemAdd(item.merging([kSecValueData as String: Data(key.utf8)]) { $1 } as CFDictionary, nil)
-        if status != errSecSuccess { log.error("tickets: Keychain save failed (\(status))") }
-    }
-
-    static func delete() { SecItemDelete(item as CFDictionary) }
 }
