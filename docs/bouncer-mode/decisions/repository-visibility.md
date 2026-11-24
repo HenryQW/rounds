@@ -1,6 +1,6 @@
 # Bouncer Mode Repository Visibility
 
-- **Status:** accepted
+- **Status:** superseded on 2026-11-24 by decision "One bar for each organization" in [decisions.md](../decisions.md)
 - **Date:** 2026-11-16
 - **Log entry:** decision "Root repository visibility" in [decisions.md](../decisions.md)
 

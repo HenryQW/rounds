@@ -1,6 +1,6 @@
 # Bouncer mode overview
 
-Bouncer mode extends Rounds so one user-facing Bouncer coordinates Bartenders and their bounded Barbacks across independent repositories. Durable records must support recovery without the old conversation. Rounds is the product home. The user's bar is a separate coordination directory, not the Rounds source repository unless the user chooses otherwise. Names are in [CONTEXT.md](CONTEXT.md); decisions are in [decisions.md](decisions.md).
+Bouncer mode extends Rounds so one user-facing Bouncer coordinates Bartenders and their bounded Barbacks across independent repositories. Durable records must support recovery without the old conversation. Rounds is the product home. Each organization's bar is a separate coordination repository, not the Rounds source repository unless the user chooses otherwise. Names are in [CONTEXT.md](CONTEXT.md); decisions are in [decisions.md](decisions.md).
 
 ```mermaid
 flowchart TD
@@ -44,7 +44,8 @@ Agents produce and Rounds publishes: agents cannot do a protected action, and Ro
 |---|---|
 | Product | Build in the Rounds repository. Preserve existing session features unless a change is agreed. |
 | Bar | Keep coordination records separate from application code. Setup can use `/router-setup` or a natural-language request. Check whether the chosen directory is already in a Git repository; otherwise ask whether to create one and ask for its name. |
-| Storage | Use one Git root with a remote for permitted records and configuration. It can be private or public. Before using a public remote, obtain explicit acknowledgement. When visibility cannot be verified, treat it as potentially public and obtain acknowledgement before use. If organization rules prohibit details in the root, keep them in an approved local location and put only permitted metadata in Git. Show that the details are not remotely backed up by the root. See decision "Root repository visibility". |
+| Storage | One private bar for each organization holds all of its task records and details. A bar never holds another organization's records. The Bouncer shows the tasks of all bars in one view. See decision "One bar for each organization". |
+| Push | Rounds pushes a repository, a bar included, only to a remote whose owner belongs to the repository's organization. A project with no organization cannot push. |
 | Registry | Keep a stable repository ID, organization, name, aliases, purpose, instruction references, and related repositories. Resolve machine-specific checkout paths separately. |
 | Routing | Use one Bouncer conversation for the user, in the Bouncer Window. Prefer an explicitly named repository. Otherwise use aliases, purpose, and project context; inspect ambiguous matches and ask only when the ambiguity changes the work. Do not choose arbitrarily. |
 | Instructions | Load applicable shared, organization, and project instructions explicitly. Keep code-specific documentation in the code repository. Load only the organization context needed. |
@@ -56,7 +57,7 @@ Agents produce and Rounds publishes: agents cannot do a protected action, and Ro
 | Authority | Barbacks ask their Bartender first; the Bartender decides or asks the Bouncer when unsure. If the Bouncer needs user input, present up to three options and recommend one. After Bartender review, relay known approval requests without a Bouncer model turn. The requesting agent waits; unrelated work continues. Protect required approvals with verified isolation and guarded execution. See decision "Authority and approval enforcement". |
 | Interface | Bouncer mode of Rounds: the pill is the Bouncer and the Bouncer Window holds the conversation. Rounds still watches all sessions; the session list stays on the global shortcut. See decision "Bouncer mode in Rounds" and [slice 01](slices/01-bouncer-mode.md). |
 | Recovery | Bartenders and Barbacks are conversations in the Node Host, which Rounds starts as its child. If Rounds quits, they stop. Reopen the Bouncer conversation from SQLite. Report storage errors and interrupted replies. Reconcile each agent and checkout before work resumes; never restart an uncertain agent until its previous run is proven stopped. Rounds rechecks agents and checkouts itself. Show one row only for a fact it cannot prove, with one safe action. |
-| Git history | Commit permitted Task Records to the root branch locally. Push them only when the user asks; version one runs on one machine. Exclude restricted details from the root's commits. Ask before a commit if unrelated changes exist. Do not silently overwrite or remove unrelated work. |
+| Git history | Commit Task Records to their organization's bar locally. Push them only when the user asks; version one runs on one machine. Ask before a commit if unrelated changes exist. Do not silently overwrite or remove unrelated work. |
 | Deployment | Start on one machine, with one owner per task. Defer distributed compute, a remote Barback fleet, autonomous scheduling, and unrestricted recursion. |
 
 ## Acceptance scenarios
@@ -70,7 +71,7 @@ Agents produce and Rounds publishes: agents cannot do a protected action, and Ro
 | Failure | Report a Barback failure without claiming completion. |
 | Restart | On user request, reopen the recorded conversation when available. If it is missing, start a clearly marked new conversation from task records. Report other session access errors and reconcile Bartenders and Barbacks before resumption. |
 | Approval | Wait for the required user consent. A rejection includes a reason; unrelated work continues. A pending request survives a restart as a parked pi-durable gate. Rounds rechecks the revision and remote URL itself; if they changed, it drops the request and asks again. |
-| Organization | Do not load unrelated organization instructions or store or transmit information outside approved boundaries. Apply alert and ticket lookup rules to every Rounds session; keep unmatched or conflicting matches local until the user classifies them. When the root cannot hold task details, store them locally only with approval for that location; show the remote-backup limit. |
+| Organization | Do not load unrelated organization instructions or store or transmit information outside approved boundaries. Apply alert and ticket lookup rules to every Rounds session; keep unmatched or conflicting matches local until the user classifies them. Store each task in its organization's bar only. Refuse a push to a remote owner of another organization. |
 | Initial workflow | Register two repositories and complete one cross-repository workflow. |
 
 ## Build order
@@ -81,4 +82,7 @@ Build the slices in the order of [slices/README.md](slices/README.md). Each slic
 
 - Decide how Rounds verifies permission for each alert or ticket service.
 - Add a trusted checkout registry before Settings supports Git remote rules. A matching Git remote is not proof of checkout ownership. Keep unknown remotes and unmatched sessions local, and recheck permission before each outbound request.
+- One bar for each organization: decide how Settings records each organization's remote owners (host and owner, such as `github.com/HenryQW`), and how the check reads an SSH host alias. A push to a personal fork of another organization's repository is refused unless that fork's owner is listed.
+- A task that spans two organizations: split it into one task in each bar; the Bouncer links them only in its own local view, so neither bar names the other organization's work.
+- The bar setup in Settings (spec 2.7.2) is still the single bar with detail folders; rebuild it for one bar for each organization.
 - Before you plan a complex function, search for suitable open-source projects. Reuse or adapt existing tools when they fit.

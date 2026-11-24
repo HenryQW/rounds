@@ -8,6 +8,8 @@ The Bouncer gives a task to a Bartender and gets its result back. The result arr
 
 Local task records are built. A local runtime verifies dispatch, Blocked continuation and result intake across two disposable repositories. The running app still needs the integrations in [Open](#open).
 
+The storage in this brief (one bar, approved detail folders for each organization) is superseded by decision "One bar for each organization" (2026-11-24). Rework the storage check and the detail store for one private bar for each organization before the app uses them.
+
 ## Read first, in full
 
 | Read | Purpose |
