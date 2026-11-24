@@ -5,6 +5,25 @@ line for each change a user can see, in words a user knows, grouped under Breaki
 the commits of one feature on one line. Leave out commits that undo each other, fixes to work that was not released,
 and changes only to code, tests, docs or the build.
 
+## 0.1.5
+
+### Features
+
+- A history page in Settings that shows how long agents waited for you.
+- A mark on sessions that a scheduled task started.
+- A "Why This State" view on a row that shows why the row has its state. You can save a report when the state is wrong.
+- The hover card lists every item, scrolls a long list, and shows each item's state symbol.
+- A click on a mark with several items opens the hover card.
+- Pi `acp_delegate` runs show as subagents.
+
+### Fixes
+
+- A herdr turn keeps its time after you open it.
+- Hover hints show after 0.5 s.
+- The hover card stays on the screen when its size is not ready.
+- A Claude session that ended before Claude Code started no longer shows as unreadable.
+- A herdr check stops waiting for an answer after 5 s.
+
 ## 0.1.4
 
 ### Features
