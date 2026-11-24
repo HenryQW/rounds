@@ -26,9 +26,10 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources"
 cp "$BIN/Rounds" "$APP/Contents/MacOS/Rounds"
 cp "$BIN/rounds-hook" "$APP/Contents/Helpers/rounds-hook"
 HOST="$APP/Contents/Helpers/harness-host"
-mkdir "$HOST"
-cp "$PAYLOAD/node" "$PAYLOAD/host.mjs" "$PAYLOAD/commit" "$HOST/"
-chmod 755 "$HOST/node"
+HOST_RESOURCES="$APP/Contents/Resources/harness-host"
+mkdir "$HOST" "$HOST_RESOURCES"
+install -m 755 "$PAYLOAD/node" "$HOST/node"
+cp "$PAYLOAD/host.mjs" "$PAYLOAD/commit" "$HOST_RESOURCES/"
 ditto "$BIN/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 # VERSION is the one place the version lives; Settings reads it from there, and Sparkle compares CFBundleVersion. A beta
@@ -37,11 +38,30 @@ VERSION="${ROUNDS_VERSION:-$(cat VERSION)}"
 /usr/libexec/PlistBuddy -c "Add :CFBundleShortVersionString string ${ROUNDS_SHORT_VERSION:-$VERSION}" -c "Add :CFBundleVersion string $VERSION" "$APP/Contents/Info.plist"
 cp Resources/*.svg Resources/rounds-pi.ts "$APP/Contents/Resources/"
 cp Resources/AppIcon.icns Resources/henry.png "$APP/Contents/Resources/"
-# The stable self-signed identity when a keychain has it (the release, website/docs/release.md): each build then has the
-# same designated requirement, so macOS permissions and Sparkle's code signature check hold across updates. Else ad hoc.
-IDENTITY="Rounds Self-Signed"
-security find-identity -p codesigning | grep -q "\"$IDENTITY\"" || IDENTITY=-
-codesign --force --deep -s "$IDENTITY" "$APP"
+# Use the release certificate when it is available. An ad-hoc development build uses the Keychain directly.
+RELEASE_CERT=981b67fc67872c2a9dd89da60aa84ed6690c62a8
+if security find-identity -p codesigning | grep -i "$RELEASE_CERT" > /dev/null; then
+    IDENTITY="$RELEASE_CERT"
+else
+    IDENTITY=-
+fi
+SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
+codesign --force --deep -s "$IDENTITY" "$SPARKLE"
+codesign --force -s "$IDENTITY" "$APP/Contents/Helpers/rounds-hook" "$HOST/node"
+if [ "$IDENTITY" = - ]; then
+    codesign --force -s - "$APP"
+else
+    shasum -a 256 -c Resources/LinearKeychain.sha256
+    SERVICE="$APP/Contents/XPCServices/com.henryqw.rounds.linear-keychain.xpc"
+    mkdir -p "$SERVICE/Contents/MacOS"
+    cp Resources/LinearKeychain.plist "$SERVICE/Contents/Info.plist"
+    install -m 755 Resources/LinearKeychain.macho "$SERVICE/Contents/MacOS/Rounds Linear Keychain"
+    # Sign the same helper bytes with the same options for both channels. Do not re-sign nested code from the app.
+    codesign -s "$IDENTITY" --options runtime --timestamp=none "$SERVICE"
+    /usr/libexec/PlistBuddy -c 'Add :RoundsLinearKeychainHelper bool true' "$APP/Contents/Info.plist"
+    sh scripts/sign-keychain-client.sh "$IDENTITY" "$APP"
+fi
+codesign --verify --deep --strict "$APP"
 if [ "$INSTALL" = true ]; then
     rm -rf "/Applications/Rounds.app"
     cp -R "$APP" /Applications/

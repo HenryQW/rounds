@@ -63,7 +63,7 @@ jobs:
       - name: Build the app and the disk image
         run: |
           scripts/bundle.sh --harness-payload "$RUNNER_TEMP/rounds-harness-host"
-          # The release identity, so permissions and Keychain access stay when a user changes channel.
+          # Use the same release identity and Linear Keychain helper as Stable.
           codesign -dvv build/Rounds.app 2>&1 | grep -x "Authority=Rounds Self-Signed" > /dev/null  # no -q: an early exit is SIGPIPE
           scripts/dmg.sh
 

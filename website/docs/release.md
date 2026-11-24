@@ -40,6 +40,12 @@ The workflow stops if the tag is not `v` followed by the version in `VERSION`, o
 
 A release is signed with the self-signed certificate "Rounds Self-Signed". Every release then has the same identity, so macOS keeps the permissions you gave Rounds (such as Automation) after an update, and Sparkle can also check the code signature. macOS does not trust the certificate, and Rounds has no Developer ID, so Apple does not notarize it. macOS says that a copy downloaded with a browser is damaged, and users remove the quarantine flag (see [Install](/install#disk-image); the disk image has a note with the steps). The install script (`website/public/install.sh`) downloads with `curl`, which adds no quarantine flag, and accepts only an app signed with this certificate (it compares the certificate's SHA-256). The cask removes the flag in its `postflight`. If you change the certificate, change the SHA-256 in the script in the same commit.
 
+## Linear Keychain helper
+
+Beta and Stable use the same unsigned helper executable and property list from `Resources/`. The bundle script verifies their checksums and signs the helper with the release certificate. The helper's code signature hash must stay the same across routine app updates so Keychain can reuse its approval.
+
+Run `sh scripts/build-linear-keychain-helper.sh` only when the helper changes. Commit the source, executable and checksum together. A helper or certificate change can require a new Keychain approval. If the release certificate changes, update the certificate checks in the app, helper and bundle script. Then regenerate the helper.
+
 ## The secrets
 
 `SIGNING_CERTIFICATE_P12` and `SIGNING_CERTIFICATE_PASSWORD` are the signing certificate (a base64 p12 file) and its password. Both are in 1Password (account 35brookroad, vault Employee, item "Rounds code signing certificate"; the file is attached as `p12`). The certificate expires on 2046-10-29. To set the secrets again:
