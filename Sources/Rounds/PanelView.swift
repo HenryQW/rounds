@@ -458,6 +458,10 @@ struct SessionRowView: View {
             : Text("\(Image(systemName: "folder")) Direct")
     }
 
+    /// The width the time column keeps: a two-digit time in the row's format ("59 min ago").
+    private static let widestTime = Date.now.addingTimeInterval(-59 * 60)
+        .formatted(.relative(presentation: .numeric, unitsStyle: .narrow))
+
     let row: SessionRow
     let subtitle: String
     /// Child rows leave out the source icon (their parent shows it) and say if they work in the parent's folder.
@@ -490,9 +494,13 @@ struct SessionRowView: View {
                 BrokenGlass().frame(width: 12, height: 14).alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + capMiddle }
             }
             VStack(alignment: .trailing, spacing: 2) {
-                // A hook time can be a few ms ahead of this clock; never show "in 0 sec".
-                Text(min(row.status.since, .now.addingTimeInterval(-1)), format: .relative(presentation: .numeric, unitsStyle: .narrow))
-                    .font(.caption2.monospaced()).foregroundStyle(.secondary)
+                // One width for every row's time, so the glasses before it line up (spec 5.2). A longer time still fits.
+                ZStack(alignment: .trailing) {
+                    Text(Self.widestTime).hidden()
+                    // A hook time can be a few ms ahead of this clock; never show "in 0 sec".
+                    Text(min(row.status.since, .now.addingTimeInterval(-1)), format: .relative(presentation: .numeric, unitsStyle: .narrow))
+                }
+                .font(.caption2.monospaced()).foregroundStyle(.secondary)
                 if !row.tickets.isEmpty || !row.pullRequests.isEmpty {
                     HStack(spacing: 8) {
                         if !row.tickets.isEmpty { TicketMark(row: row, state: state) }
