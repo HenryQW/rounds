@@ -45,7 +45,7 @@ Agents produce and Rounds publishes: agents cannot do a protected action, and Ro
 | Product | Build in the Rounds repository. Preserve existing session features unless a change is agreed. |
 | Bar | Keep coordination records separate from application code. Setup can use `/router-setup` or a natural-language request. Check whether the chosen directory is already in a Git repository; otherwise ask whether to create one and ask for its name. |
 | Storage | One private bar for each organization holds all of its task records and details. A bar never holds another organization's records. The Bouncer shows the tasks of all bars in one view. See decision "One bar for each organization". |
-| Push | Rounds pushes a repository, a bar included, only to a remote whose owner belongs to the repository's organization. A project with no organization cannot push. |
+| Push | Rounds pushes a repository, a bar included, only to a remote of its organization's one owner (decision "One owner for each organization"). A project with no organization cannot push. |
 | Registry | Keep a stable repository ID, organization, name, aliases, purpose, instruction references, and related repositories. Resolve machine-specific checkout paths separately. |
 | Routing | Use one Bouncer conversation for the user, in the Bouncer Window. Prefer an explicitly named repository. Otherwise use aliases, purpose, and project context; inspect ambiguous matches and ask only when the ambiguity changes the work. Do not choose arbitrarily. |
 | Instructions | Load applicable shared, organization, and project instructions explicitly. Keep code-specific documentation in the code repository. Load only the organization context needed. |
