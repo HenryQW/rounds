@@ -32,7 +32,7 @@ enum Demo {
     }
 
     /// Called once the app has finished launching. Pill scenes need no window: the drawer shows the pill. `settings` opens
-    /// the Settings window; `settings-<page>` opens it at that page (`settings-agents`, `settings-tickets`, `settings-bar`).
+    /// the Settings window; `settings-<page>` opens it at that page (`settings-agents`, `settings-tickets`, `settings-organizations`).
     /// Scenes that start with `bouncer` turn on Bouncer mode: `bouncer-pill` shows the pill only, `bouncer` opens the Bouncer
     /// Window, `bouncer-note` also opens its host note, and `bouncer-setup` shows the Set Up row.
     @MainActor static func start() {
@@ -53,6 +53,12 @@ enum Demo {
                     // The app menu's Settings… item (⌘,), which SwiftUI's Settings scene adds.
                     if let menu = NSApp.mainMenu?.items.first?.submenu, let item = menu.items.firstIndex(where: { $0.keyEquivalent == "," }) {
                         menu.performActionForItem(at: item)
+                    }
+                    // Wide enough for both columns and tall enough for both demo organizations.
+                    if scene == "settings-organizations" {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            SettingsState.shared.window?.setContentSize(NSSize(width: 1180, height: 900))
+                        }
                     }
                 }
                 if scene?.hasPrefix("bouncer") == true, scene != "bouncer-pill" {

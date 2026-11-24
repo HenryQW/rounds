@@ -8,7 +8,7 @@ The Bouncer gives a task to a Bartender and gets its result back. The result arr
 
 Local task records are built. A local runtime verifies dispatch, Blocked continuation and result intake across two disposable repositories. The running app still needs the integrations in [Open](#open).
 
-The storage in this brief (one bar, approved detail folders for each organization) is superseded by decision "One bar for each organization" (2026-11-24). Rework the storage check and the detail store for one private bar for each organization before the app uses them.
+The storage in this brief (one bar, approved detail folders for each organization) is superseded by decision "One bar for each organization" (2026-11-24). The storage check and the detail store now use one private bar for each organization, with the task graph in `tasks/graph` and the details in `tasks/details` of that bar ([spec 2.7.2](../../spec.md#272-bar-setup), built 2026-11-24). A nil organization cannot store tasks. Read the rows below about detail folders, acknowledgement and unclassified folders with that change.
 
 ## Read first, in full
 

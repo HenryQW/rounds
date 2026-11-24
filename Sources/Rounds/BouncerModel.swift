@@ -99,12 +99,9 @@ final class BouncerModel {
 
     /// What the user must set up before the Bouncer can start; the Set Up row shows them.
     var setupSteps: [BouncerSetupStep] {
-        let bar = BarSettingsState.shared
-        if Demo.isOn { return Demo.bouncerSetup ? [.chooseBar] : [] }
-        // At launch the check of the recorded folder runs off the main thread; the Bouncer waits for its remotes.
-        var remotes: [BarRemote]?
-        if case .repository(_, let found) = bar.inspection { remotes = found }
-        return bouncerSetupSteps(bar: bar.settings, isBar: bar.isBar, remotes: remotes)
+        if Demo.isOn { return Demo.bouncerSetup ? [.setUpBar] : [] }
+        // At launch the checks of the recorded bars run off the main thread; the Bouncer waits for them.
+        return bouncerSetupSteps(readyBars: BarSettingsState.shared.readyBars)
     }
 
     /// Sessions that need input or failed, without the Bouncer's own: the host note.

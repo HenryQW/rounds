@@ -92,7 +92,7 @@ public struct TaskDetailWriteResult: Equatable, Sendable {
 }
 
 /// The caller must authorize every value for this exact existing private directory before use.
-/// Even an ID or title may be restricted. Git remote visibility does not grant permission.
+/// Even an ID or title may be restricted. A ready bar does not grant permission.
 /// Publish a detail revision before recording its ID in a separately authorized graph. A revision
 /// without a graph reference is a recoverable orphan. This is not a transaction across stores,
 /// action approval, protection against same-user adversaries, or complete recovery.
@@ -102,15 +102,15 @@ public struct TaskDetailWriteResult: Equatable, Sendable {
 public struct TaskDetailStore: Sendable {
     public let directory: URL
     private let approvedIdentity: FolderIdentity?
-    private let approval: (BarSettingsStore, BarScope)?
+    private let approval: (BarSettingsStore, UUID)?
     private static let maximumBytes = 1_048_576
 
     public init(directory: URL) { self.directory = directory; self.approvedIdentity = nil; self.approval = nil }
 
-    init(directory: URL, approvedIdentity: FolderIdentity, bar: BarSettingsStore, scope: BarScope) {
+    init(directory: URL, approvedIdentity: FolderIdentity, bar: BarSettingsStore, organization: UUID) {
         self.directory = directory
         self.approvedIdentity = approvedIdentity
-        self.approval = (bar, scope)
+        self.approval = (bar, organization)
     }
 
     @discardableResult
@@ -126,8 +126,8 @@ public struct TaskDetailStore: Sendable {
         let revision = TaskDetailRevision(taskID: taskID, revisionID: revisionID,
                                           resultRevisionID: result.map { _ in resultRevisionID ?? revisionID }, assignment: assignment,
                                           result: result, progress: progress, decisions: decisions, approvals: approvals)
-        if let (bar, scope) = approval {
-            return try bar.withTaskDetailApproval(for: scope) { identity in
+        if let (bar, organization) = approval {
+            return try bar.withTaskStorage(for: organization) { identity in
                 guard identity == approvedIdentity else { throw TaskInterfaceError.storageNotReady }
                 return try publish(revision)
             }
@@ -136,8 +136,8 @@ public struct TaskDetailStore: Sendable {
     }
 
     func withPublicationApproval<T>(_ body: () throws -> T) throws -> T {
-        guard let (bar, scope) = approval else { return try body() }
-        return try bar.withTaskDetailApproval(for: scope, wait: false) { identity in
+        guard let (bar, organization) = approval else { return try body() }
+        return try bar.withTaskStorage(for: organization, wait: false) { identity in
             guard identity == approvedIdentity else { throw TaskInterfaceError.storageNotReady }
             let dir = try openDirectory()
             defer { close(dir) }

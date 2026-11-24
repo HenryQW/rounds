@@ -40,9 +40,10 @@ public enum TaskGraphValues: Sendable {
     case detailLink(TaskDetailLink)
 }
 
-/// Supply authority for this call's graph and detail values at these exact destinations.
+/// Supply authority for this call's graph and detail values at these exact destinations: the `tasks/graph` and
+/// `tasks/details` folders of the organization's bar. A nil organization is never ready.
 /// A detail link grant includes its generated reference, generation, timestamp, and viewed-status reset.
-/// Folder readiness and remote acknowledgement cannot supply either authorization.
+/// A ready bar cannot supply either authorization.
 public struct TaskStorageAuthorization {
     public let organizationID: UUID?
     public let graphDirectory: URL
@@ -67,7 +68,7 @@ public struct TaskRecord: Sendable {
 }
 
 public enum TaskInterfaceError: Error, Equatable {
-    case storageNotReady, detailDestinationMismatch, graphNotAuthorized, detailsNotAuthorized
+    case storageNotReady, destinationMismatch, graphNotAuthorized, detailsNotAuthorized
 }
 
 /// The task can remain in the graph. Inspect it before any further action.
@@ -230,17 +231,15 @@ public struct TaskInterface: Sendable {
     }
 
     private func checkedStores(_ authorization: TaskStorageAuthorization) throws -> TaskRecordStore {
-        guard bar.mayStoreTaskDetails(for: authorization.organizationID) else {
-            throw TaskInterfaceError.storageNotReady
+        guard let organization = authorization.organizationID,
+              let storage = try? bar.taskStorage(for: organization) else { throw TaskInterfaceError.storageNotReady }
+        guard storage.graphDirectory.standardizedFileURL.path == authorization.graphDirectory.standardizedFileURL.path,
+              storage.detailDirectory.standardizedFileURL.path == authorization.detailDirectory.standardizedFileURL.path else {
+            throw TaskInterfaceError.destinationMismatch
         }
-        let scope = authorization.organizationID.map(BarScope.organization) ?? .unclassified
-        guard let directory = bar.taskDetailFolder(for: scope) else { throw TaskInterfaceError.storageNotReady }
-        guard directory == authorization.detailDirectory else { throw TaskInterfaceError.detailDestinationMismatch }
-        guard let identity = try? bar.load().detailFolders[scope],
-              identity.path == directory.path else { throw TaskInterfaceError.storageNotReady }
-        return TaskRecordStore(graph: TaskGraphStore(directory: authorization.graphDirectory),
-                               details: TaskDetailStore(directory: directory, approvedIdentity: identity,
-                                                        bar: bar, scope: scope))
+        return TaskRecordStore(graph: TaskGraphStore(directory: storage.graphDirectory),
+                               details: TaskDetailStore(directory: storage.detailDirectory, approvedIdentity: storage.detailIdentity,
+                                                        bar: bar, organization: organization))
     }
 
     private func authorize(_ values: TaskGraphValues, using authorization: TaskStorageAuthorization) throws {

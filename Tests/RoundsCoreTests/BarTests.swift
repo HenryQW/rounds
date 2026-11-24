@@ -177,30 +177,33 @@ import Testing
         #expect(throws: BarError.alreadyRepository) { try createBarRepository(in: fresh.path, name: "Again") }
     }
 
-    @Test func changedRemoteSetNeedsNewAcknowledgement() throws {
+    private let owner = RemoteOwner("github.com/HenryQW")!
+
+    @Test func remoteOfAnotherOwnerBlocksTheBar() throws {
         let base = try tempDir()
         defer { try? FileManager.default.removeItem(at: base) }
         let repo = try folder(base.appending(path: "repo"))
         try git("-C", repo.path, "init", "--quiet")
-        try git("-C", repo.path, "remote", "add", "origin", "https://example.invalid/team/bar.git")
+        let organization = UUID()
         var settings = BarSettings()
-        try settings.setBar(repo.path)
-        #expect(settings.barProblem(try inspectBarFolder(repo.path)) == .remotesNotAcknowledged)
-        guard case .repository(_, let remotes) = try inspectBarFolder(repo.path) else { Issue.record("no repository"); return }
-        try settings.acknowledgeRemotes(remotes)
-        #expect(settings.barProblem(try inspectBarFolder(repo.path)) == nil)
+        try settings.setBar(repo.path, for: organization, projectFolders: [])
+        #expect(settings.barProblem(for: organization, inspection: try inspectBarFolder(repo.path)) == .noOwner)
+        settings.setOwner(owner, for: organization)
+        // A bar with no remote is ready.
+        #expect(settings.barProblem(for: organization, inspection: try inspectBarFolder(repo.path)) == nil)
+        try git("-C", repo.path, "remote", "add", "origin", "https://github.com/HenryQW/bar.git")
+        #expect(settings.barProblem(for: organization, inspection: try inspectBarFolder(repo.path)) == nil)
 
-        try git("-C", repo.path, "remote", "add", "backup", "git@example.invalid:team/bar.git")
-        #expect(settings.barProblem(try inspectBarFolder(repo.path)) == .remotesNotAcknowledged)
-        try git("-C", repo.path, "remote", "remove", "backup")
-        try git("-C", repo.path, "remote", "set-url", "origin", "https://example.invalid/other/bar.git")
-        #expect(settings.barProblem(try inspectBarFolder(repo.path)) == .remotesNotAcknowledged)
+        let fork = BarRemote(name: "fork", url: "https://github.com/Evermark/bar.git")
+        try git("-C", repo.path, "remote", "add", fork.name, fork.url)
+        #expect(settings.barProblem(for: organization, inspection: try inspectBarFolder(repo.path)) == .remoteNotOwned(fork))
+        try git("-C", repo.path, "remote", "remove", "fork")
 
-        // A push target set as a URL in configuration is not listed by `git remote -v`, but still needs acknowledgement.
-        try git("-C", repo.path, "remote", "set-url", "origin", "https://example.invalid/team/bar.git")
-        #expect(settings.barProblem(try inspectBarFolder(repo.path)) == nil)
-        try git("-C", repo.path, "config", "remote.pushDefault", "https://example.invalid/elsewhere.git")
-        #expect(settings.barProblem(try inspectBarFolder(repo.path)) == .remotesNotAcknowledged)
+        // A push target set as a URL in configuration is not listed by `git remote -v`, but is checked too.
+        try git("-C", repo.path, "config", "remote.pushDefault", "https://github.com/Evermark/bar.git")
+        #expect(settings.barProblem(for: organization, inspection: try inspectBarFolder(repo.path)) ==
+            .remoteNotOwned(BarRemote(name: "remote.pushdefault", url: "https://github.com/Evermark/bar.git")))
+        #expect(settings.barProblem(for: nil, inspection: try inspectBarFolder(repo.path)) == .noOrganization)
     }
 
     @Test func barMustStayItsOwnRepositoryRoot() throws {
@@ -210,12 +213,39 @@ import Testing
         try git("-C", outer.path, "init", "--quiet")
         let inner = try folder(outer.appending(path: "bar"))
         try git("-C", inner.path, "init", "--quiet")
+        let organization = UUID()
         var settings = BarSettings()
-        try settings.setBar(inner.path)
-        #expect(settings.barProblem(try inspectBarFolder(inner.path)) == nil)
+        settings.setOwner(owner, for: organization)
+        try settings.setBar(inner.path, for: organization, projectFolders: [])
+        #expect(settings.barProblem(for: organization, inspection: try inspectBarFolder(inner.path)) == nil)
         // Without its own repository, the folder resolves to the outer repository and must not pass.
         try FileManager.default.removeItem(at: inner.appending(path: ".git"))
-        #expect(settings.barProblem(try inspectBarFolder(inner.path)) == .notRepository)
+        #expect(settings.barProblem(for: organization, inspection: try inspectBarFolder(inner.path)) == .notRepository)
+        // A replaced folder at the same path is a new folder.
+        try FileManager.default.removeItem(at: inner)
+        _ = try folder(inner)
+        #expect(settings.barProblem(for: organization, inspection: .noRepository) == .folderChanged)
+    }
+
+    @Test func barStaysOutsideProjectsAndServesOneOrganization() throws {
+        let base = try tempDir()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let project = try folder(base.appending(path: "project"))
+        let inside = try folder(project.appending(path: "bar"))
+        let bar = try folder(base.appending(path: "bar"))
+        let first = UUID(), second = UUID()
+        var settings = BarSettings()
+        for folder in [project, inside, base] {
+            #expect(throws: BarError.barInProject(project.path)) {
+                try settings.setBar(folder.path, for: first, projectFolders: [project.path])
+            }
+        }
+        try settings.setBar(bar.path, for: first, projectFolders: [project.path])
+        #expect(throws: BarError.barShared(first)) { try settings.setBar(bar.path, for: second, projectFolders: []) }
+        #expect(settings.organizations[second] == nil)
+        settings.removeBar(for: first)
+        try settings.setBar(bar.path, for: second, projectFolders: [])
+        #expect(settings.organizations[first] == nil)
     }
 
     @Test func displayHidesCredentialsInRemoteURLs() {
@@ -223,69 +253,45 @@ import Testing
         #expect(!remote.displayURL.contains("secret-token"))
         #expect(!remote.displayURL.contains("user"))
         #expect(remote.displayURL.contains("example.invalid/team/bar.git"))
+        #expect(!BarProblem.remoteNotOwned(remote).message.contains("secret-token"))
     }
 
-    @Test func detailFolderMustBePrivateRealAndOutsideRepository() throws {
-        let base = try tempDir()
-        defer { try? FileManager.default.removeItem(at: base) }
-        let repo = try folder(base.appending(path: "repo"))
-        try git("-C", repo.path, "init", "--quiet")
-        let inside = try folder(repo.appending(path: "details"))
-        let shared = try folder(base.appending(path: "shared"), mode: 0o750)
-        let open = try folder(base.appending(path: "open"), mode: 0o705)
-        let good = try folder(base.appending(path: "private"))
-        let link = base.appending(path: "link")
-        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: good)
-
-        #expect(checkDetailFolder(inside.path, repositoryRoot: repo.path) == .insideRepository)
-        #expect(checkDetailFolder(repo.path, repositoryRoot: repo.path) == .insideRepository)
-        #expect(checkDetailFolder(shared.path, repositoryRoot: repo.path) == .notPrivate)
-        #expect(checkDetailFolder(open.path, repositoryRoot: repo.path) == .notPrivate)
-        #expect(checkDetailFolder(link.path, repositoryRoot: repo.path) == .symlink)
-        #expect(checkDetailFolder(base.appending(path: "missing").path, repositoryRoot: repo.path) == .missing)
-        #expect(checkDetailFolder(good.path, repositoryRoot: repo.path) == nil)
-
-        var settings = BarSettings()
-        try settings.setBar(repo.path)
-        #expect(throws: BarError.detailFolderInvalid(.insideRepository)) {
-            try settings.approveDetailFolder(inside.path, for: .unclassified, repositoryRoot: repo.path)
-        }
-        #expect(settings.detailFolders.isEmpty)
-    }
-
-    @Test func approvalOnlyForCompleteSetupAndSameFolder() throws {
+    @Test func storageNeedsOwnerReadyBarAndPrivateTaskFolders() throws {
         let base = try tempDir()
         defer { try? FileManager.default.removeItem(at: base) }
         let repo = try folder(base.appending(path: "repo"))
         try createBarRepository(in: repo.path, name: "Team")
-        let details = try folder(base.appending(path: "details"))
         let organization = UUID(), other = UUID()
         let store = BarSettingsStore(url: base.appending(path: "bar-settings.json"))
-        #expect(!store.mayStoreTaskDetails(for: organization))
-        try store.update { settings in
-            try settings.setBar(repo.path)
-            try settings.approveDetailFolder(details.path, for: .organization(organization), repositoryRoot: repo.path)
-        }
-        #expect(store.mayStoreTaskDetails(for: organization))
-        #expect(!store.mayStoreTaskDetails(for: other))
-        #expect(!store.mayStoreTaskDetails(for: nil))
+        #expect(store.storageProblem(for: nil) == .noOrganization)
+        #expect(store.storageProblem(for: organization) == .noOwner)
+        try store.update { try $0.setBar(repo.path, for: organization, projectFolders: []) }
+        #expect(store.storageProblem(for: organization) == .noOwner)
+        try store.update { $0.setOwner(owner, for: organization) }
+        #expect(store.storageProblem(for: organization) == .taskFolderNotPrivate)
+        _ = try folder(repo.appending(path: "tasks"))
+        _ = try folder(repo.appending(path: barGraphFolder))
+        let details = try folder(repo.appending(path: barDetailFolder))
+        #expect(store.storageProblem(for: organization) == nil)
+        #expect(store.storageProblem(for: other) == .noOwner)
+        #expect(store.storageProblem(for: nil) == .noOrganization)
+        let storage = try store.taskStorage(for: organization)
+        #expect(storage.detailDirectory.path == (try resolved(details)))
+        #expect(storage.graphDirectory.path == (try resolved(repo.appending(path: barGraphFolder))))
 
-        // A remote added after setup needs an acknowledgement before task details are stored.
+        chmod(details.path, 0o750)
+        #expect(store.storageProblem(for: organization) == .taskFolderNotPrivate)
+        chmod(details.path, 0o700)
+
+        // A remote of another owner, added after setup, blocks storage until it is removed.
         try git("-C", repo.path, "remote", "add", "origin", "https://example.invalid/team/bar.git")
-        #expect(!store.mayStoreTaskDetails(for: organization))
+        #expect(store.storageProblem(for: organization) ==
+            .remoteNotOwned(BarRemote(name: "origin", url: "https://example.invalid/team/bar.git")))
         try git("-C", repo.path, "remote", "remove", "origin")
-        #expect(store.mayStoreTaskDetails(for: organization))
+        #expect(store.storageProblem(for: organization) == nil)
 
-        // A replaced folder at the same path is a new folder.
-        try FileManager.default.removeItem(at: details)
-        _ = try folder(details)
-        #expect(!store.mayStoreTaskDetails(for: organization))
-        #expect(try store.load().detailFolderProblem(for: .organization(organization), repositoryRoot: repo.path) == .replaced)
-
-        // A different bar folder removes every approval.
-        let next = try folder(base.appending(path: "next"))
-        try store.update { try $0.setBar(next.path) }
-        #expect(try store.load().detailFolders.isEmpty)
+        var info = stat()
+        #expect(stat(store.url.path, &info) == 0 && info.st_mode & 0o777 == 0o600)
     }
 
     @Test func corruptOrUnknownSettingsFailClosed() throws {
@@ -293,13 +299,16 @@ import Testing
         defer { try? FileManager.default.removeItem(at: base) }
         let url = base.appending(path: "bar-settings.json")
         let store = BarSettingsStore(url: url)
-        for content in ["{not json", #"{"version":2,"detailFolders":{}}"#,
-                        #"{"version":1,"detailFolders":{"someone":{"path":"/tmp","device":1,"inode":2}}}"#] {
+        let id = UUID().uuidString
+        for content in ["{not json", #"{"version":1,"bar":null,"detailFolders":{}}"#, #"{"version":3,"organizations":{}}"#,
+                        #"{"version":2,"organizations":{"someone":{"owner":{"host":"github.com","account":"a"}}}}"#,
+                        #"{"version":2,"organizations":{"\#(id)":{"owner":{"host":"https://github.com","account":"a"}}}}"#,
+                        #"{"version":2,"organizations":{"\#(id)":{}}}"#] {
             try Data(content.utf8).write(to: url)
             #expect(throws: BarError.malformedData) { try store.load() }
-            #expect(throws: BarError.malformedData) { try store.update { $0.withdrawAcknowledgement() } }
+            #expect(throws: BarError.malformedData) { try store.update { $0.removeBar(for: UUID()) } }
             #expect(try Data(contentsOf: url) == Data(content.utf8))
-            #expect(!store.mayStoreTaskDetails(for: nil))
+            #expect(store.storageProblem(for: UUID(uuidString: id)) == .unreadableSettings)
         }
     }
 }

@@ -444,8 +444,7 @@ struct BouncerView: View {
     /// A missing setup step: a click opens Settings on the page that sets it.
     private func setUpRow(_ step: BouncerSetupStep) -> some View {
         let (text, page): (String, SettingsPage) = switch step {
-        case .chooseBar: ("Choose a bar folder", .bar)
-        case .confirmRemotes: ("Confirm the bar remotes", .bar)
+        case .setUpBar: ("Set up a bar for an organization", .organizations)
         }
         return Button { openSettings(page) } label: {
             HStack(spacing: 8) {
@@ -476,32 +475,14 @@ struct BouncerView: View {
     /// Shown in place of the empty conversation until the setup is complete (spec 5.8): the first missing step and
     /// the button that does it.
     @ViewBuilder private func setUpCard(_ step: BouncerSetupStep) -> some View {
-        let bar = BarSettingsState.shared
         switch step {
-        case .chooseBar:
+        case .setUpBar:
             ContentUnavailableView {
                 Label("Set up a bar", systemImage: "wineglass")
             } description: {
-                Text("The Bouncer keeps its records in a bar, a Git repository on this Mac. The Bouncer starts when the setup is complete.")
+                Text("Each organization keeps its task records in its own bar, a private Git repository on this Mac. Set the owner and the bar of an organization. The Bouncer starts when one bar is ready.")
             } actions: {
-                if bar.folder == nil {
-                    Button("Choose Folder…") {
-                        bar.chooseFolder()
-                        // The repository check and the remotes continue in Settings.
-                        if bar.folder != nil { openSettings(.bar) }
-                    }
-                    .buttonStyle(.borderedProminent)
-                } else {
-                    Button("Continue Setup…") { openSettings(.bar) }.buttonStyle(.borderedProminent)
-                }
-            }
-        case .confirmRemotes:
-            ContentUnavailableView {
-                Label("Confirm the bar remotes", systemImage: "wineglass")
-            } description: {
-                Text("The Bouncer starts after you confirm that the remotes of the bar may be public.")
-            } actions: {
-                Button("Open Bar Settings…") { openSettings(.bar) }.buttonStyle(.borderedProminent)
+                Button("Open Organizations…") { openSettings(.organizations) }.buttonStyle(.borderedProminent)
             }
         }
     }

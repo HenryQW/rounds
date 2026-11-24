@@ -18,7 +18,7 @@ The user gives goals in the Bouncer conversation, makes decisions and reviews re
 ## Built so far
 
 - Organization rules, destination consent and outbound checks: [spec 2.7.1](../spec.md#271-organization-boundaries).
-- Bar setup in Settings > Bar: [spec 2.7.2](../spec.md#272-bar-setup). Nothing calls `mayStoreTaskDetails(for:)` until task dispatch exists.
+- The owner and the bar of each organization in Settings > Organizations, and the owner check of bar remotes: [spec 2.7.2](../spec.md#272-bar-setup). Nothing calls `storageProblem(for:)` until task dispatch exists.
 - The task graph and the task detail store are in the source, but the app does not use them yet. Agent dispatch is not built.
 - [Slice 02](slices/02-node-harness-host.md) adds the Node Host, SQLite storage and a Bouncer conversation with no tools. The container tool bridge remains in 02c.
 
@@ -82,7 +82,5 @@ Build the slices in the order of [slices/README.md](slices/README.md). Each slic
 
 - Decide how Rounds verifies permission for each alert or ticket service.
 - Add a trusted checkout registry before Settings supports Git remote rules. A matching Git remote is not proof of checkout ownership. Keep unknown remotes and unmatched sessions local, and recheck permission before each outbound request.
-- One owner for each organization: decide how the push check reads an SSH host alias (such as `git@github-work:Evermark/hub`) before it compares the owner.
 - A task that spans two organizations: split it into one task in each bar; the Bouncer links them only in its own local view, so neither bar names the other organization's work.
-- The bar setup in Settings (spec 2.7.2) is still the single bar with detail folders; rebuild it for one bar for each organization.
 - Before you plan a complex function, search for suitable open-source projects. Reuse or adapt existing tools when they fit.

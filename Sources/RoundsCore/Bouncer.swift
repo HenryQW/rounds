@@ -273,17 +273,13 @@ public struct BouncerThread: Equatable, Sendable {
 
 }
 
-public enum BouncerSetupStep: Equatable, Sendable { case chooseBar, confirmRemotes }
+public enum BouncerSetupStep: Equatable, Sendable { case setUpBar }
 
 /// The steps that the Set Up row shows, in order; empty when the Bouncer can start.
-/// `isBar`: the recorded folder is the bar now (`BarSettings.barProblem`).
-/// `remotes`: nil until a check of the folder finds a repository, so no remote is confirmed before the check ends.
-public func bouncerSetupSteps(bar: BarSettings, isBar: Bool, remotes: [BarRemote]?) -> [BouncerSetupStep] {
-    var steps: [BouncerSetupStep] = []
-    if bar.bar == nil || !isBar { steps.append(.chooseBar) }
-    else if let remotes { if !bar.acknowledges(remotes) { steps.append(.confirmRemotes) } }
-    else { steps.append(.chooseBar) }
-    return steps
+/// `readyBars`: the organizations whose bar passes `BarSettings.barProblem`; nil until the bar checks end, so the
+/// Bouncer waits for them.
+public func bouncerSetupSteps(readyBars: Set<UUID>?) -> [BouncerSetupStep] {
+    readyBars?.isEmpty == false ? [] : [.setUpBar]
 }
 
 /// Sessions that need input or failed, children included, without the Bouncer's own session: the host note.

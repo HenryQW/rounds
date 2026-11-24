@@ -60,12 +60,12 @@ The repository a session belongs to; worktrees join their repository.
 _Avoid_: repo, workspace, folder
 
 **Bar**:
-A Git repository that holds the coordination records of Bouncer mode. Each bar is a workspace for the Bouncer and its Bartenders. It is not a project; application code stays in its own repositories.
-_Avoid_: workspace, root folder, router repo
+The private Git repository of one organization that holds its coordination records of Bouncer mode, task records and details included. Each organization has its own bar, and a bar never holds the records of another organization. It is not a project; application code stays in its own repositories.
+_Avoid_: workspace, root folder, router repo, task detail folder
 
-**Task detail folder**:
-A private local folder that the user approves for the task details of one organization, or of unclassified projects. The bar does not back it up.
-_Avoid_: detail store (alone), cache
+**Owner**:
+The one Git host account of an organization, such as `github.com/HenryQW`: a person or a GitHub organization. Every remote of the organization's bar must belong to it, and Rounds pushes only to it.
+_Avoid_: remote owner list, account (alone)
 
 ## Planned coordination roles
 

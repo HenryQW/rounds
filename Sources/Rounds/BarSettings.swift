@@ -4,7 +4,7 @@ import Observation
 import RoundsCore
 import SwiftUI
 
-/// Bar setup (spec 2.7.2): the bar folder, its remotes and the task detail folders. The store refuses
+/// The owner and the bar of each organization (spec 2.7.2), shown in Settings > Organizations. The store refuses
 /// corrupt data; every change reloads it first.
 @MainActor @Observable
 final class BarSettingsState {
@@ -15,50 +15,69 @@ final class BarSettingsState {
     var store: BarSettingsStore { BarSettingsStore(url: directory.appending(path: "bar-settings.json")) }
     private(set) var settings = BarSettings()
     private(set) var loaded = false
-    /// The folder the user chose, and what Git says about it; nil while no folder is chosen or the check runs.
-    private(set) var folder: String?
-    private(set) var inspection: BarInspection?
-    private(set) var inspecting = false
+    /// The settings file could not be read or written.
     var error: String?
-    /// The bar name typed in the "Create a repository in this folder?" alert.
+
+    enum Check: Equatable { case checking, done(BarProblem?) }
+    /// The last check of each organization's bar; the Bar row shows its problem.
+    private(set) var checks: [UUID: Check] = [:]
+    /// A chosen folder with no repository, until the user creates one or chooses again.
+    private(set) var pendingFolders: [UUID: String] = [:]
+    /// The error of the last action on an organization's rows.
+    var rowErrors: [UUID: String] = [:]
+
+    /// The organization whose owner the sheet edits, and the text in it.
+    var ownerOrganization: OrganizationPolicy.Organization?
+    var ownerText = ""
+    var ownerError: String?
+    /// The organization and bar name of the "Create a repository in this folder?" alert.
+    var createOrganization: UUID?
     var repositoryName = ""
     var confirmCreate = false
-    /// A folder chosen for a scope but not yet approved.
-    private(set) var chosenDetail: [BarScope: String] = [:]
 
     private init() {
-        if Demo.isOn {
-            // Fictional values; demo mode inspects, creates and saves nothing.
-            folder = "/Users/demo/Projects/bar"
-            inspection = .repository(root: "/Users/demo/Projects/bar",
-                                     remotes: [BarRemote(name: "origin", url: "https://example.invalid/demo/bar.git")])
-            chosenDetail[.unclassified] = "/Users/demo/Private/Task Details"
+        guard !Demo.isOn else {
             loaded = true
             return
         }
         reload()
-        if let bar = settings.bar { inspect(bar.path, adopt: false) }
+        for id in settings.organizations.keys { check(id) }
     }
 
-    var repositoryRoot: String? {
-        if case .repository(let root, _) = inspection { root } else { nil }
+    /// The organizations whose bar is ready; nil while a check runs and none is ready yet.
+    var readyBars: Set<UUID>? {
+        let known = Set(OrganizationSettingsState.shared.policy.organizations.map(\.id))
+        let ready = Set(checks.filter { known.contains($0.key) && $0.value == .done(nil) }.keys)
+        if ready.isEmpty && checks.contains(where: { known.contains($0.key) && $0.value == .checking }) { return nil }
+        return ready
     }
 
-    /// The folder is the root of its repository and has no problem, so the repository section would only repeat it.
-    var rootIsFolder: Bool {
-        guard let folder, let root = repositoryRoot, !inspecting else { return false }
-        return root == folder && settings.barProblem(inspection ?? .noRepository) != .folderChanged
+    // Fictional values for the Organizations demo; demo mode inspects, creates and saves nothing.
+    private static let demo: [String: (owner: String, bar: String?)] = [
+        "HenryQW": ("github.com/HenryQW", "/Users/demo/Bars/henryqw-bar"),
+        "Evermark": ("github.com/Evermark", nil),
+    ]
+
+    func owner(for organization: OrganizationPolicy.Organization) -> String? {
+        if Demo.isOn { return Self.demo[organization.name]?.owner }
+        return settings.organizations[organization.id]?.owner?.description
     }
 
-    var remotes: [BarRemote] {
-        if case .repository(_, let remotes) = inspection { remotes } else { [] }
+    func barPath(for organization: OrganizationPolicy.Organization) -> String? {
+        if Demo.isOn { return Self.demo[organization.name]?.bar }
+        return pendingFolders[organization.id] ?? settings.organizations[organization.id]?.bar?.path
     }
 
-    /// The selected folder is the recorded bar folder.
-    var isBar: Bool {
-        if Demo.isOn { return true }
-        guard let folder, let bar = settings.bar else { return false }
-        return FolderIdentity.current(folder) == bar
+    /// The problem the Bar row shows. Nil while the check runs, when the bar is ready, and when no bar is set.
+    func problem(for organization: OrganizationPolicy.Organization) -> String? {
+        let id = organization.id
+        if Demo.isOn { return nil }
+        if let error = rowErrors[id] { return error }
+        if pendingFolders[id] != nil { return "No repository found. The folder is not in a Git repository." }
+        guard case .done(let problem?) = checks[id], problem != .noBar, problem != .noOwner || barPath(for: organization) != nil else {
+            return nil
+        }
+        return problem.message
     }
 
     func reload() {
@@ -68,109 +87,117 @@ final class BarSettingsState {
             error = nil
         } catch {
             loaded = false
-            self.error = "Could not read bar settings. Task details cannot be stored until the file is repaired or removed: \(store.url.path)"
+            self.error = "Could not read bar settings. Tasks cannot be stored until the file is repaired or removed: \(store.url.path)"
         }
     }
 
-    func chooseFolder() {
+    /// Checks the recorded bar off the main thread. A later change starts its own check.
+    func check(_ organization: UUID) {
+        guard !Demo.isOn else { return }
+        let settings = settings
+        guard let bar = settings.organizations[organization]?.bar else {
+            checks[organization] = .done(settings.barProblem(for: organization, inspection: .noRepository))
+            return
+        }
+        checks[organization] = .checking
+        Task {
+            let problem = await Task.detached { () -> BarProblem? in
+                do { return settings.barProblem(for: organization, inspection: try inspectBarFolder(bar.path)) }
+                catch { return .inspectionFailed }
+            }.value
+            guard self.settings == settings else { return }
+            checks[organization] = .done(problem)
+        }
+    }
+
+    /// Remotes can change while Settings is closed; check every bar again when the page opens.
+    func refresh() {
+        guard !Demo.isOn else { return }
+        reload()
+        for id in settings.organizations.keys where checks[id] != .checking { check(id) }
+    }
+
+    func editOwner(_ organization: OrganizationPolicy.Organization) {
+        ownerText = owner(for: organization) ?? ""
+        ownerError = nil
+        ownerOrganization = organization
+    }
+
+    /// An empty text removes the owner. Returns false when the text is not a host and one account name.
+    func saveOwner() -> Bool {
+        guard let organization = ownerOrganization else { return true }
+        let text = ownerText.trimmingCharacters(in: .whitespaces)
+        let owner = RemoteOwner(text)
+        guard text.isEmpty || owner != nil else {
+            ownerError = "Enter a host and one account name, such as github.com/HenryQW. Do not add a scheme or a path."
+            return false
+        }
+        if change(organization.id, { $0.setOwner(owner, for: organization.id) }) { check(organization.id) }
+        ownerOrganization = nil
+        return true
+    }
+
+    /// The repository root must be the chosen folder. A folder with no repository waits for Create Repository….
+    func chooseBar(for organization: UUID, projectFolders: [String]) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.canCreateDirectories = true
         panel.prompt = "Choose"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        repositoryName = ""
-        inspect(url.path, adopt: true)
-    }
-
-    /// Runs Git off the main thread. A repository folder the user chose becomes the bar folder; the recorded
-    /// folder checked at launch does not, so a replaced folder needs a new choice.
-    func inspect(_ path: String, adopt: Bool) {
-        guard !Demo.isOn else { return }
-        (folder, inspection, inspecting) = (path, nil, true)
+        guard !Demo.isOn, panel.runModal() == .OK, let url = panel.url else { return }
+        let path = url.path
+        (rowErrors[organization], pendingFolders[organization]) = (nil, nil)
+        checks[organization] = .checking
         Task {
             let result = await Task.detached { Result(catching: { try inspectBarFolder(path) }) }.value
-            guard folder == path else { return }
-            inspecting = false
             switch result {
-            case .success(let found):
-                inspection = found
-                error = nil
-                // The repository root becomes the bar folder.
-                if adopt, case .repository(let root, _) = found {
-                    folder = root
-                    change { try $0.setBar(root) }
+            case .success(.noRepository):
+                pendingFolders[organization] = path
+                check(organization)
+            case .success(.repository(let root, _)):
+                guard FolderIdentity.current(root) == FolderIdentity.current(path) else {
+                    rowErrors[organization] = "The folder is in the repository at \(abbreviate(root)). Choose the repository root."
+                    return check(organization)
                 }
+                adopt(root, for: organization, projectFolders: projectFolders)
             case .failure(let failure):
-                error = "Could not inspect the folder: \(message(failure))"
+                rowErrors[organization] = "Could not check the folder: \(message(failure))"
+                check(organization)
             }
         }
     }
 
-    /// Reads the recorded bar folder again; it does not adopt a replaced folder.
-    func refresh() {
-        guard let bar = settings.bar, !inspecting else { return }
-        inspect(bar.path, adopt: false)
+    func askCreate(for organization: UUID) {
+        // The folder name is a first suggestion for the bar name.
+        repositoryName = pendingFolders[organization].map { ($0 as NSString).lastPathComponent } ?? ""
+        createOrganization = organization
+        confirmCreate = true
     }
 
     /// Called after the user confirms the alert.
-    func create() {
-        guard let folder, !Demo.isOn else { return }
+    func create(projectFolders: [String]) {
+        guard let organization = createOrganization, let folder = pendingFolders[organization], !Demo.isOn else { return }
         let name = repositoryName
         Task {
             let result = await Task.detached { Result(catching: { try createBarRepository(in: folder, name: name) }) }.value
             switch result {
             case .success:
                 repositoryName = ""
-                inspect(folder, adopt: true)
+                pendingFolders[organization] = nil
+                adopt(folder, for: organization, projectFolders: projectFolders)
             case .failure(let failure):
-                error = "Could not create the repository: \(message(failure))"
+                rowErrors[organization] = "Could not create the repository: \(message(failure))"
             }
         }
     }
 
-    var acknowledged: Bool { isBar && !remotes.isEmpty && settings.acknowledges(remotes) }
-
-    func setAcknowledged(_ on: Bool) {
-        let remotes = remotes
-        change { on ? try $0.acknowledgeRemotes(remotes) : $0.withdrawAcknowledgement() }
-    }
-
-    /// The folder a row shows: one chosen but not approved, else the approved one.
-    func detailPath(_ scope: BarScope) -> String? {
-        chosenDetail[scope] ?? settings.detailFolders[scope]?.path
-    }
-
-    func detailProblem(_ scope: BarScope) -> DetailFolderProblem? {
-        guard let root = repositoryRoot else { return .notApproved }
-        if let chosen = chosenDetail[scope] { return checkDetailFolder(chosen, repositoryRoot: root) ?? .notApproved }
-        return settings.detailFolderProblem(for: scope, repositoryRoot: root)
-    }
-
-    /// A new folder needs a new approval.
-    func chooseDetailFolder(_ scope: BarScope) {
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.canCreateDirectories = true
-        panel.prompt = "Choose"
-        guard panel.runModal() == .OK, let url = panel.url else { return }
-        chosenDetail[scope] = url.path
-        if settings.detailFolders[scope] != nil { change { $0.withdrawApproval(for: scope) } }
-    }
-
-    func setApproved(_ on: Bool, _ scope: BarScope) {
-        guard let root = repositoryRoot else { return }
-        if on {
-            guard let path = detailPath(scope) else { return }
-            if change({ try $0.approveDetailFolder(path, for: scope, repositoryRoot: root) }) { chosenDetail[scope] = nil }
-        } else {
-            change { $0.withdrawApproval(for: scope) }
-        }
+    private func adopt(_ root: String, for organization: UUID, projectFolders: [String]) {
+        change(organization) { try $0.setBar(root, for: organization, projectFolders: projectFolders) }
+        check(organization)
     }
 
     @discardableResult
-    private func change(_ edit: (inout BarSettings) throws -> Void) -> Bool {
+    private func change(_ organization: UUID, _ edit: (inout BarSettings) throws -> Void) -> Bool {
         guard !Demo.isOn else { return false }
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -180,7 +207,7 @@ final class BarSettingsState {
             return true
         } catch {
             reload()
-            if loaded { self.error = message(error) }
+            if loaded { rowErrors[organization] = message(error) }
             return false
         }
     }
@@ -193,170 +220,50 @@ final class BarSettingsState {
         case .fileExists: "The folder already has a \(barFileName) file. Rounds does not replace it."
         case .gitFailed(let text): text.isEmpty ? "Git failed." : text
         case .gitTimedOut: "Git did not answer in time."
-        case .detailFolderInvalid(let problem): Self.text(problem)
+        case .barInProject(let project):
+            "A bar must be outside every project folder. This folder is, is in or holds \(abbreviate(project))."
+        case .barShared(let other):
+            "\(OrganizationSettingsState.shared.policy.organizations.first { $0.id == other }?.name ?? "Another organization") uses this folder as its bar. Each organization needs its own bar."
+        case .changedOnDisk: "The bar settings changed. Try again."
         default: error.localizedDescription
-        }
-    }
-
-    static func text(_ problem: DetailFolderProblem) -> String {
-        switch problem {
-        case .notApproved: "Not approved. Task details cannot be stored."
-        case .missing: "The folder does not exist."
-        case .replaced: "The folder was replaced. Approve it again."
-        case .symlink: "The folder is a symbolic link. Choose the folder it points to."
-        case .notOwner: "Another user owns this folder. Choose a folder that you own."
-        case .notPrivate: "Other users can open this folder. Remove group and other access, and any ACL."
-        case .insideRepository: "The folder is in the bar. Choose a folder outside it."
         }
     }
 }
 
-/// The four steps of bar setup, as sections of the Bar page.
-struct BarSections: View {
-    @Bindable var state: BarSettingsState
-    @Bindable private var organizations = OrganizationSettingsState.shared
+func abbreviate(_ path: String) -> String { (path as NSString).abbreviatingWithTildeInPath }
+
+/// The Owner and Bar rows at the top of an organization's group (spec 5.4).
+struct OrganizationBarRows: View {
+    let organization: OrganizationPolicy.Organization
+    let projectFolders: [String]
+    @Bindable private var state = BarSettingsState.shared
 
     var body: some View {
-        if let error = state.error {
-            Section { Text(error).foregroundStyle(.red).textSelection(.enabled) }
-        }
-        if state.loaded {
-            folderSection
-                // Remotes can change while the page is closed; read them again when it opens.
-                .onAppear { state.refresh() }
-            if state.folder != nil && !state.rootIsFolder { repositorySection }
-            if state.isBar {
-                remoteSection
-                detailSection
-            }
-        }
-    }
-
-    private var folderSection: some View {
-        Section {
+        let owner = state.owner(for: organization)
+        let path = state.barPath(for: organization)
+        VStack(alignment: .leading, spacing: 8) {
             LabeledContent {
-                Button(state.folder == nil ? "Choose…" : "Change…") { state.chooseFolder() }
+                Button("Change…") { state.editOwner(organization) }
             } label: {
-                described("Bar folder", state.folder.map { abbreviate($0) } ?? "No folder chosen.")
+                described("Owner", owner ?? "Not set")
             }
-            .help(state.folder ?? "")
-        } header: {
-            step(1, "Choose a bar folder")
-        } footer: {
-            Text("The bar holds coordination records. Application code stays in its own repositories.")
-                .font(.callout).foregroundStyle(.secondary)
-        }
-    }
-
-    @ViewBuilder private var repositorySection: some View {
-        Section {
-            if state.inspecting {
-                LabeledContent { ProgressView().controlSize(.small) } label: { Text("Checking the folder").labelColumn() }
-            } else if let root = state.repositoryRoot {
-                LabeledContent { EmptyView() } label: {
-                    described("Repository root", abbreviate(root))
-                }
-                .help(root)
-                if state.settings.barProblem(state.inspection ?? .noRepository) == .folderChanged {
-                    Text("The bar folder was moved or replaced. Choose it again.").foregroundStyle(.orange)
-                }
-            } else if state.inspection == .noRepository {
-                LabeledContent {
-                    Button("Create Repository…") {
-                        // The folder name is a first suggestion for the bar name.
-                        state.repositoryName = state.folder.map { ($0 as NSString).lastPathComponent } ?? ""
-                        state.confirmCreate = true
-                    }
-                } label: {
-                    described("No repository found", "The folder is not in a Git repository.")
-                }
-            }
-        } header: {
-            step(2, "Review the repository")
-        }
-        .alert("Create a repository in this folder?", isPresented: $state.confirmCreate) {
-            TextField("Bar name", text: $state.repositoryName)
-            Button("Cancel", role: .cancel) {}
-            Button("Create") { state.create() }
-        } message: {
-            Text("Rounds runs git init in \(state.folder ?? "") and writes the bar name to \(barFileName). It does not add a remote, commit or push.")
-        }
-    }
-
-    private var remoteSection: some View {
-        Section {
-            if state.remotes.isEmpty {
-                LabeledContent { EmptyView() } label: {
-                    described("No remote configured", "Set up a remote separately. Rounds then asks you to acknowledge it.")
-                }
-            } else {
-                ForEach(state.remotes, id: \.url) { remote in
-                    LabeledContent {
-                        Text("Not verified").foregroundStyle(.orange)
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(remote.name)
-                            Text(remote.displayURL).font(.callout).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
-                        }
-                        .labelColumn()
-                    }
-                }
-                Toggle("I understand these remotes may be public.",
-                       isOn: Binding(get: { state.acknowledged }, set: { state.setAcknowledged($0) }))
-                    .toggleStyle(.checkbox)
-            }
-        } header: {
-            step(3, "Review remote visibility")
-        } footer: {
-            Text("Rounds does not ask the Git host, as that sends the remote address off this Mac. Visibility does not permit organization data. Each push needs your approval.")
-                .font(.callout).foregroundStyle(.secondary)
-        }
-    }
-
-    private var detailSection: some View {
-        Section {
-            ForEach(organizations.policy.organizations) { organization in
-                detailRow(organization.name, .organization(organization.id))
-            }
-            detailRow("Unclassified projects", .unclassified)
-        } header: {
-            step(4, "Choose where task details stay")
-        } footer: {
-            Text("Task details are not remotely backed up by the root repository.")
-                .font(.callout).foregroundStyle(.secondary)
-        }
-    }
-
-    private func detailRow(_ name: String, _ scope: BarScope) -> some View {
-        let path = state.detailPath(scope)
-        let problem = state.detailProblem(scope)
-        return VStack(alignment: .leading, spacing: 6) {
             LabeledContent {
-                Button(path == nil ? "Choose…" : "Change…") { state.chooseDetailFolder(scope) }
-            } label: {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(name)
-                    Text(path.map { abbreviate($0) } ?? "No folder chosen.").font(.callout).foregroundStyle(.secondary)
-                        .lineLimit(1).truncationMode(.middle).help(path ?? "")
+                HStack {
+                    if state.pendingFolders[organization.id] != nil {
+                        Button("Create Repository…") { state.askCreate(for: organization.id) }
+                    }
+                    Button("Choose…") { state.chooseBar(for: organization.id, projectFolders: projectFolders) }
                 }
-                .labelColumn()
+            } label: {
+                described("Bar", path.map(abbreviate) ?? "Not set").help(path ?? "")
             }
-            if let problem, problem != .notApproved || path != nil {
-                Text(BarSettingsState.text(problem)).font(.callout).foregroundStyle(.orange)
+            if state.checks[organization.id] == .checking {
+                ProgressView().controlSize(.small)
+            } else if let problem = state.problem(for: organization) {
+                Text(problem).font(.callout).foregroundStyle(.orange).textSelection(.enabled)
             }
-            if path != nil {
-                Toggle("I confirm this folder is approved for task details of \(name).",
-                       isOn: Binding(get: { problem == nil }, set: { state.setApproved($0, scope) }))
-                    .toggleStyle(.checkbox)
-                    .disabled(problem != nil && problem != .notApproved && problem != .replaced)
-            }
+            Text("Private repository. Pushes go only to \(owner ?? "the owner").")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
-
-    /// A plain header, as on the other pages. The first header after the page title needs a gap; see "Sounds".
-    private func step(_ number: Int, _ title: String) -> some View {
-        Text(title).font(.headline).foregroundStyle(.primary).padding(.top, number == 1 ? 12 : 0)
-    }
-
-    private func abbreviate(_ path: String) -> String { (path as NSString).abbreviatingWithTildeInPath }
 }

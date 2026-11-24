@@ -18,33 +18,43 @@ import Testing
             root = URL(fileURLWithPath: "/private/tmp", isDirectory: true)
                 .appending(path: "task-interface-\(UUID().uuidString)")
             repository = root.appending(path: "bar", directoryHint: .isDirectory)
-            graph = TaskGraphStore(directory: root.appending(path: "graph", directoryHint: .isDirectory))
-            details = TaskDetailStore(directory: root.appending(path: "details", directoryHint: .isDirectory))
+            graph = TaskGraphStore(directory: repository.appending(path: barGraphFolder, directoryHint: .isDirectory))
+            details = TaskDetailStore(directory: repository.appending(path: barDetailFolder, directoryHint: .isDirectory))
             settings = BarSettingsStore(url: root.appending(path: "settings.json"))
-            for directory in [root, repository, graph.directory, details.directory] {
-                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
-                                                        attributes: [.posixPermissions: 0o700])
-            }
-            try createBarRepository(in: repository.path, name: "Test bar")
+            try Self.makeBar(repository)
             try settings.update {
-                try $0.setBar(repository.path)
-                try $0.approveDetailFolder(details.directory.path, for: .organization(organizationID),
-                                          repositoryRoot: repository.path)
+                $0.setOwner(RemoteOwner("github.com/fixture"), for: organizationID)
+                try $0.setBar(repository.path, for: organizationID, projectFolders: [])
             }
             if initializeGraph { #expect(try graph.initialize() == .saved) }
         }
 
         deinit { try? FileManager.default.removeItem(at: root) }
 
-        func access(scope: BarScope? = nil, graphDirectory: URL? = nil, detailDirectory: URL? = nil,
+        /// A bar with private task folders: `tasks/graph` and `tasks/details`.
+        static func makeBar(_ repository: URL) throws {
+            for directory in [repository.deletingLastPathComponent(), repository] {
+                try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false,
+                                                         attributes: [.posixPermissions: 0o700])
+            }
+            try createBarRepository(in: repository.path, name: "Test bar")
+            for folder in ["tasks", barGraphFolder, barDetailFolder] {
+                try FileManager.default.createDirectory(at: repository.appending(path: folder), withIntermediateDirectories: false,
+                                                        attributes: [.posixPermissions: 0o700])
+            }
+        }
+
+        func access(graphDirectory: URL? = nil, detailDirectory: URL? = nil,
                     allowsGraph: @escaping (TaskGraphValues, URL) -> Bool = { _, _ in true },
                     allowsDetails: @escaping (UUID, TaskDetails, URL) -> Bool = { _, _, _ in true }) -> TaskStorageAuthorization {
-            let id: UUID?
-            switch scope ?? .organization(organizationID) {
-            case .organization(let organization): id = organization
-            case .unclassified: id = nil
-            }
-            return TaskStorageAuthorization(organizationID: id, graphDirectory: graphDirectory ?? graph.directory,
+            access(as: organizationID, graphDirectory: graphDirectory, detailDirectory: detailDirectory,
+                   allowsGraph: allowsGraph, allowsDetails: allowsDetails)
+        }
+
+        func access(as id: UUID?, graphDirectory: URL? = nil, detailDirectory: URL? = nil,
+                    allowsGraph: @escaping (TaskGraphValues, URL) -> Bool = { _, _ in true },
+                    allowsDetails: @escaping (UUID, TaskDetails, URL) -> Bool = { _, _, _ in true }) -> TaskStorageAuthorization {
+            TaskStorageAuthorization(organizationID: id, graphDirectory: graphDirectory ?? graph.directory,
                                              detailDirectory: detailDirectory ?? details.directory,
                                              allowsGraph: allowsGraph, allowsDetails: allowsDetails)
         }
@@ -528,7 +538,7 @@ import Testing
         #expect(throws: ApprovalError.unknownRequest) { try fixture.answer(UUID(), .approved) }
         #expect(throws: BouncerError.reasonRequired) { try fixture.answer(pending.id, .rejected(reason: " \t\n")) }
         #expect(try fixture.reload().details?.approvals == [pending])
-        try fixture.store.settings.update { $0.withdrawApproval(for: .organization(fixture.store.organizationID)) }
+        try fixture.store.settings.update { $0.setOwner(nil, for: fixture.store.organizationID) }
         #expect(throws: TaskInterfaceError.storageNotReady) { try fixture.answer(pending.id, .approved) }
         #expect(throws: TaskInterfaceError.storageNotReady) { try fixture.reload() }
     }
@@ -872,7 +882,7 @@ import Testing
         #expect(after.task.detailReference == stored.task.detailReference && after.details == stored.details)
     }
 
-    @Test(arguments: ["missing bar", "malformed settings", "changed remotes", "absent approval"])
+    @Test(arguments: ["missing bar", "malformed settings", "changed remotes", "no owner"])
     func incompleteSetupRejectsEveryWrite(problem: String) throws {
         let f = try Fixture()
         let record = try f.create(values)
@@ -890,7 +900,7 @@ import Testing
             process.waitUntilExit()
             #expect(process.terminationStatus == 0)
         default:
-            try f.settings.update { $0.withdrawApproval(for: .organization(f.organizationID)) }
+            try f.settings.update { $0.setOwner(nil, for: f.organizationID) }
         }
         #expect(throws: TaskInterfaceError.storageNotReady) { try f.interface.create(details: values, using: f.access()) }
         #expect(throws: TaskInterfaceError.storageNotReady) {
@@ -907,7 +917,7 @@ import Testing
         if problem == "malformed settings" { #expect(try Data(contentsOf: f.settings.url) == Data("broken settings".utf8)) }
     }
 
-    @Test(arguments: ["missing", "replaced", "symlink", "permissions"])
+    @Test(arguments: ["missing", "symlink", "permissions"])
     func approvedDestinationIsCheckedAgain(problem: String) throws {
         let f = try Fixture()
         let record = try f.create(values)
@@ -917,10 +927,7 @@ import Testing
             #expect(chmod(f.details.directory.path, 0o750) == 0)
         } else {
             try FileManager.default.moveItem(at: f.details.directory, to: original)
-            if problem == "replaced" {
-                try FileManager.default.createDirectory(at: f.details.directory, withIntermediateDirectories: false,
-                                                        attributes: [.posixPermissions: 0o700])
-            } else if problem == "symlink" {
+            if problem == "symlink" {
                 try FileManager.default.createSymbolicLink(at: f.details.directory, withDestinationURL: original)
             }
         }
@@ -935,7 +942,6 @@ import Testing
             let names = try FileManager.default.contentsOfDirectory(atPath: original.path)
             #expect(Set(names) == Set(detailsBefore.keys))
             for name in names { #expect(try Data(contentsOf: original.appending(path: name)) == detailsBefore[name]) }
-            if problem == "replaced" { #expect(try f.detailData().isEmpty) }
         }
     }
 
@@ -1089,14 +1095,14 @@ import Testing
     @Test func concurrentSettingsEditRejectsStaleSnapshot() throws {
         let f = try Fixture()
         let settings = f.settings
-        let scope = BarScope.organization(f.organizationID)
+        let organizationID = f.organizationID
         var calls = 0
         #expect(throws: BarError.changedOnDisk) {
             try settings.update { _ in
                 calls += 1
                 let completed = DispatchSemaphore(value: 0)
                 DispatchQueue.global().async {
-                    if (try? settings.update { $0.withdrawApproval(for: scope) }) != nil { completed.signal() }
+                    if (try? settings.update { $0.setOwner(nil, for: organizationID) }) != nil { completed.signal() }
                 }
                 guard completed.wait(timeout: .now() + 2) == .success else {
                     Issue.record("Concurrent settings update was blocked")
@@ -1105,7 +1111,7 @@ import Testing
             }
         }
         #expect(calls == 1)
-        #expect(try settings.load().detailFolders[scope] == nil)
+        #expect(try settings.load().organizations[organizationID]?.owner == nil)
     }
 
     @Test func replacementGraphDirectoryRejectsStaleSnapshot() throws {
@@ -1140,22 +1146,37 @@ import Testing
         }
     }
 
-    @Test func organizationApprovalDoesNotAuthorizeOtherScopes() throws {
+    @Test func organizationBarDoesNotServeOtherOrganizations() throws {
         let f = try Fixture()
         let before = try f.graphData()
-        for scope: BarScope in [.organization(UUID()), .unclassified] {
+        // An unclassified project (nil) and an organization with no bar cannot store tasks.
+        for id: UUID? in [UUID(), nil] {
             #expect(throws: TaskInterfaceError.storageNotReady) {
-                try f.interface.create(details: values, using: f.access(scope: scope))
+                try f.interface.create(details: values, using: f.access(as: id))
             }
         }
         #expect(try f.graphData() == before)
         #expect(try f.detailData().isEmpty)
-        _ = try f.create(values)
+
+        // A second organization with its own ready bar cannot write in the first bar.
+        let other = UUID(), otherBar = f.root.appending(path: "other-bar", directoryHint: .isDirectory)
+        try Fixture.makeBar(otherBar)
         try f.settings.update {
-            try $0.approveDetailFolder(f.details.directory.path, for: .unclassified, repositoryRoot: f.repository.path)
+            $0.setOwner(RemoteOwner("github.com/other"), for: other)
+            try $0.setBar(otherBar.path, for: other, projectFolders: [])
         }
-        let outcome = try f.interface.create(details: values, using: f.access(scope: .unclassified))
-        guard case .saved = outcome else { Issue.record("Explicit unclassified approval was rejected"); return }
+        #expect(throws: TaskInterfaceError.destinationMismatch) {
+            try f.interface.create(details: values, using: f.access(as: other))
+        }
+        #expect(try f.graphData() == before)
+        let otherGraph = TaskGraphStore(directory: otherBar.appending(path: barGraphFolder, directoryHint: .isDirectory))
+        #expect(try otherGraph.initialize() == .saved)
+        let outcome = try f.interface.create(details: values, using: f.access(
+            as: other, graphDirectory: otherGraph.directory,
+            detailDirectory: otherBar.appending(path: barDetailFolder, directoryHint: .isDirectory)))
+        guard case .saved = outcome else { Issue.record("The second organization's own bar was rejected"); return }
+        #expect(try f.graphData() == before)
+        #expect(try f.detailData().isEmpty)
     }
 
     @Test func exactDestinationAndValueAuthorityAreRequired() throws {
@@ -1164,8 +1185,11 @@ import Testing
         let other = f.root.appending(path: "other", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: other, withIntermediateDirectories: false,
                                                 attributes: [.posixPermissions: 0o700])
-        #expect(throws: TaskInterfaceError.detailDestinationMismatch) {
+        #expect(throws: TaskInterfaceError.destinationMismatch) {
             try f.interface.create(details: values, using: f.access(detailDirectory: other))
+        }
+        #expect(throws: TaskInterfaceError.destinationMismatch) {
+            try f.interface.create(details: values, using: f.access(graphDirectory: other))
         }
         #expect(throws: TaskInterfaceError.graphNotAuthorized) {
             try f.interface.create(details: values, using: f.access(allowsGraph: { values, destination in
@@ -1235,7 +1259,7 @@ import Testing
         let f = try Fixture()
         let before = try f.graphData()
         let access = f.access(allowsDetails: { _, _, _ in
-            do { try f.settings.update { $0.withdrawApproval(for: .organization(f.organizationID)) } }
+            do { try f.settings.update { $0.setOwner(nil, for: f.organizationID) } }
             catch { Issue.record(error); return false }
             return true
         })
@@ -1465,10 +1489,10 @@ import Testing
         let f = try Fixture()
         let record = try f.create(values)
         let settings = f.settings
-        let scope = BarScope.organization(f.organizationID)
+        let organizationID = f.organizationID
         var interface = f.interface
         interface.writeRecord = { store, taskID, previous, details, at, _, _, _ in
-            try settings.update { $0.withdrawApproval(for: scope) }
+            try settings.update { $0.setOwner(nil, for: organizationID) }
             return try store.write(taskID: taskID, expecting: previous, assignment: details.assignment,
                                    result: details.result, progress: details.progress, decisions: details.decisions, at: at)
         }
@@ -1517,7 +1541,7 @@ import Testing
         let access = f.access(allowsGraph: { value, _ in
             guard case .detailLink(let link) = value else { return false }
             if link.updatedAt == later {
-                do { try f.settings.update { $0.withdrawApproval(for: .organization(f.organizationID)) } }
+                do { try f.settings.update { $0.setOwner(nil, for: f.organizationID) } }
                 catch { Issue.record(error); return false }
             }
             return true

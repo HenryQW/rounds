@@ -95,19 +95,11 @@ private let now = Date(timeIntervalSince1970: 1_800_000_000)
     #expect(thread.visibleItems(taskID: "missing").isEmpty)
 }
 
-@Test func setupStepsNameWhatIsMissing() throws {
-    let folder = FileManager.default.temporaryDirectory.appending(path: "bouncer-setup-\(UUID().uuidString)")
-    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: folder) }
-    let remotes = [BarRemote(name: "origin", url: "git@example.com:o/w.git")]
-    var settings = BarSettings()
-    #expect(bouncerSetupSteps(bar: settings, isBar: false, remotes: []) == [.chooseBar])
-    try settings.setBar(folder.path)
-    // The folder check has not ended (or failed): no remote list, so the Bouncer must wait.
-    #expect(bouncerSetupSteps(bar: settings, isBar: true, remotes: nil) == [.chooseBar])
-    #expect(bouncerSetupSteps(bar: settings, isBar: true, remotes: remotes) == [.confirmRemotes])
-    try settings.acknowledgeRemotes(remotes)
-    #expect(bouncerSetupSteps(bar: settings, isBar: true, remotes: remotes).isEmpty)
+@Test func setupStepsWaitForOneReadyBar() {
+    // The bar checks have not ended: the Bouncer must wait.
+    #expect(bouncerSetupSteps(readyBars: nil) == [.setUpBar])
+    #expect(bouncerSetupSteps(readyBars: []) == [.setUpBar])
+    #expect(bouncerSetupSteps(readyBars: [UUID()]).isEmpty)
 }
 
 @Test func otherWaitsLeaveOutTheBouncerSession() {

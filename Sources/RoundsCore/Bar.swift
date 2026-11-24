@@ -1,13 +1,37 @@
-import CryptoKit
 import Darwin
 import Foundation
 
 public enum BarError: Error, Equatable {
     case invalidFolder, invalidName, alreadyRepository, fileExists
-    case gitFailed(String), gitTimedOut
-    case noBar, folderChanged, notRepository, remotesNotAcknowledged
-    case detailFolderInvalid(DetailFolderProblem)
+    case gitFailed(String), gitTimedOut, notRepository
+    /// The bar is a project folder, is in one, or holds one.
+    case barInProject(String)
+    /// Another organization uses the folder as its bar.
+    case barShared(UUID)
     case malformedData, invalidFile, changedOnDisk
+}
+
+/// Why an organization's bar cannot hold its task records yet. `message` is the sentence that Settings shows.
+public enum BarProblem: Equatable, Sendable {
+    case noOrganization, noOwner, noBar, unreadableSettings, inspectionFailed, folderChanged, notRepository
+    /// A remote of the bar points to an account other than the organization's owner.
+    case remoteNotOwned(BarRemote)
+    /// `tasks/graph` or `tasks/details` in the bar is missing, a symbolic link, or open to other users.
+    case taskFolderNotPrivate
+
+    public var message: String {
+        switch self {
+        case .noOrganization: "The project has no organization. Classify the project in Settings > Organizations."
+        case .noOwner: "Set the owner of the organization."
+        case .noBar: "Choose a bar folder."
+        case .unreadableSettings: "Rounds could not read the bar settings."
+        case .inspectionFailed: "Rounds could not check the bar folder."
+        case .folderChanged: "The bar folder was moved or replaced. Choose it again."
+        case .notRepository: "The bar folder is not the root of its own repository. Choose it again."
+        case .remoteNotOwned(let remote): "Remote \(remote.name) (\(remote.displayURL)) does not belong to the owner."
+        case .taskFolderNotPrivate: "A task folder in the bar is missing or open to other users."
+        }
+    }
 }
 
 /// A folder by its resolved path and file system identity. A replaced folder at the same path has a new identity.
@@ -41,14 +65,6 @@ public struct BarRemote: Equatable, Sendable {
         (components.user, components.password) = ("•••", nil)
         return components.string ?? url
     }
-
-    /// The URL without user information. A token in the URL does not change the destination it names.
-    var credentialFreeURL: String {
-        guard url.contains("://"), var components = URLComponents(string: url),
-              components.user != nil || components.password != nil else { return url }
-        (components.user, components.password) = (nil, nil)
-        return components.string ?? url
-    }
 }
 
 public enum BarInspection: Equatable, Sendable {
@@ -56,28 +72,10 @@ public enum BarInspection: Equatable, Sendable {
     case noRepository
 }
 
-/// The task detail folder for one organization, or for projects that no organization rule matches.
-public enum BarScope: Hashable, Sendable {
-    case organization(UUID)
-    case unclassified
-
-    fileprivate var key: String {
-        switch self {
-        case .organization(let id): id.uuidString
-        case .unclassified: "unclassified"
-        }
-    }
-
-    fileprivate init?(key: String) {
-        if key == "unclassified" { self = .unclassified } else if let id = UUID(uuidString: key) { self = .organization(id) } else { return nil }
-    }
-}
-
-public enum DetailFolderProblem: Equatable, Sendable {
-    case notApproved, missing, replaced, symlink, notOwner, notPrivate, insideRepository
-}
-
 public let barFileName = "rounds-bar.json"
+/// Task records in a bar: the graph in `tasks/graph`, the detail revisions in `tasks/details`.
+public let barGraphFolder = "tasks/graph"
+public let barDetailFolder = "tasks/details"
 
 /// Finds the Git repository that holds `folder` and its remotes. Runs only local `git` commands, with no shell.
 public func inspectBarFolder(_ folder: String, timeout: TimeInterval = 10) throws -> BarInspection {
@@ -199,96 +197,92 @@ private struct BarFile: Encodable {
     let name: String
 }
 
-/// Machine-specific bar choices. They stay in local Rounds settings, never in the bar.
+/// The owner and the bar of one organization. Each is optional until the user sets it.
+public struct OrganizationBar: Equatable, Sendable {
+    public fileprivate(set) var owner: RemoteOwner?
+    public fileprivate(set) var bar: FolderIdentity?
+
+    public init(owner: RemoteOwner? = nil, bar: FolderIdentity? = nil) {
+        self.owner = owner
+        self.bar = bar
+    }
+}
+
+/// Machine-specific bar choices, by organization ID. They stay in local Rounds settings, never in a bar.
 public struct BarSettings: Equatable, Sendable {
-    public private(set) var bar: FolderIdentity?
-    /// SHA-256 of the acknowledged remote URLs, so a URL that holds a credential is not copied to the settings file.
-    public private(set) var acknowledgedRemotes: String?
-    public private(set) var detailFolders: [BarScope: FolderIdentity] = [:]
+    public private(set) var organizations: [UUID: OrganizationBar] = [:]
 
     public init() {}
 
-    /// A different folder removes the remote acknowledgement and every detail folder approval. Pass the repository
-    /// root, so a removed `.git` cannot make a parent repository stand in for the bar.
-    public mutating func setBar(_ folder: String) throws {
+    public mutating func setOwner(_ owner: RemoteOwner?, for organization: UUID) {
+        organizations[organization, default: OrganizationBar()].owner = owner
+        if organizations[organization] == OrganizationBar() { organizations[organization] = nil }
+    }
+
+    /// Pass the repository root, so a removed `.git` cannot make a parent repository stand in for the bar. The bar must not
+    /// be a project folder, be in one or hold one, and no other organization may use it.
+    public mutating func setBar(_ folder: String, for organization: UUID, projectFolders: [String]) throws {
         guard let identity = FolderIdentity.current(folder) else { throw BarError.invalidFolder }
-        guard identity != bar else { return }
-        self = BarSettings()
-        bar = identity
+        for project in projectFolders {
+            let path = FolderIdentity.current(project)?.path ?? URL(fileURLWithPath: project).standardizedFileURL.path
+            if isWithin(path, identity.path) || isWithin(identity.path, path) { throw BarError.barInProject(project) }
+        }
+        if let other = organizations.first(where: { $0.key != organization && $0.value.bar.map { $0.path == identity.path || $0 == identity } == true }) {
+            throw BarError.barShared(other.key)
+        }
+        organizations[organization, default: OrganizationBar()].bar = identity
     }
 
-    /// The acknowledgement covers this exact set of remote URLs. Pass the URLs from a current inspection.
-    public mutating func acknowledgeRemotes(_ remotes: [BarRemote]) throws {
-        guard bar != nil else { throw BarError.noBar }
-        acknowledgedRemotes = remoteDigest(remotes)
+    public mutating func removeBar(for organization: UUID) {
+        organizations[organization]?.bar = nil
+        if organizations[organization] == OrganizationBar() { organizations[organization] = nil }
     }
 
-    public mutating func withdrawAcknowledgement() { acknowledgedRemotes = nil }
-
-    public func acknowledges(_ remotes: [BarRemote]) -> Bool {
-        remotes.isEmpty || acknowledgedRemotes == remoteDigest(remotes)
-    }
-
-    /// Records the user's approval of `folder` for `scope` after the checks in `detailFolderProblem`.
-    public mutating func approveDetailFolder(_ folder: String, for scope: BarScope, repositoryRoot: String) throws {
-        guard bar != nil else { throw BarError.noBar }
-        if let problem = checkDetailFolder(folder, repositoryRoot: repositoryRoot) { throw BarError.detailFolderInvalid(problem) }
-        guard let identity = FolderIdentity.current(folder) else { throw BarError.detailFolderInvalid(.missing) }
-        detailFolders[scope] = identity
-    }
-
-    public mutating func withdrawApproval(for scope: BarScope) { detailFolders[scope] = nil }
-
-    /// Nil when the bar folder is the recorded one and is in a repository whose remotes are acknowledged.
-    public func barProblem(_ inspection: BarInspection) -> BarError? {
-        guard let bar else { return .noBar }
+    /// Nil when the organization has an owner, its bar folder is the recorded one and the root of its own repository, and
+    /// every remote of the bar belongs to the owner. A bar with no remote passes.
+    public func barProblem(for organization: UUID?, inspection: BarInspection,
+                           sshHostName: (String) -> String? = { resolveSSHHostName($0) }) -> BarProblem? {
+        guard let organization else { return .noOrganization }
+        guard let owner = organizations[organization]?.owner else { return .noOwner }
+        guard let bar = organizations[organization]?.bar else { return .noBar }
         guard FolderIdentity.current(bar.path) == bar else { return .folderChanged }
         guard case .repository(let root, let remotes) = inspection, FolderIdentity.current(root) == bar else { return .notRepository }
-        return acknowledges(remotes) ? nil : .remotesNotAcknowledged
-    }
-
-    /// Nil when the approved folder for `scope` is the same folder and still passes every check.
-    public func detailFolderProblem(for scope: BarScope, repositoryRoot: String) -> DetailFolderProblem? {
-        guard let approved = detailFolders[scope] else { return .notApproved }
-        if let problem = checkDetailFolder(approved.path, repositoryRoot: repositoryRoot) { return problem }
-        return FolderIdentity.current(approved.path) == approved ? nil : .replaced
-    }
-
-    /// The folder where task details for `scope` may be stored, or nil while setup is not complete for it.
-    public func taskDetailFolder(for scope: BarScope, inspection: BarInspection) -> URL? {
-        guard barProblem(inspection) == nil, case .repository(let root, _) = inspection,
-              detailFolderProblem(for: scope, repositoryRoot: root) == nil,
-              let path = detailFolders[scope]?.path else { return nil }
-        return URL(fileURLWithPath: path, isDirectory: true)
+        if let remote = remotes.first(where: { !remoteBelongs($0.url, to: owner, sshHostName: sshHostName) }) {
+            return .remoteNotOwned(remote)
+        }
+        return nil
     }
 }
 
-/// A detail folder must be an existing directory, not a symlink, owned by this user with no group or other access
-/// and no ACL, and outside the bar.
-public func checkDetailFolder(_ folder: String, repositoryRoot: String) -> DetailFolderProblem? {
+/// `folder` is `parent` or inside it.
+private func isWithin(_ parent: String, _ folder: String) -> Bool {
+    folder == parent || folder.hasPrefix(parent == "/" ? "/" : parent + "/")
+}
+
+/// A task folder must be an existing directory, not a symbolic link, owned by this user with no group or other access
+/// and no ACL.
+func privateFolderIsUsable(_ folder: String) -> Bool {
     var link = stat()
-    guard folder.hasPrefix("/"), lstat(folder, &link) == 0 else { return .missing }
-    if link.st_mode & S_IFMT == S_IFLNK { return .symlink }
-    guard link.st_mode & S_IFMT == S_IFDIR, let identity = FolderIdentity.current(folder) else { return .missing }
-    let fd = open(identity.path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
-    guard fd >= 0 else { return .missing }
+    guard folder.hasPrefix("/"), lstat(folder, &link) == 0, link.st_mode & S_IFMT == S_IFDIR else { return false }
+    let fd = open(folder, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+    guard fd >= 0 else { return false }
     defer { close(fd) }
     var info = stat()
-    guard fstat(fd, &info) == 0 else { return .missing }
-    guard info.st_uid == geteuid() else { return .notOwner }
-    guard info.st_mode & 0o077 == 0 else { return .notPrivate }
+    guard fstat(fd, &info) == 0, info.st_uid == geteuid(), info.st_mode & 0o077 == 0 else { return false }
     if let acl = acl_get_fd_np(fd, ACL_TYPE_EXTENDED) {
         acl_free(UnsafeMutableRawPointer(acl))
-        return .notPrivate
+        return false
     }
-    guard let root = FolderIdentity.current(repositoryRoot)?.path else { return .insideRepository }
-    if identity.path == root || identity.path.hasPrefix(root == "/" ? "/" : root + "/") { return .insideRepository }
-    return nil
+    return true
 }
 
-private func remoteDigest(_ remotes: [BarRemote]) -> String {
-    let urls = Set(remotes.map(\.credentialFreeURL)).sorted().joined(separator: "\n")
-    return SHA256.hash(data: Data(urls.utf8)).map { String(format: "%02x", $0) }.joined()
+/// Where an organization's task records go in its ready bar.
+public struct BarTaskStorage: Equatable, Sendable {
+    public let bar: FolderIdentity
+    public let graphDirectory: URL
+    public let detailDirectory: URL
+    /// The detail folder when the check ran. Detail publication requires the same folder.
+    public let detailIdentity: FolderIdentity
 }
 
 /// Keyed JSON with a format version. Unknown versions, keys that do not parse, and missing values fail closed.
@@ -299,10 +293,18 @@ private struct SettingsDocument: Codable {
         let inode: UInt64
     }
 
+    struct Owner: Codable {
+        let host: String
+        let account: String
+    }
+
+    struct Organization: Codable {
+        let owner: Owner?
+        let bar: Folder?
+    }
+
     let version: Int
-    let bar: Folder?
-    let acknowledgedRemotes: String?
-    let detailFolders: [String: Folder]
+    let organizations: [String: Organization]
 }
 
 private struct BarSnapshot: Equatable {
@@ -334,60 +336,77 @@ public struct BarSettingsStore: Sendable {
         }
     }
 
-    /// The task detail folder for `scope` after a fresh inspection, or nil while setup is not complete for it.
-    public func taskDetailFolder(for scope: BarScope) -> URL? {
-        guard let settings = try? load(), let bar = settings.bar,
-              let inspection = try? inspectBarFolder(bar.path) else { return nil }
-        return settings.taskDetailFolder(for: scope, inspection: inspection)
+    /// Nil when the organization's bar may hold its task records: the bar check after a fresh inspection, and private
+    /// `tasks/graph` and `tasks/details` folders. A nil organization (an unclassified project) is never ready.
+    public func storageProblem(for organization: UUID?) -> BarProblem? {
+        switch Result(catching: { try taskStorage(for: organization, settings: load()) }) {
+        case .success: nil
+        case .failure(let error): error as? BarProblem ?? .unreadableSettings
+        }
     }
 
-    /// False unless setup is complete for the organization, or for unclassified projects when `organizationID` is nil.
-    public func mayStoreTaskDetails(for organizationID: UUID?) -> Bool {
-        taskDetailFolder(for: organizationID.map(BarScope.organization) ?? .unclassified) != nil
+    /// The task folders of the organization's bar, after the checks of `storageProblem(for:)`.
+    public func taskStorage(for organization: UUID?) throws -> BarTaskStorage {
+        let settings: BarSettings
+        do { settings = try load() } catch { throw BarProblem.unreadableSettings }
+        return try taskStorage(for: organization, settings: settings)
     }
 
-    /// Holds the settings lock while a cooperating task write uses the approved folder.
-    func withTaskDetailApproval<T>(for scope: BarScope, wait: Bool = true,
-                                   _ body: (FolderIdentity) throws -> T) throws -> T {
+    private func taskStorage(for organization: UUID?, settings: BarSettings) throws -> BarTaskStorage {
+        guard let organization else { throw BarProblem.noOrganization }
+        guard let bar = settings.organizations[organization]?.bar else {
+            throw settings.organizations[organization]?.owner == nil ? BarProblem.noOwner : BarProblem.noBar
+        }
+        let inspection: BarInspection
+        do { inspection = try inspectBarFolder(bar.path) } catch { throw BarProblem.inspectionFailed }
+        if let problem = settings.barProblem(for: organization, inspection: inspection) { throw problem }
+        let graph = bar.path + "/" + barGraphFolder, details = bar.path + "/" + barDetailFolder
+        guard privateFolderIsUsable(bar.path + "/tasks"), privateFolderIsUsable(graph), privateFolderIsUsable(details),
+              let identity = FolderIdentity.current(details), identity.path == details else { throw BarProblem.taskFolderNotPrivate }
+        return BarTaskStorage(bar: bar, graphDirectory: URL(fileURLWithPath: graph, isDirectory: true),
+                              detailDirectory: URL(fileURLWithPath: details, isDirectory: true), detailIdentity: identity)
+    }
+
+    /// Holds the settings lock while a cooperating task write uses the bar. The body gets the current detail folder.
+    func withTaskStorage<T>(for organization: UUID, wait: Bool = true, _ body: (FolderIdentity) throws -> T) throws -> T {
         try withLock(wait: wait) {
-            let settings = try decode(readSnapshot()?.data)
-            guard let bar = settings.bar,
-                  let inspection = try? inspectBarFolder(bar.path),
-                  settings.taskDetailFolder(for: scope, inspection: inspection) != nil,
-                  let identity = settings.detailFolders[scope] else { throw TaskInterfaceError.storageNotReady }
-            return try body(identity)
+            guard let settings = try? decode(readSnapshot()?.data),
+                  let storage = try? taskStorage(for: organization, settings: settings) else { throw TaskInterfaceError.storageNotReady }
+            return try body(storage.detailIdentity)
         }
     }
 
     private func decode(_ data: Data?) throws -> BarSettings {
         guard let data else { return BarSettings() }
-        guard let document = try? JSONDecoder().decode(SettingsDocument.self, from: data), document.version == 1 else {
+        guard let document = try? JSONDecoder().decode(SettingsDocument.self, from: data), document.version == 2 else {
             throw BarError.malformedData
         }
-        func folder(_ value: SettingsDocument.Folder) throws -> FolderIdentity {
-            guard value.path.hasPrefix("/"), !value.path.utf8.contains(0) else { throw BarError.malformedData }
-            return FolderIdentity(path: value.path, device: value.device, inode: value.inode)
-        }
         var settings = BarSettings()
-        if let bar = document.bar { settings.restore(bar: try folder(bar)) }
-        if let digest = document.acknowledgedRemotes {
-            guard settings.bar != nil, digest.count == 64, digest.allSatisfy(\.isHexDigit) else { throw BarError.malformedData }
-            settings.restore(acknowledgedRemotes: digest)
-        }
-        for (key, value) in document.detailFolders {
-            guard settings.bar != nil, let scope = BarScope(key: key) else { throw BarError.malformedData }
-            settings.restore(scope, try folder(value))
+        for (key, value) in document.organizations {
+            guard let id = UUID(uuidString: key), value.owner != nil || value.bar != nil else { throw BarError.malformedData }
+            var entry = OrganizationBar()
+            if let owner = value.owner {
+                guard let parsed = RemoteOwner(host: owner.host, account: owner.account), parsed.host == owner.host else {
+                    throw BarError.malformedData
+                }
+                entry.owner = parsed
+            }
+            if let bar = value.bar {
+                guard bar.path.hasPrefix("/"), !bar.path.utf8.contains(0) else { throw BarError.malformedData }
+                entry.bar = FolderIdentity(path: bar.path, device: bar.device, inode: bar.inode)
+            }
+            settings.restore(id, entry)
         }
         return settings
     }
 
     private func encode(_ settings: BarSettings) throws -> Data {
-        func folder(_ value: FolderIdentity) -> SettingsDocument.Folder {
-            SettingsDocument.Folder(path: value.path, device: value.device, inode: value.inode)
+        let organizations = settings.organizations.map { id, entry in
+            (id.uuidString, SettingsDocument.Organization(
+                owner: entry.owner.map { SettingsDocument.Owner(host: $0.host, account: $0.account) },
+                bar: entry.bar.map { SettingsDocument.Folder(path: $0.path, device: $0.device, inode: $0.inode) }))
         }
-        let document = SettingsDocument(version: 1, bar: settings.bar.map(folder),
-                                        acknowledgedRemotes: settings.acknowledgedRemotes,
-                                        detailFolders: Dictionary(uniqueKeysWithValues: settings.detailFolders.map { ($0.key.key, folder($0.value)) }))
+        let document = SettingsDocument(version: 2, organizations: Dictionary(uniqueKeysWithValues: organizations))
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         return try encoder.encode(document)
@@ -439,10 +458,10 @@ public struct BarSettingsStore: Sendable {
     }
 }
 
+extension BarProblem: Error {}
+
 extension BarSettings {
-    fileprivate mutating func restore(bar: FolderIdentity) { self.bar = bar }
-    fileprivate mutating func restore(acknowledgedRemotes: String) { self.acknowledgedRemotes = acknowledgedRemotes }
-    fileprivate mutating func restore(_ scope: BarScope, _ folder: FolderIdentity) { detailFolders[scope] = folder }
+    fileprivate mutating func restore(_ organization: UUID, _ entry: OrganizationBar) { organizations[organization] = entry }
 }
 
 private func writeAll(_ fd: Int32, _ data: Data) throws {
