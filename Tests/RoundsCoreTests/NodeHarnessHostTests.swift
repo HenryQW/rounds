@@ -100,7 +100,8 @@ private func withHarness(_ fixture: HarnessFixture, requestWait: Duration = .sec
         done
         exit 0
         """)
-    try await withHarness(fixture) { host in
+    // The shell reads the 40 KB line one byte at a time, which is slow on a busy CI runner; use the app's 10 s wait.
+    try await withHarness(fixture, requestWait: .seconds(10)) { host in
         _ = try await host.start()
         let bouncer = HarnessBouncer(host: host)
         try await bouncer.start()
