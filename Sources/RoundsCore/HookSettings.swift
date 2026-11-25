@@ -8,6 +8,18 @@ public enum HookInstallerError: Error, Equatable {
     case invalidJSON(String)
     /// `config.toml` sets `features` in a form a line edit cannot change: a dotted key or an inline table.
     case unsupportedConfig(String)
+    /// The file exists but cannot be read.
+    case unreadable(String)
+    /// A symlink whose target is missing: a write would put a file where the user keeps a link.
+    case danglingLink(String)
+}
+
+/// The file a settings path names: a symlink resolves to its target, so a write changes the target and keeps the link.
+func resolvedSettingsFile(_ url: URL) throws(HookInstallerError) -> URL {
+    let resolved = url.resolvingSymlinksInPath()
+    // A dangling link does not resolve: the path is still a link.
+    if (try? FileManager.default.destinationOfSymbolicLink(atPath: resolved.path)) != nil { throw .danglingLink(resolved.path) }
+    return resolved
 }
 
 /// A hooks file Rounds writes its entries into, or the pi extension file it installs.
@@ -112,7 +124,16 @@ public struct HookInstaller: Sendable {
     }
 
     private func read() throws(HookInstallerError) -> [String: Any] {
-        guard let data = try? Data(contentsOf: settingsURL) else { return [:] }
+        let data: Data
+        do {
+            data = try Data(contentsOf: try resolvedSettingsFile(settingsURL))
+        } catch let error as HookInstallerError {
+            throw error
+        } catch CocoaError.fileReadNoSuchFile {
+            return [:]
+        } catch {
+            throw .unreadable(error.localizedDescription)
+        }
         let object: Any
         do {
             object = try JSONSerialization.jsonObject(with: data)
@@ -141,8 +162,9 @@ public struct HookInstaller: Sendable {
     }
 }
 
-/// Copies the old file to `<name>.rounds-backup`, then replaces it atomically.
-func writeKeepingBackup(_ data: Data, to url: URL) throws {
+/// Copies the old file to `<name>.rounds-backup`, then replaces it atomically. A symlink keeps pointing to the new file.
+func writeKeepingBackup(_ data: Data, to link: URL) throws {
+    let url = try resolvedSettingsFile(link)
     let fm = FileManager.default
     if fm.fileExists(atPath: url.path) {
         let backup = url.deletingLastPathComponent().appending(path: url.lastPathComponent + ".rounds-backup")

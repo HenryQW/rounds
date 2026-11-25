@@ -84,6 +84,29 @@ private func groups(_ d: [String: Any], _ event: String) -> [[String: Any]] {
     #expect(try installer.status(helperPath: helper) == .missing)
 }
 
+@Test func installerKeepsSymlinkAndChangesItsTarget() throws {
+    let dir = try tempDir()
+    let target = dir.appending(path: "real.json"), link = dir.appending(path: "settings.json")
+    try JSONSerialization.data(withJSONObject: rtkSettings()).write(to: target)
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: target)
+    try HookInstaller(settingsURL: link).install(helperPath: helper)
+    #expect(try FileManager.default.destinationOfSymbolicLink(atPath: link.path) == target.path)
+    let written = try JSONSerialization.jsonObject(with: Data(contentsOf: target)) as? [String: Any] ?? [:]
+    #expect(HookSettings.status(written, helperPath: helper) == .installed)
+}
+
+@Test func installerRefusesDanglingSymlinkAndUnreadableFile() throws {
+    let dir = try tempDir()
+    let link = dir.appending(path: "settings.json")
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: dir.appending(path: "gone/real.json"))
+    #expect(throws: HookInstallerError.self) { try HookInstaller(settingsURL: link).install(helperPath: helper) }
+    #expect((try? FileManager.default.destinationOfSymbolicLink(atPath: link.path)) != nil)
+    // A folder where the file should be cannot be read: an error, not an empty file.
+    let folder = dir.appending(path: "folder.json")
+    try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    #expect(throws: HookInstallerError.self) { try HookInstaller(settingsURL: folder).status(helperPath: helper) }
+}
+
 @Test func installerTreatsMissingFileAsEmpty() throws {
     let url = try tempDir().appending(path: "settings.json")
     let installer = HookInstaller(settingsURL: url)
