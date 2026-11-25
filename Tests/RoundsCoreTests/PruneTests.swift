@@ -31,3 +31,20 @@ private func names(_ dir: URL) -> Set<String> { Set((try? FileManager.default.co
     #expect(kept == (2936..<3000).map { "\(200 + $0)\tPreToolUse\tBash\t\t\n" }.joined())
     #expect(HookState.parse(kept)?.last.at == Date(timeIntervalSince1970: 3.199))
 }
+
+@Test func trimKeepsFileAndLinesAppendedThroughOpenDescriptor() throws {
+    let dir = try tempDir()
+    let file = dir.appending(path: "s")
+    try write(dir, "s", (0..<3000).map { "\(200 + $0)\tPreToolUse\tBash\t\t\n" }.joined())
+    let inode = try FileManager.default.attributesOfItem(atPath: file.path)[.systemFileNumber] as? Int
+    // The hook helper opens with O_APPEND; a line it writes after the trim must reach the file, not an unlinked one.
+    let fd = open(file.path, O_WRONLY | O_APPEND)
+    defer { close(fd) }
+    pruneStateFiles(dir: dir, liveIds: nil, maxBytes: 1024)
+    let line = Array("9999\tStop\t\t0\t\n".utf8)
+    #expect(Darwin.write(fd, line, line.count) == line.count)
+    #expect(try FileManager.default.attributesOfItem(atPath: file.path)[.systemFileNumber] as? Int == inode)
+    let kept = try String(contentsOf: file, encoding: .utf8)
+    #expect(kept.split(separator: "\n").count == 65)
+    #expect(HookState.parse(kept)?.last.event == "Stop")
+}

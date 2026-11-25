@@ -5,6 +5,8 @@ func append(_ text: String, to file: URL) throws {
     let fd = open(file.path, O_WRONLY | O_APPEND | O_CREAT, 0o600)
     guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     defer { close(fd) }
+    // The app trims a state file in place under this lock (`pruneStateFiles`); close releases it.
+    guard flock(fd, LOCK_EX) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
     let bytes = Array(text.utf8)
     guard write(fd, bytes, bytes.count) == bytes.count else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
 }

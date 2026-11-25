@@ -172,7 +172,7 @@ public func loadHookStates(dir: URL, cache: FileCache<HookState?> = FileCache())
 }
 
 /// Deletes state files of sessions not in `liveIds` (nil: delete nothing, the session list is not reliable)
-/// and rewrites files over `maxBytes` to their last 64 lines: the newest line is the state, and the lines before it
+/// and trims files over `maxBytes` to their last 64 lines: the newest line is the state, and the lines before it
 /// hold a permission request that waits for its answer (`approvedRule`).
 public func pruneStateFiles(dir: URL, liveIds: Set<String>?, maxBytes: Int = 65_536) {
     let fm = FileManager.default
@@ -182,9 +182,19 @@ public func pruneStateFiles(dir: URL, liveIds: Set<String>?, maxBytes: Int = 65_
             continue
         }
         let size = (try? file.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? 0
-        if size > maxBytes, let text = try? String(contentsOf: file, encoding: .utf8) {
-            let kept = text.split(separator: "\n").suffix(64).joined(separator: "\n") + "\n"
-            try? kept.write(to: file, atomically: true, encoding: .utf8)
-        }
+        if size > maxBytes { keepLastLines(file) }
     }
+}
+
+/// Trims the file in place under the `flock` that `rounds-hook` takes to append: a rename would send a line appended
+/// during the trim to the old, unlinked file.
+private func keepLastLines(_ file: URL) {
+    let fd = open(file.path, O_RDWR)
+    guard fd >= 0 else { return }
+    defer { close(fd) }
+    guard flock(fd, LOCK_EX) == 0,
+          let data = try? FileHandle(fileDescriptor: fd, closeOnDealloc: false).readToEnd() else { return }
+    let kept = Array((String(decoding: data, as: UTF8.self).split(separator: "\n").suffix(64).joined(separator: "\n") + "\n").utf8)
+    guard ftruncate(fd, 0) == 0 else { return }
+    _ = pwrite(fd, kept, kept.count, 0)
 }
