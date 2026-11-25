@@ -464,7 +464,8 @@ public struct OrganizationPolicyStore: Sendable {
                 throw OrganizationPolicyError.changedOnDisk
             }
         } else {
-            guard link(temporary.path, url.path) == 0 else {
+            // One atomic step: link then unlink would leave two links after a crash, and the loader refuses that file.
+            guard renameatx_np(AT_FDCWD, temporary.path, AT_FDCWD, url.path, UInt32(RENAME_EXCL)) == 0 else {
                 let code = errno
                 if code == EEXIST { throw OrganizationPolicyError.changedOnDisk }
                 throw posixError(code)

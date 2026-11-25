@@ -355,4 +355,23 @@ import Testing
         }
         #expect(try Data(contentsOf: url) == corrupt)
     }
+
+    @Test func firstSaveLeavesOneLinkAndRefusesAFileMadeMeanwhile() throws {
+        let base = try tempDir()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let url = base.appending(path: "policy.json")
+        let store = OrganizationPolicyStore(url: url)
+        try store.update { policy in _ = try policy.addOrganization(name: "Team") }
+        #expect(try FileManager.default.attributesOfItem(atPath: url.path)[.referenceCount] as? Int == 1)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: base.path).filter { $0.hasSuffix(".tmp") }.isEmpty)
+        let other = base.appending(path: "other.json")
+        let made = Data("made".utf8)
+        #expect(throws: OrganizationPolicyError.changedOnDisk) {
+            try OrganizationPolicyStore(url: other).update { policy in
+                _ = try policy.addOrganization(name: "Team")
+                try made.write(to: other)
+            }
+        }
+        #expect(try Data(contentsOf: other) == made)
+    }
 }
