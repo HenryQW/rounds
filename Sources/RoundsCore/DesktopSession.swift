@@ -122,6 +122,19 @@ public struct DesktopSession: Sendable, Equatable, Identifiable {
     }
 }
 
+/// Bouncer mode names its sessions with fixed titles (spec 2.1); Rounds reads only the title.
+extension DesktopSession {
+    /// A Bartender: `[<status>] <TICKET> - Bartender - <repo>` or `[Idle] Bartender - <repo>`, with an optional `!` before it.
+    public var isBartender: Bool {
+        title.wholeMatch(of: #/!?\[[^\]]+\] (?:\S+ - )?Bartender - \S.*/#) != nil
+    }
+
+    /// The questions that wait on the user, from the Bouncer's title `!<n> Bouncer`; 0 for any other title.
+    public var bouncerQuestions: Int {
+        title.wholeMatch(of: #/!([0-9]{1,3}) Bouncer/#).flatMap { Int($0.1) } ?? 0
+    }
+}
+
 /// Reads every `local_*.json` two levels under `root` (account/org folders). Unchanged files come from `cache`.
 public func loadDesktopSessions(
     root: URL, cache: FileCache<Result<DesktopSession, DesktopSessionError>> = FileCache()

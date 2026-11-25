@@ -228,6 +228,7 @@ func decide(_ input: ClassifierInput) -> (status: SessionStatus, rule: StateRule
         || (s.hasWrapUp && s.wrapUpNeedsUser == nil && blockedSummary && summary?.needsAction.isEmpty == true)
     let question = s.wrapUpNeedsUser != nil ? "Question, from the wrap-up"
         : turnEnded && input.tail == .question ? "Question, from the transcript"
+        : s.bouncerQuestions > 0 ? "Question, from the Bouncer title"
         : blockedSummary && !reviewReady ? "Question, from the summary" : nil
     if let question {
         return (SessionStatus(.needsInput, "Question", since: s.lastActivityAt), StateRule(9, question))

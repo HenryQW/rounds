@@ -93,6 +93,22 @@ private func thread(_ id: String, _ state: SessionState, parent: String? = nil) 
     #expect(done.yourTurn.map(\.id) == ["codex:main"] && done.yourTurn[0].status.state == .finished)
 }
 
+/// A Bouncer mode Bartender (spec 2.1) is a subagent of its Bouncer: the user never opens it, so it never alerts, also
+/// with a `!`, and one at work makes the Bouncer's result Background. Another side session, even one named like a
+/// Bartender, is the user's own work and alerts.
+@Test func bartenderIsASubagent() {
+    let now = Date(timeIntervalSince1970: 4)
+    let pool = [row("b", nil, activity: 3, title: "Bouncer"),
+                row("t1", nil, activity: 2, title: "[Dev] MIDI-1 - Bartender - repo", parent: "b", state: .working),
+                row("t2", nil, activity: 1, title: "![Spec] MIDI-2 - Bartender - repo", parent: "b", state: .ready)]
+    let g = group(pool, query: "", rule: LastCallRule(), now: now)
+    #expect(g.lastCallCount == 0 && g.running.map(\.id) == ["b"] && g.running[0].children.count == 2)
+    #expect(g.running[0].status.state == .background && g.running[0].status.detail == "1 subagent")
+    let side = [row("b", nil, activity: 3, title: "Bouncer", state: .working),
+                row("s", nil, activity: 2, title: "Bouncer Test Bartender", parent: "b", state: .ready)]
+    #expect(group(side, query: "", rule: LastCallRule(), now: now).lastCallCount == 1)
+}
+
 @Test func olderOnlyWhenSearching() {
     let rows = [row("o1", .older, activity: 1, title: "Old thing"), row("i1", .quiet, activity: 2, title: "New thing")]
     #expect(group(rows, query: "").older.isEmpty)
