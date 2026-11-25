@@ -651,7 +651,7 @@ extension SessionRow {
     /// What a child session is to its parent: a fork the user made, a side session, or a subagent.
     private var childNoun: String {
         switch source {
-        case .claude(let s): s.spawnedFrom?.userFork == true ? "fork" : "session"
+        case .claude(let s): isSubAgent ? "subagent" : s.spawnedFrom?.userFork == true ? "fork" : "session"
         case .pi(let s): s.isDelegate ? "subagent" : "fork"
         case .codex, .herdr: "subagent"
         }

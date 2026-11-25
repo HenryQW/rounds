@@ -65,12 +65,13 @@ public struct SessionRow: Sendable, Equatable, Identifiable {
     public var withChildren: [SessionRow] { [self] + children }
 
     /// A child that another agent started to do part of its work (Codex, herdr, a pi acp_delegate run, which is one
-    /// also when its parent is not found). Claude side sessions and forks, and pi forks, are the user's own work.
+    /// also when its parent is not found, a Bouncer mode Bartender). Other Claude side sessions and forks, and pi forks,
+    /// are the user's own work.
     public var isSubAgent: Bool {
         switch source {
         case .codex, .herdr: parentId != nil
         case .pi(let s): s.isDelegate
-        case .claude: false
+        case .claude(let s): parentId != nil && s.isBartender
         }
     }
 

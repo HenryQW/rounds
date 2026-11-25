@@ -127,6 +127,15 @@ func rule5Running(l: HookLine, label: String) {
     expect(classify(session(asked), stop), .needsInput, "Question")
 }
 
+/// Bouncer mode (spec 2.1): the Bouncer's title counts the questions that wait on the user, also when its summary says
+/// review, so that a Bartender at work cannot hide them under Background.
+@Test func rule9BouncerTitle() {
+    let review: [String: Any] = ["status_category": "review_ready", "needs_action": "", "summarizes_uuid": "u1"]
+    expect(classify(session(["title": "!2 Bouncer", "postTurnSummary": review]), stop), .needsInput, "Question")
+    expect(classify(session(["title": "Bouncer", "postTurnSummary": review]), stop), .ready, "review")
+    expect(classify(session(["title": "!2 Bouncer tests", "postTurnSummary": review]), stop), .ready, "review")
+}
+
 @Test func staleSummaryIgnored() {
     var s = blockedSummary
     s["summarizes_uuid"] = "old"
