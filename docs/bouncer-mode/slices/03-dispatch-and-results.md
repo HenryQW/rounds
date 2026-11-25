@@ -165,7 +165,7 @@ This brief defines no clone deletion schedule, checkpoint replacement or new Dec
 ### Local runtime
 
 - A trusted adapter supplies enrollment, instructions, the model, the handoff and permission to store each result. The runtime rechecks that grant before container operations, model requests and result intake.
-- The Harness database binds the task and detail identifiers to a conversation and a private run. Blocked work accepts a current answer and opens the same clone. A malformed result records the task as Failed, so the next task can dispatch. Other uncertain work blocks a replacement.
+- The Harness database binds the task and detail identifiers to a conversation and a private run. Blocked work accepts a current answer and opens the same clone. A malformed result records the task as Failed, so the next task can dispatch. Other uncertain work blocks a replacement. Each dispatch inspects only Blocked runs. It keeps the 8 newest Done runs and removes older Done records and their run folders.
 - Done includes the revision read after validation. The runtime compares it to the saved result before importing. The fetch and reference update use the verified Git directory.
 - The local workflow uses a fixture model and fixture authority. The running Bouncer still needs task registration, local record integration, task presentation and the agreed review path for Barback results.
 

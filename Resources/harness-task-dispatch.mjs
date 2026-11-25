@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { readdir } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
+import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
 import { AssistantEntry, GenerationTask, defineDoc, defineExtension, defineTool, hook } from "@earendil-works/pi-durable";
 import { obj, str } from "@earendil-works/pi-schema";
@@ -17,6 +18,8 @@ const revision = /^[0-9a-f]{40}$/;
 const bounded = (value, limit = 4096) => typeof value === "string" && value.trim().length > 0 && Buffer.byteLength(value) <= limit;
 const list = (value, limit = 32) => Array.isArray(value) && value.length <= limit && value.every(item => bounded(item));
 const output = (text, isError = false) => ({ output: [{ type: "text", text }], isError });
+// Older done runs and their folders are pruned at the next dispatch.
+const keepDone = 8;
 const toolSpecs = [
     ["environment_run_cmd", "Run a foreground command in the assigned container.", obj({ command: str() })],
     ["environment_file_read", "Read the entire file in the assigned container.", obj({ target_file: str() })],
@@ -53,9 +56,15 @@ export function dispatchContainers({ folder, binary, daggerCLI, docker, socket, 
             return { ...run, call };
         },
         async verifyInventory(records) {
-            const expected = records.map(record => record.runID).sort();
-            const actual = (await readdir(folder)).sort();
-            check(isDeepStrictEqual(actual, expected), "The container folder has unverified runs or locks.");
+            const actual = await readdir(folder);
+            const known = new Set(records.map(record => record.runID));
+            // A prune removes the folder before the record, so a done record can have no folder.
+            check(actual.every(name => known.has(name)) && records.every(record => record.status === "done" || actual.includes(record.runID)),
+                "The container folder has unverified runs or locks.");
+        },
+        async remove({ runID }) {
+            check(uuid.test(runID), "Invalid container run identifier.");
+            await rm(join(folder, runID), { recursive: true, force: true });
         },
     };
 }
@@ -102,13 +111,18 @@ export function taskDispatch({ authorize, saveResult, containers, verifyRecovery
         const state = await harness.inspect(context);
         check(!state.tasks.length && !state.submissions.length, "Harness has work that needs restart reconciliation.");
         const tasks = await read(harness, context);
+        check(await verifyRecovery(Object.values(tasks), context) === true, "Rounds could not verify task records and process cleanup.");
+        for (const old of Object.values(tasks).filter(record => record.status === "done").slice(0, -keepDone)) {
+            await containers.remove(old);
+            await harness.commit(async tx => { delete (await tx.doc(Runs)).tasks[old.taskID]; }, context);
+            delete tasks[old.taskID];
+        }
         const records = Object.values(tasks);
-        check(await verifyRecovery(records, context) === true, "Rounds could not verify task records and process cleanup.");
         await containers.verifyInventory(records);
         for (const record of records) {
             check(["blocked", "done", "failed"].includes(record.status), "An interrupted task needs inspection before scheduling.");
-            // A failed run is not opened again.
-            if (record.status === "failed") continue;
+            // Only a blocked task resumes; done and failed runs are not opened again.
+            if (record.status !== "blocked") continue;
             check(await harness.conversation(record.conversationID, context), "A saved task conversation is missing.");
             const saved = await containers.open(record).inspect();
             check(isDeepStrictEqual(saved, record.saved), "The saved task container does not match its run.");

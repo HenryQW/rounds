@@ -55,6 +55,7 @@ async function workflow(t) {
     const containersForDispatch = config ? dispatchContainers({ ...config, folder: runFolder }) : {
         open: localFixture,
         async verifyInventory(records) { assert.equal(records.length, containers.size); },
+        async remove({ runID }) { containers.delete(runID); },
     };
     async function open() {
         const dispatch = taskDispatch({
@@ -205,4 +206,17 @@ test("records a malformed result as failed and dispatches the next task after da
     f.faux.setResponses([fauxAssistantMessage(JSON.stringify(blocked))]);
     assert.deepEqual((await dispatch.start(f.harness(), b, context)).report, blocked);
     assert.deepEqual(f.calls.map(call => call.name), ["environment_create", "environment_create"]);
+});
+
+test("prunes the oldest done runs and keeps the newest eight", {
+    timeout: 120_000, skip: !!process.env.ROUNDS_DISPATCH_TEST_ENGINE,
+}, async t => {
+    const f = await workflow(t);
+    const tasks = [];
+    for (let index = 0; index < 9; index++) tasks.push(await f.add(`task-${index}`));
+    const dispatch = await f.open();
+    f.faux.setResponses(tasks.map(task => fauxAssistantMessage(JSON.stringify({ ...done, checkedRevision: task.revision }))));
+    for (const task of tasks) assert.equal((await dispatch.start(f.harness(), task, context)).report.status, "done");
+    const kept = await dispatch.review(f.harness(), context);
+    assert.deepEqual(Object.keys(kept).sort(), tasks.slice(1).map(task => task.taskID).sort());
 });
