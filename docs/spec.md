@@ -313,7 +313,7 @@ One SwiftPM package (this Mac has Command Line Tools only, no Xcode). Targets: `
 | Unit | Job |
 |---|---|
 | `rounds-hook` (Foundation only, in `Contents/Helpers/`) | Reads hook JSON from stdin, appends one state line (2.3). Exit 0 on success; non-zero with a stderr message on failure. |
-| `HookInstaller` | Reads, checks and changes `settings.json`. Status: Installed / Not installed / Needs repair (a wrong helper path). Install and Remove: backup to `settings.json.rounds-backup`, then atomic replace. Keeps all other hooks. Idempotent. Refuses invalid JSON. |
+| `HookInstaller` | Reads, checks and changes `settings.json`. Status: Installed / Not installed / Needs repair (a wrong helper path). Install and Remove: backup to `settings.json.rounds-backup`, then atomic replace. Keeps all other hooks, also a user hook in the same group as a Rounds entry (only the Rounds entry goes; a group goes only when it is then empty). Idempotent. Refuses invalid JSON. |
 | `DesktopSessionStore` | FSEvents watch, decode, publish `[DesktopSession]`. |
 | `HookStateStore` | FSEvents watch on `state/`, publish `[cliSessionId: HookState]`. Deletes state files of archived or deleted sessions at launch. |
 | `TranscriptReader` | Tail read and parse for reconcile. |

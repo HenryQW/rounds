@@ -53,11 +53,12 @@ public enum HookSettings {
 
     /// Our helper path inside a hook group, if the group runs it.
     private static func ourPath(_ group: [String: Any]) -> String? {
-        for hook in group["hooks"] as? [[String: Any]] ?? [] {
-            let path = (hook["command"] as? String ?? "").replacingOccurrences(of: "\"", with: "")
-            if path.hasSuffix(helperSuffix) { return path }
-        }
-        return nil
+        (group["hooks"] as? [[String: Any]] ?? []).lazy.compactMap(helperPath(of:)).first
+    }
+
+    private static func helperPath(of hook: [String: Any]) -> String? {
+        let path = (hook["command"] as? String ?? "").replacingOccurrences(of: "\"", with: "")
+        return path.hasSuffix(helperSuffix) ? path : nil
     }
 
     public static func status(_ settings: [String: Any], helperPath: String, target: HookTarget = .claude) -> HookInstallStatus {
@@ -85,7 +86,13 @@ public enum HookSettings {
         guard var hooks = settings["hooks"] as? [String: Any] else { return settings }
         for (event, value) in hooks {
             guard let groups = value as? [[String: Any]] else { continue }
-            let kept = groups.filter { ourPath($0) == nil }
+            // A group can also hold the user's hooks: take out only our entries, and the group only when it is then empty.
+            let kept = groups.compactMap { group -> [String: Any]? in
+                guard let entries = group["hooks"] as? [[String: Any]] else { return group }
+                let others = entries.filter { helperPath(of: $0) == nil }
+                if others.count == entries.count { return group }
+                return others.isEmpty ? nil : group.merging(["hooks": others]) { $1 }
+            }
             hooks[event] = kept.isEmpty ? nil : kept
         }
         var result = settings

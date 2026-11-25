@@ -46,6 +46,17 @@ private func groups(_ d: [String: Any], _ event: String) -> [[String: Any]] {
     #expect(canonical(HookSettings.remove(HookSettings.install(["a": 1], helperPath: helper))) == canonical(["a": 1]))
 }
 
+@Test func removeKeepsUserHookInSharedGroup() {
+    let user: [String: Any] = ["type": "command", "command": "rtk hook claude"]
+    let ours: [String: Any] = ["type": "command", "command": "\"\(helper)\"", "async": true]
+    let shared: [String: Any] = ["hooks": ["Stop": [["hooks": [user, ours]]], "PreToolUse": [["matcher": "*", "hooks": [ours]]]]]
+    let removed = HookSettings.remove(shared)
+    #expect(canonical(removed) == canonical(["hooks": ["Stop": [["hooks": [user]]]]]))
+    // Repair runs the same removal first, so the user's hook stays there too.
+    let repaired = HookSettings.install(shared, helperPath: helper)
+    #expect((groups(repaired, "Stop").first?["hooks"] as? [[String: Any]])?.first?["command"] as? String == "rtk hook claude")
+}
+
 @Test func statusDetectsStates() {
     #expect(HookSettings.status(rtkSettings(), helperPath: helper) == .missing)
     #expect(HookSettings.status(HookSettings.install(rtkSettings(), helperPath: helper), helperPath: helper) == .installed)
