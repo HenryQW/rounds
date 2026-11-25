@@ -36,3 +36,15 @@ func barCheckEndsWhenSettingsChangeDuringTheCheck() async throws {
     #expect(await waitUntil { state.checks[id] != .checking })
     #expect(state.checks[id] == .done(.notRepository))
 }
+
+@Test
+@MainActor
+func pushChannelWithMissingValuesIsNotReady() async {
+    appDefaults.set([PushChannel.telegram.rawValue], forKey: "pushChannels")
+    defer { appDefaults.removeObject(forKey: "pushChannels") }
+    let store = PushStore()
+    store.readValues = { _ in nil }
+    store.prepareOrganizationDestinations()
+    #expect(await waitUntil { store.status(of: .telegram) != .ready })
+    #expect(store.status(of: .telegram) == .failed(PushStore.unreadable))
+}

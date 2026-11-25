@@ -58,8 +58,13 @@ final class PushStore {
     @ObservationIgnored private var queue = PushQueue()
     /// Sounds play at once: the same queue with no away time.
     @ObservationIgnored private var soundQueue = PushQueue()
+    /// Reads one channel's values on `keychainIO`; tests replace it, so no test reads the Keychain.
+    @ObservationIgnored var readValues: @Sendable (PushChannel) -> [String: String]? = PushValues.read
 
-    private init() {
+    /// A channel with no readable values shows this, not Ready.
+    static let unreadable = "Could not read the values from Keychain. Choose Change… to enter them again."
+
+    init() {
         let defaultStates: [SessionState] = [.needsInput, .failed, .ready]
         states = Set(appDefaults.stringArray(forKey: "pushStates")?.compactMap(SessionState.init) ?? defaultStates)
         awayMinutes = appDefaults.object(forKey: "pushAwayMinutes") as? Int ?? 2
@@ -86,7 +91,10 @@ final class PushStore {
             let message = PushMessage(row)
             for channel in channels {
                 let current = values[channel] ?? [:]
-                guard let destination = destination(channel, values: current) else { continue }
+                guard let destination = destination(channel, values: current) else {
+                    failures[channel] = Self.unreadable
+                    continue
+                }
                 _ = try? OrganizationSettingsState.shared.withPolicy { policy in
                     guard policy.allowsTransmission(sessionDirectory: row.cwd, gitRemote: .unknown,
                                                     service: destination.service, destinationIdentity: destination.identity) else { return }
@@ -176,13 +184,15 @@ final class PushStore {
         loading = true
         let names = channels
         let revisions = valueRevisions
+        let readValues = readValues
         keychainIO.async {
-            let read = Dictionary(uniqueKeysWithValues: names.compactMap { c in PushValues.read(c).map { (c, $0) } })
+            let read = Dictionary(uniqueKeysWithValues: names.compactMap { c in readValues(c).map { (c, $0) } })
             DispatchQueue.main.async {
                 MainActor.assumeIsolated {
                     var merged = self.values ?? [:]
                     for channel in names where self.valueRevisions[channel, default: 0] == revisions[channel, default: 0] {
                         merged[channel] = read[channel]
+                        if read[channel] == nil { self.failures[channel] = Self.unreadable }
                     }
                     self.values = merged
                     self.loading = false
@@ -255,9 +265,11 @@ private enum PushValues {
         return (data as? Data).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) }
     }
 
+    /// Update, then add: a failed write keeps the old value.
     static func save(_ channel: PushChannel, _ values: [String: String]) {
-        SecItemDelete(item(channel) as CFDictionary)
-        let status = SecItemAdd(item(channel).merging([kSecValueData as String: try! JSONEncoder().encode(values)]) { $1 } as CFDictionary, nil)
+        let changes = [kSecValueData as String: try! JSONEncoder().encode(values)]
+        var status = SecItemUpdate(item(channel) as CFDictionary, changes as CFDictionary)
+        if status == errSecItemNotFound { status = SecItemAdd(item(channel).merging(changes) { $1 } as CFDictionary, nil) }
         if status != errSecSuccess { log.error("push: Keychain save failed (\(status))") }
     }
 
