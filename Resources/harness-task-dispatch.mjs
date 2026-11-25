@@ -106,7 +106,9 @@ export function taskDispatch({ authorize, saveResult, containers, verifyRecovery
         check(await verifyRecovery(records, context) === true, "Rounds could not verify task records and process cleanup.");
         await containers.verifyInventory(records);
         for (const record of records) {
-            check(record.status === "blocked" || record.status === "done", "An interrupted task needs inspection before scheduling.");
+            check(["blocked", "done", "failed"].includes(record.status), "An interrupted task needs inspection before scheduling.");
+            // A failed run is not opened again.
+            if (record.status === "failed") continue;
             check(await harness.conversation(record.conversationID, context), "A saved task conversation is missing.");
             const saved = await containers.open(record).inspect();
             check(isDeepStrictEqual(saved, record.saved), "The saved task container does not match its run.");
@@ -167,7 +169,12 @@ export function taskDispatch({ authorize, saveResult, containers, verifyRecovery
             check(settled.status === "done" && settled.type === "input", "The task turn needs inspection.");
             const response = await harness.commit(tx => tx.entry(AssistantEntry, settled.answer), context);
             const message = response?.model?.[0];
-            const report = result(message?.content.filter(block => block.type === "text").map(block => block.text).join(""));
+            let report;
+            try { report = result(message?.content.filter(block => block.type === "text").map(block => block.text).join("")); } catch (error) {
+                // A malformed result ends the task, so it does not hold the dispatch queue.
+                await write(harness, taskID, { ...record, status: "failed" }, context);
+                throw error;
+            }
             const saved = await work.inspect();
             check(report.status !== "done" || report.checkedRevision === saved.revision, "The reported checks name a different revision.");
             await recheck(record, grant, context);

@@ -189,7 +189,7 @@ test("checks dependencies, resumes the same blocked run after reopen and accepts
     }
 });
 
-test("refuses to schedule replacement work after a rejected result and database reopen", {
+test("records a malformed result as failed and dispatches the next task after database reopen", {
     timeout: 120_000, skip: !!process.env.ROUNDS_DISPATCH_TEST_ENGINE,
 }, async t => {
     const f = await workflow(t);
@@ -200,7 +200,9 @@ test("refuses to schedule replacement work after a rejected result and database 
     assert.equal(f.reports.size, 0);
     await f.harness().close(context);
     dispatch = await f.open();
-    await assert.rejects(dispatch.start(f.harness(), b, context), /interrupted task/);
-    assert.equal((await f.harness().inspect(context)).scheduling, "paused");
-    assert.equal(f.calls.length, 1);
+    assert.equal((await dispatch.review(f.harness(), context))[a.taskID].status, "failed");
+    await assert.rejects(dispatch.start(f.harness(), { ...a, answer: blocked.options[0] }, context), /cannot start/);
+    f.faux.setResponses([fauxAssistantMessage(JSON.stringify(blocked))]);
+    assert.deepEqual((await dispatch.start(f.harness(), b, context)).report, blocked);
+    assert.deepEqual(f.calls.map(call => call.name), ["environment_create", "environment_create"]);
 });
