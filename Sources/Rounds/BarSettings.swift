@@ -9,9 +9,7 @@ import SwiftUI
 @MainActor @Observable
 final class BarSettingsState {
     static let shared = BarSettingsState()
-    private let directory = Demo.isOn
-        ? FileManager.default.temporaryDirectory.appending(path: "rounds-demo-\(ProcessInfo.processInfo.processIdentifier)")
-        : URL.applicationSupportDirectory.appending(path: "Rounds")
+    private let directory: URL
     var store: BarSettingsStore { BarSettingsStore(url: directory.appending(path: "bar-settings.json")) }
     private(set) var settings = BarSettings()
     private(set) var loaded = false
@@ -35,7 +33,11 @@ final class BarSettingsState {
     var repositoryName = ""
     var confirmCreate = false
 
-    private init() {
+    /// Tests pass their own folder.
+    init(directory: URL = Demo.isOn
+            ? FileManager.default.temporaryDirectory.appending(path: "rounds-demo-\(ProcessInfo.processInfo.processIdentifier)")
+            : URL.applicationSupportDirectory.appending(path: "Rounds")) {
+        self.directory = directory
         guard !Demo.isOn else {
             loaded = true
             return
@@ -91,7 +93,8 @@ final class BarSettingsState {
         }
     }
 
-    /// Checks the recorded bar off the main thread. A later change starts its own check.
+    /// Checks the recorded bar off the main thread. A change during the check checks again, as `refresh` skips a
+    /// row that is checking.
     func check(_ organization: UUID) {
         guard !Demo.isOn else { return }
         let settings = settings
@@ -105,7 +108,7 @@ final class BarSettingsState {
                 do { return settings.barProblem(for: organization, inspection: try inspectBarFolder(bar.path)) }
                 catch { return .inspectionFailed }
             }.value
-            guard self.settings == settings else { return }
+            guard self.settings == settings else { return check(organization) }
             checks[organization] = .done(problem)
         }
     }
