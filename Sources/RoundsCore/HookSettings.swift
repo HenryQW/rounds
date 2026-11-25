@@ -6,6 +6,8 @@ public enum HookInstallStatus: Sendable, Equatable {
 
 public enum HookInstallerError: Error, Equatable {
     case invalidJSON(String)
+    /// `config.toml` sets `features` in a form a line edit cannot change: a dotted key or an inline table.
+    case unsupportedConfig(String)
 }
 
 /// A hooks file Rounds writes its entries into, or the pi extension file it installs.
@@ -147,18 +149,18 @@ func writeKeepingBackup(_ data: Data, to url: URL) throws {
 /// A line edit keeps the user's comments and order; `codex_hooks` is the old name of the same switch.
 public enum CodexConfig {
     public static func hooksEnabled(_ toml: String) -> Bool {
-        featureLines(toml).contains { isKey($0.text, "hooks") && $0.text.replacingOccurrences(of: " ", with: "") == "hooks=true" }
+        ((try? featureLines(toml)) ?? []).contains { isKey($0.text, "hooks") && $0.text.replacingOccurrences(of: " ", with: "") == "hooks=true" }
     }
 
-    public static func enablingHooks(_ toml: String) -> String {
-        let features = featureLines(toml)
+    public static func enablingHooks(_ toml: String) throws(HookInstallerError) -> String {
+        let features = try featureLines(toml)
         let switchLine = features.first { isKey($0.text, "hooks") }?.index
         let oldNames = Set(features.filter { isKey($0.text, "codex_hooks") }.map(\.index))
         var lines: [String] = []
         var written = switchLine != nil
         for (index, line) in toml.components(separatedBy: "\n").enumerated() where !oldNames.contains(index) {
             lines.append(index == switchLine ? "hooks = true" : line)
-            if !written, line.trimmingCharacters(in: .whitespaces) == "[features]" {
+            if !written, tableHeader(line) == "[features]" {
                 lines.append("hooks = true")
                 written = true
             }
@@ -176,23 +178,36 @@ public enum CodexConfig {
         } catch CocoaError.fileReadNoSuchFile {
             toml = ""
         }
-        let edited = enablingHooks(toml)
+        let edited = try enablingHooks(toml)
         if edited != toml { try writeKeepingBackup(Data(edited.utf8), to: url) }
     }
 
-    /// Lines of the top-level `[features]` table, with their line numbers.
-    private static func featureLines(_ toml: String) -> [(index: Int, text: String)] {
-        var inFeatures = false
+    /// Lines of the top-level `[features]` table, with their line numbers. Throws when the top level sets `features`
+    /// as a dotted key or an inline table: a second `[features]` table would make the file invalid.
+    private static func featureLines(_ toml: String) throws(HookInstallerError) -> [(index: Int, text: String)] {
+        var inFeatures = false, atTop = true
         var result: [(Int, String)] = []
         for (index, line) in toml.components(separatedBy: "\n").enumerated() {
             let text = line.trimmingCharacters(in: .whitespaces)
-            if text.hasPrefix("[") {
-                inFeatures = text == "[features]"
+            if let header = tableHeader(text) {
+                (inFeatures, atTop) = (header == "[features]", false)
             } else if inFeatures {
                 result.append((index, text))
+            } else if atTop, text.contains("=") {
+                let key = text.prefix { $0 != "=" }.filter { $0 != " " && $0 != "\t" }
+                if key == "features" || key.hasPrefix("features.") {
+                    throw .unsupportedConfig("config.toml sets features as a dotted key or inline table; change it to a [features] table")
+                }
             }
         }
         return result
+    }
+
+    /// A table header without its comment and inner spaces (`[ features ] # c` is `[features]`); nil for other lines.
+    private static func tableHeader(_ line: String) -> String? {
+        let text = line.trimmingCharacters(in: .whitespaces)
+        guard text.hasPrefix("[") else { return nil }
+        return String(text.prefix { $0 != "#" }.filter { $0 != " " && $0 != "\t" })
     }
 
     private static func isKey(_ line: String, _ key: String) -> Bool {

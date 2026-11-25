@@ -131,7 +131,7 @@ private let helper = "/Applications/Rounds.app/Contents/Helpers/rounds-hook"
     #expect(HookSettings.status(d, helperPath: helper, target: .claude) == .missing)
 }
 
-@Test func enablingCodexHooksEditsOnlyFeatures() {
+@Test func enablingCodexHooksEditsOnlyFeatures() throws {
     let toml = """
     model = "gpt-5"
 
@@ -142,7 +142,7 @@ private let helper = "/Applications/Rounds.app/Contents/Helpers/rounds-hook"
     [projects."/Users/test/app"]
     hooks = false
     """
-    let edited = CodexConfig.enablingHooks(toml)
+    let edited = try CodexConfig.enablingHooks(toml)
     #expect(edited == """
     model = "gpt-5"
 
@@ -154,10 +154,20 @@ private let helper = "/Applications/Rounds.app/Contents/Helpers/rounds-hook"
     hooks = false
     """)
     #expect(CodexConfig.hooksEnabled(edited) && !CodexConfig.hooksEnabled(toml))
-    #expect(CodexConfig.enablingHooks(edited) == edited)
-    #expect(CodexConfig.enablingHooks("[features]\nhooks = false\n") == "[features]\nhooks = true\n")
-    #expect(CodexConfig.enablingHooks("model = \"x\"\n") == "model = \"x\"\n\n[features]\nhooks = true\n")
-    #expect(CodexConfig.enablingHooks("") == "[features]\nhooks = true\n")
+    #expect(try CodexConfig.enablingHooks(edited) == edited)
+    #expect(try CodexConfig.enablingHooks("[features]\nhooks = false\n") == "[features]\nhooks = true\n")
+    #expect(try CodexConfig.enablingHooks("model = \"x\"\n") == "model = \"x\"\n\n[features]\nhooks = true\n")
+    #expect(try CodexConfig.enablingHooks("") == "[features]\nhooks = true\n")
+}
+
+@Test func enablingCodexHooksFindsSpacedHeaderAndRefusesDottedFeatures() throws {
+    #expect(try CodexConfig.enablingHooks("[ features ] # flags\nmemories = true\n") == "[ features ] # flags\nhooks = true\nmemories = true\n")
+    #expect(CodexConfig.hooksEnabled("[features] # flags\nhooks = true\n"))
+    for toml in ["features.memories = true\n", "features = { memories = true }\n", "model = \"x\"\nfeatures . memories = true\n"] {
+        #expect(throws: HookInstallerError.self) { try CodexConfig.enablingHooks(toml) }
+    }
+    // A dotted key in another table belongs to that table.
+    #expect(try CodexConfig.enablingHooks("[profiles.a]\nfeatures.x = true\n") == "[profiles.a]\nfeatures.x = true\n\n[features]\nhooks = true\n")
 }
 
 @Test func firstUserPromptSkipsContextAndDeveloperMessages() {
