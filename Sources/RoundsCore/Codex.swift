@@ -85,6 +85,12 @@ public func parseCodexRollout(_ tail: Data) -> CodexTurn? {
     return nil
 }
 
+/// The tail of a rollout file for `parseCodexRollout`: 64 KB, or `largeTailBytes` when the last turn edge is further back.
+public func readCodexRolloutTail(_ url: URL) -> Data {
+    let tail = readTail(url)
+    return parseCodexRollout(tail) == nil ? readTail(url, maxBytes: largeTailBytes) : tail
+}
+
 /// The text of the first user message in the head of a rollout file, without the context blocks Codex adds
 /// (`<environment_context>`, also after whitespace, and the `# AGENTS.md instructions` block).
 public func firstUserPrompt(codexRollout data: Data) -> String? {

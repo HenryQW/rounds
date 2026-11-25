@@ -76,6 +76,14 @@ private func event(_ at: String, _ type: String) -> String {
     #expect(parseCodexRollout(Data(#"{"type":"session_meta"}"#.utf8)) == nil)
 }
 
+@Test func rolloutTailReadsFurtherForFarTurnEdge() throws {
+    let file = try tempDir().appending(path: "rollout.jsonl")
+    let filler = String(repeating: #"{"type":"response_item","payload":{}}"# + "\n", count: 3000)
+    try Data((event("2026-10-23T13:00:00Z", "task_complete") + "\n" + filler).utf8).write(to: file)
+    #expect(parseCodexRollout(readTail(file)) == nil)
+    #expect(parseCodexRollout(readCodexRolloutTail(file))?.kind == .completed)
+}
+
 private let now = Date(timeIntervalSince1970: 2_000_000)
 private let thread = CodexThread(id: "t1", title: "Fix login", cwd: "/Users/test/app", branch: nil,
                                  updatedAt: now.addingTimeInterval(-600), rolloutPath: "/r/1.jsonl")

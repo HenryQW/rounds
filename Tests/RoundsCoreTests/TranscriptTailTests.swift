@@ -39,12 +39,14 @@ private func tail(_ lines: [String]) -> LastMessage { LastMessage.parse(Data((li
     #expect(tail([noise]) == .unknown)
 }
 
-@Test func oversizedLastLineIsUnknown() throws {
+@Test func oversizedLastLineReadsLargerTail() throws {
     let file = try tempDir().appending(path: "t.jsonl")
     let big = assistantText(String(repeating: "x", count: 100_000))
     try Data((user("hi") + "\n" + big + "\n").utf8).write(to: file)
-    let t = LastMessage.parse(readTail(file))
-    #expect(t == .unknown)
+    #expect(LastMessage.parse(readTail(file)) == .endTurn)
+    // Longer than the larger tail too: no complete line, so unknown.
+    try Data((user("hi") + "\n" + assistantText(String(repeating: "x", count: 1_100_000)) + "\n").utf8).write(to: file)
+    #expect(LastMessage.parse(readTail(file)) == .unknown)
 }
 
 @Test func smallFileReadsWhole() throws {

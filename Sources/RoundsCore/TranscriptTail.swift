@@ -74,7 +74,11 @@ public func transcriptURL(cwd: String, cliSessionId: String, projectsRoot: URL, 
     return nil
 }
 
-/// The last `maxBytes` of a file, without the first (partial) line when the read starts mid-file.
+/// A tail read again when the first one gives no result: one long line or a far turn edge, not the whole file.
+public let largeTailBytes = 1_048_576
+
+/// The last `maxBytes` of a file, without the first (partial) line when the read starts mid-file. When that leaves
+/// no complete line (the last line is longer than `maxBytes`), it reads once more with `largeTailBytes`.
 public func readTail(_ url: URL, maxBytes: Int = 65_536) -> Data {
     guard let handle = try? FileHandle(forReadingFrom: url) else { return Data() }
     defer { try? handle.close() }
@@ -82,6 +86,6 @@ public func readTail(_ url: URL, maxBytes: Int = 65_536) -> Data {
     let start = size > UInt64(maxBytes) ? size - UInt64(maxBytes) : 0
     guard (try? handle.seek(toOffset: start)) != nil, let data = try? handle.readToEnd() else { return Data() }
     guard start > 0 else { return data }
-    guard let newline = data.firstIndex(of: UInt8(ascii: "\n")) else { return Data() }
-    return data[data.index(after: newline)...]
+    let whole = data.firstIndex(of: UInt8(ascii: "\n")).map { data[data.index(after: $0)...] } ?? Data()
+    return whole.isEmpty && maxBytes < largeTailBytes ? readTail(url, maxBytes: largeTailBytes) : whole
 }

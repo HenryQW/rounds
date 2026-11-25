@@ -236,7 +236,7 @@ final class AppModel {
                 // A thread quiet for the Aged time is Older whatever its rollout says; skip reading the file.
                 let rollout = URL(fileURLWithPath: t.rolloutPath)
                 let aged = now.timeIntervalSince(t.updatedAt) > lastCall.agedAfter
-                let turn = aged ? nil : turnCache.value(at: rollout, read: { readTail($0) }, decode: parseCodexRollout) ?? nil
+                let turn = aged ? nil : turnCache.value(at: rollout, read: readCodexRolloutTail, decode: parseCodexRollout) ?? nil
                 inputs["codex:" + t.id] = .codex(t, hook: states[t.id], turn: turn, live: live)
                 return SessionRow(thread: t, status: classifyCodex(t, hook: states[t.id], turn: turn, live: live))
             }
