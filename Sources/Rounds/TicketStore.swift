@@ -360,7 +360,14 @@ final class TicketStore {
             let token = inherited ?? runCommand(gh, ["auth", "token", "--hostname", "github.com", "--no-refresh"])
                 .flatMap { $0.status == 0 ? String(decoding: $0.stdout, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines) : nil }
             guard let token, !token.isEmpty else {
-                DispatchQueue.main.async { MainActor.assumeIsolated { self.github.busy = false; self.checkGitHub() } }
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        self.github.busy = false
+                        // The backoff stops a fetch loop while `gh` gives no token.
+                        self.github.failed()
+                        self.checkGitHub()
+                    }
+                }
                 return
             }
             var account = URLRequest(url: URL(string: "https://api.github.com/user")!)
@@ -375,7 +382,10 @@ final class TicketStore {
                         guard currentLogin == login, self.gh == gh,
                               self.organizationDestination(for: .github) == destination else {
                             self.github.busy = false
-                            if currentLogin != login { self.checkGitHub() }
+                            if currentLogin != login {
+                                self.github.failed()
+                                self.checkGitHub()
+                            }
                             return
                         }
                         let started = (try? OrganizationSettingsState.shared.withPolicy { policy in
