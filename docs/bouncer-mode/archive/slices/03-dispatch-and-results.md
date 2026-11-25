@@ -8,19 +8,19 @@ The Bouncer gives a task to a Bartender and gets its result back. The result arr
 
 Local task records are built. A local runtime verifies dispatch, Blocked continuation and result intake across two disposable repositories. The running app still needs the integrations in [Open](#open).
 
-The storage in this brief (one bar, approved detail folders for each organization) is superseded by decision "One bar for each organization" (2026-11-24). The storage check and the detail store now use one private bar for each organization, with the task graph in `tasks/graph` and the details in `tasks/details` of that bar ([spec 2.7.2](../../spec.md#272-bar-setup), built 2026-11-24). A nil organization cannot store tasks. Read the rows below about detail folders, acknowledgement and unclassified folders with that change.
+Each organization has one private bar. Its graph is in `tasks/graph` and its immutable task revisions are in `tasks/details`. A project with no organization has no task storage. See Bar setup (specification at `124fa0f`).
 
 ## Read first, in full
 
 | Read | Purpose |
 |---|---|
-| [AGENTS.md](../../../AGENTS.md), [DESIGN.md](../../../DESIGN.md), [GLOSSARY.md](../../../GLOSSARY.md) | Project rules, existing components and product terms |
-| [Spec 2.7](../../spec.md#27-pi-sessions), [2.8](../../spec.md#28-tickets), [3](../../spec.md#3-classification) | Organization checks, bar setup and session classification; include every subsection |
+| [AGENTS.md](../../../../AGENTS.md), [DESIGN.md](../../../../DESIGN.md), [GLOSSARY.md](../../../../GLOSSARY.md) | Project rules, existing components and product terms |
+| Spec 2.7, 2.8 and 3 at commit `124fa0f` | Organization checks, bar setup and session classification |
 | This brief, [01](01-bouncer-mode.md), [02](02-node-harness-host.md), [slice index](README.md) | Scope, adapter boundary and Node Host prerequisites |
-| [Overview](../overview.md), [decisions](../decisions.md), [context](../CONTEXT.md) | Agreed behavior, owner decisions and task/session distinction |
-| [Bouncer review](../archive/bouncer-review.md), [plan](../archive/plan.md) | Evidence and proposals; proposals do not replace owner decisions |
-| [Bar.swift](../../../Sources/RoundsCore/Bar.swift), [TaskGraph.swift](../../../Sources/RoundsCore/TaskGraph.swift), [TaskDetailStore.swift](../../../Sources/RoundsCore/TaskDetailStore.swift), [TaskRecordStore.swift](../../../Sources/RoundsCore/TaskRecordStore.swift) | Actual setup checks, graph validation and detail publication contracts |
-| [Bar tests](../../../Tests/RoundsCoreTests/BarTests.swift), [graph tests](../../../Tests/RoundsCoreTests/TaskGraphTests.swift), [detail tests](../../../Tests/RoundsCoreTests/TaskDetailStoreTests.swift), [record tests](../../../Tests/RoundsCoreTests/TaskRecordStoreTests.swift) | Existing boundaries and regression coverage |
+| [Overview](../overview.md), [decisions](../../decisions.md), [context](../CONTEXT.md) | Agreed behavior, owner decisions and task/session distinction |
+| [Bouncer review](../bouncer-review.md), [plan](../plan.md) | Evidence and proposals; proposals do not replace owner decisions |
+| `Sources/RoundsCore/Bar.swift`, `Sources/RoundsCore/TaskGraph.swift`, `Sources/RoundsCore/TaskDetailStore.swift`, `Sources/RoundsCore/TaskRecordStore.swift` | Actual setup checks, graph validation and detail publication contracts |
+| `Tests/RoundsCoreTests/BarTests.swift`, `Tests/RoundsCoreTests/TaskGraphTests.swift`, `Tests/RoundsCoreTests/TaskDetailStoreTests.swift`, `Tests/RoundsCoreTests/TaskRecordStoreTests.swift` | Existing boundaries and regression coverage |
 | Pinned Pi source listed under Contracts | Conversation creation, child ownership, tool exposure and scheduling |
 
 Read the living-docs skill, section "Slice brief", before changing this brief. The checked source is `~/.local/share/magpie/shared-skills/skills/living-docs/SKILL.md` on `vps`.
@@ -43,15 +43,15 @@ Sub-step 1 can merge before slice 02. Sub-steps 2 and 3 require its completed ho
 
 | Path or boundary | Sub-step | Role |
 |---|---|---|
-| [TaskInterface.swift](../../../Sources/RoundsCore/TaskInterface.swift) | 1 | Implements local task operations through the bar storage check |
-| [Bar.swift](../../../Sources/RoundsCore/Bar.swift) | 1 | Checks folder readiness and resolves the approved detail folder |
-| [TaskGraph.swift](../../../Sources/RoundsCore/TaskGraph.swift), [TaskDetailStore.swift](../../../Sources/RoundsCore/TaskDetailStore.swift), [TaskRecordStore.swift](../../../Sources/RoundsCore/TaskRecordStore.swift) | 1 | Own graph validation, immutable revisions and detail-first linking |
-| [TaskInterfaceTests.swift](../../../Tests/RoundsCoreTests/TaskInterfaceTests.swift) | 1 | Exercises local calls with temporary stores |
-| [harness-task-dispatch.mjs](../../../Resources/harness-task-dispatch.mjs), [harness-container-run.mjs](../../../Resources/harness-container-run.mjs) | 2, 3 | Bind local runs to Harness conversations, check restart state and import the exact result revision |
-| [test-harness-task-dispatch.mjs](../../../scripts/test-harness-task-dispatch.mjs) | 2, 3 | Verify the workflow with SQLite, a fixture model and an optional disposable engine |
-| [BouncerAdapter.swift](../../../Sources/RoundsCore/BouncerAdapter.swift), [Bouncer.swift](../../../Sources/RoundsCore/Bouncer.swift), [BouncerModel.swift](../../../Sources/Rounds/BouncerModel.swift) | 2, 3 | Extend the durable adapter and project records into existing task/report/question events |
-| [Bouncer tests](../../../Tests/RoundsCoreTests/BouncerTests.swift) and slice 02 host tests | 2, 3 | Check protocol boundaries and real branch intake; do not restore the removed Pi process adapter |
-| [Spec](../../spec.md), this brief, [slice index](README.md) | Each | Record only behavior that the sub-step implements and verifies |
+| `Sources/RoundsCore/TaskInterface.swift` | 1 | Implements local task operations through the bar storage check |
+| `Sources/RoundsCore/Bar.swift` | 1 | Checks the organization's bar and resolves both task folders |
+| `Sources/RoundsCore/TaskGraph.swift`, `Sources/RoundsCore/TaskDetailStore.swift`, `Sources/RoundsCore/TaskRecordStore.swift` | 1 | Own graph validation, immutable revisions and detail-first linking |
+| `Tests/RoundsCoreTests/TaskInterfaceTests.swift` | 1 | Exercises local calls with temporary stores |
+| `Resources/harness-task-dispatch.mjs`, `Resources/harness-container-run.mjs` | 2, 3 | Bind local runs to Harness conversations, check restart state and import the exact result revision |
+| `scripts/test-harness-task-dispatch.mjs` | 2, 3 | Verify the workflow with SQLite, a fixture model and an optional disposable engine |
+| `Sources/RoundsCore/BouncerAdapter.swift`, `Sources/RoundsCore/Bouncer.swift`, `Sources/Rounds/BouncerModel.swift` | 2, 3 | Extend the durable adapter and project records into existing task/report/question events |
+| `Tests/RoundsCoreTests/BouncerTests.swift` and slice 02 host tests | 2, 3 | Check protocol boundaries and real branch intake; do not restore the removed Pi process adapter |
+| [Spec](../../../spec.md), this brief, [slice index](README.md) | Each | Record only behavior that the sub-step implements and verifies |
 
 No new window design belongs here. Use the chosen slice 01 components. The Node Host file layout is a dependency of slice 02, not an invented layout in this brief.
 
@@ -61,16 +61,16 @@ No new window design belongs here. Use the chosen slice 01 components. The Node 
 
 | Boundary | Contract |
 |---|---|
-| Scope | Each call supplies its organization scope and exact authorized graph/detail destinations. Do not infer authority from assignment text or a Git remote. |
-| First check | Each `TaskInterface` call checks `BarSettingsStore.mayStoreTaskDetails(for:)`. A false result stops the operation before it accesses the stores. |
-| Destination | The interface resolves the approved folder with `taskDetailFolder(for:)` and checks it against the caller's detail destination. |
-| Authorization | The caller supplies separate authority for graph values and detail values at their exact destinations. A detail link grant covers its reference, generation, timestamp and viewed-status reset. |
-| Unclassified input | A nil organization selects the existing unclassified folder. It grants no model transmission. Do not convert a conflicting classification into an unclassified permission. |
-| Create | `create` authorizes and saves the graph candidate, then publishes and links assignment details. New tasks start in `queued` with an empty detail reference. |
+| Scope | Each call supplies an organization and both storage destinations. Assignment text and Git remotes grant no storage authority. |
+| First check | `BarSettingsStore.taskStorage(for:)` checks the organization's ready bar and private task folders. A failure stops the operation before it accesses the stores. |
+| Destination | The caller supplies the exact `tasks/graph` and `tasks/details` folders in that bar. |
+| Authorization | The caller authorizes the graph snapshot, its new revision link and the detail values at their respective destinations. A link grant covers its reference, generation, timestamp and viewed-status reset. |
+| Unclassified input | A nil organization fails the storage check. Conflicting classifications grant no storage authority. |
+| Create | `create` authorizes the complete graph candidate and the assignment revision. It publishes the revision first, then writes the queued task and its generation-one reference in a single graph update. |
 | Read and revise | `read` loads the authorized graph and its linked revision. `revise` checks the expected reference and starts from the current detail values. |
-| Concurrent change | The stores reject a stale graph update or detail reference. If the link timestamp changes, the interface requires authority for the effective time before linking. |
-| Publication | `TaskCreationResult.saved` confirms creation and linkage. `TaskRecordWriteResult.saved` confirms revision publication and linkage. Other outcomes require inspection. |
-| Partial write | A graph task without details or an unlinked detail revision can remain after failure. Report it; do not dispatch, delete it or recreate missing data. |
+| Concurrent change | Creation rejects a stale graph snapshot or lost bar readiness. It checks the graph and detail directory identities at commit. Revisions reject a stale detail reference and require authority for any change to the link timestamp. |
+| Publication | `TaskCreationResult.saved` confirms creation and linkage. `TaskRecordWriteResult.saved` confirms revision publication and linkage. A creation inspection result names the task and revision and reports which publication needs inspection. |
+| Partial write | A failed detail write leaves the graph unchanged. Uncertain detail publication stops before the graph write. If graph publication fails or is uncertain, inspect the reported task and revision identifiers before retrying. |
 | Viewed result | Only completed or cancelled graph tasks accept acknowledgement. Call `markResultViewed(_:expecting:at:)` with the displayed reference. A stale view cannot acknowledge a newer result. |
 | States | Preserve `TaskGraph` validation. Sub-step 1 adds no run-state transition policy or mapping from a Pi conversation to a Rounds task. |
 
@@ -80,7 +80,7 @@ No new window design belongs here. Use the chosen slice 01 components. The Node 
 
 `TaskResult` holds `changedLocations`, `validationOutcomes`, `checkedRevisionOrWorkingTree`, `risks` and `blockers`. It can also hold an authorized repository identifier and folder identity. Local approval requests require both. `TaskProgress` and `TaskDecision` remain separate detail arrays.
 
-`TaskRecordStore.write` publishes details before updating the graph. Its error can identify a published orphan. It is not a transaction across both stores.
+`TaskRecordStore.write` publishes details before updating an existing task. A failure between the two writes can leave an unlinked revision. Both creation and revision errors retain the identifiers for inspection.
 
 ### Dispatch and results
 
@@ -121,7 +121,7 @@ A Pi task identifier, conversation identifier and Rounds graph task identifier a
 ```mermaid
 flowchart TD
     A[Local task request] --> B[Check bar and exact storage authority]
-    B --> C[Create graph task and publish linked details]
+    B --> C[Publish assignment, then add the linked task to the graph]
     C --> D{Dispatch prerequisites resolved?}
     D -->|No| E[Keep local task; do not dispatch]
     D -->|Yes| F[Slice 02 host starts Bartender through container-use]
@@ -134,13 +134,13 @@ flowchart TD
 ### Sub-step 1: local task records
 
 - `TaskInterface` takes an explicit bar scope and exact store destinations. An explicit setup call initializes the graph.
-- Creation publishes and links assignment details after the graph save. Inspection outcomes carry the task identifier.
+- Creation publishes the immutable assignment revision before adding the task and reference to the graph. A partial write can leave a revision for inspection.
 - Reads authorize the graph snapshot and any linked details. Revisions preserve each value that the edit leaves unchanged.
 - The caller can update graph state and acknowledge a viewed result through the existing graph validation.
 
 ### Sub-step 2: dispatch and continuation
 
-- Resolve enrollment, instructions, state/identity and storage questions before implementing live dispatch.
+- Resolve task state, session identity and permitted storage before connecting live dispatch.
 - Extend slice 02's registry and Rounds protocol. Keep the task interface as the only record-writing boundary.
 - Recheck the target checkout and its single-writer ownership before starting work.
 - Create or reacquire the appropriate conversation through the Harness. Apply explicit role tools before submitting the handoff.
@@ -165,28 +165,37 @@ This brief defines no clone deletion schedule, checkpoint replacement or new Dec
 ### Local runtime
 
 - A trusted adapter supplies enrollment, instructions, the model, the handoff and permission to store each result. The runtime rechecks that grant before container operations, model requests and result intake.
-- The Harness database binds the task and detail identifiers to a conversation and a private run. Blocked work accepts a current answer and opens the same clone. A malformed result records the task as Failed, so the next task can dispatch. Other uncertain work blocks a replacement. Each dispatch inspects only Blocked runs. It keeps the 8 newest Done runs and removes older Done records and their run folders.
+- The Harness database binds the task and detail identifiers to a conversation and a private run. Blocked work accepts a current answer and opens the same clone. Uncertain work blocks a replacement.
+- A running or blocked task owns its checkout. While it waits for approval or imports its result, another checkout can run. An approval wakes only its bound call after the runtime checks the other scheduled work.
+- Admission and result publication share a guard. Publishing the new detail reference and run status together prevents admission from checking two different revisions. A restart with an interrupted run or unrelated queued work requires inspection.
 - Done includes the revision read after validation. The runtime compares it to the saved result before importing. The fetch and reference update use the verified Git directory.
-- The local workflow uses a fixture model and fixture authority. The running Bouncer still needs task registration, local record integration, task presentation and the agreed review path for Barback results.
+- An explicit approval grant records the original bar path, device and inode on the run. The app reads these registrations when the Bouncer opens. A blocked continuation must keep the same grant.
+- Settings enrolls each checkout once for its organization. The policy stores its root, Git directory and common directory. A linked worktree needs a separate enrollment and shares its repository identifier.
+- The local grant checks current enrollment and permission for the exact model destination. It resolves the selected reference and checks the approved root `AGENTS.md` blob or its approved absence. The dispatcher reads that commit before creating a conversation. A changed working file supplies no instructions.
+- A blocked run from an earlier version can continue after recovery verifies the original container and checkout and the caller supplies current authorization. Removing enrollment also blocks loading or answering local approval cards.
+- The local workflow uses a fixture model and fixture authority. The app still needs a trusted task handoff, model destination selection and consent, approved result storage, task presentation and the Barback review path.
 
 ## Tests
 
-[Local task tests](../../../Tests/RoundsCoreTests/TaskInterfaceTests.swift) exercise sub-step 1. The local workflow covers sub-steps 2 and 3 where indicated above. Run Rounds tests through `scripts/test.sh`.
+`Tests/RoundsCoreTests/TaskInterfaceTests.swift` exercise sub-step 1. The local workflow covers sub-steps 2 and 3 where indicated above. Run `scripts/test.sh --no-parallel` to run tests in sequence.
 
 | Sub-step | Case, boundary first | Required observation |
 |---|---|---|
-| 1 | Missing bar, malformed settings, unacknowledged changed remotes, or absent approval | The first storage check rejects; neither graph nor details changes |
+| 1 | Missing bar or owner, malformed settings, or a remote outside the organization's owner | The first storage check rejects the operation before publication |
 | 1 | Approved folder disappears, is replaced, becomes a symlink, or loses private ownership/permissions | A fresh operation rejects the destination; no alternate directory receives the data |
 | 1 | Organization A is approved; B and unclassified are not | Calls for B and nil fail; A cannot authorize them |
-| 1 | Folder readiness succeeds but graph or detail values lack destination authorization | Reject before either write; remote acknowledgement cannot substitute |
+| 1 | Folder readiness succeeds but graph or detail values lack destination authorization | Reject before either write. A ready bar grants no authority to write values |
 | 1 | Missing graph on an ordinary call | Return `missingGraph`; do not initialize or erase recovery evidence |
 | 1 | Unknown task or stale detail reference | Reject; preserve the linked revision and report any published orphan |
-| 1 | Detail write is not durable, or graph linking fails after detail publication | Surface the exact inspection/link outcome; no success report or dispatch |
+| 1 | Oversized assignment or uncertain detail publication | Keep the graph unchanged. For uncertain publication, report the task and revision identifiers |
+| 1 | Competing creation, directory replacement or lost readiness after assignment publication | Reject the graph write. Keep the published revision and report both identifiers |
+| 1 | Uncertain graph publication or a detail directory move during the graph commit | Report both identifiers and the error or inspection status. If the task is visible, it has its initial revision reference |
 | 1 | A new dependency or required-child link would form a cycle or allow premature completion | Existing graph validation rejects the update and preserves the previous graph |
 | 1 | Task is nonterminal, or the displayed result reference becomes stale before acknowledgement | `markResultViewed` rejects; a newer terminal result still needs attention |
 | 1 | Valid authorized create, revise and reopen | Assignment and current reference survive reopen; graph contains no task text |
 | 2 | Missing enrollment, explicit instructions, storage permission or checkout ownership | No model request, conversation input or environment creation occurs |
 | 2 | Child inherits the Bouncer's orchestration tools | Role configuration removes forbidden tools before the child's first input |
+| 2 | A task awaits approval or imports its result | Another checkout can complete. A second writer for the first checkout is refused |
 | 2 | Duplicate dispatch or crash between conversation, submission and environment writes | Reconcile the known operation; never silently start a second clone or writer |
 | 2 | Restart leaves an owned wrapper process alive | Verify and stop it before resume, submit, abort, compact or wait can schedule work |
 | 2 | Wrong task/run correlation, stale reference, malformed result, or a fourth Blocked option | Reject the result; preserve the current accepted record |
@@ -204,9 +213,9 @@ The local task measures describe the built interface. Dispatch and intake measur
 
 | Measure | Current state or target | Verification |
 |---|---|---|
-| Source callers of `mayStoreTaskDetails(for:)` | 1 local task interface | Inspect `TaskInterface.checkedStores` and run its allow and deny tests |
-| Graph and detail formats | Graph version 3; detail version 1 | Reuse both formats; reopen written records with the existing stores |
-| Encoded detail revision size | Maximum 1,048,576 bytes | Preserve the limit; an oversized assignment fails without a linked replacement |
+| Source callers of the task storage check | 1 local task interface | Inspect `TaskInterface.checkedStores` and run its allow and deny tests |
+| Graph and detail formats | Graph version 3. Detail version 2 for new writes, version 1 and 2 for reads | Reopen written records and read the version 1 fixture |
+| Encoded detail revision size | Maximum 1,048,576 bytes | An oversized assignment leaves the graph unchanged |
 | Runtime dependencies for sub-step 1 | 0 containers and 0 model requests | Run the fixture tests without a host |
 | Blocked options | Agreed maximum 3 | Accept at most 3; reject 4 at the result boundary |
 | Concurrent writers per checkout | Agreed maximum 1 | Reject a second writer; assert ownership in dispatch and restart tests |
@@ -216,7 +225,7 @@ The local task measures describe the built interface. Dispatch and intake measur
 
 ## Decided
 
-- Decision "Option 3: container-use for all agent work" ([decisions.md](../decisions.md)).
+- Decision "Option 3: container-use for all agent work" ([decisions.md](../../decisions.md)).
 - Handoff and result contents: the Handoff row of the [agreed scope](../overview.md#agreed-scope).
 - *default*: Reuse slice 02's host and registry for sub-steps 2 and 3. Configure each role's tools explicitly before input.
 - *default*: Stop on uncertain publication, correlation or recovery outcomes. Keep evidence for inspection instead of automatically retrying side effects.
@@ -229,9 +238,9 @@ Each item remains open. Blockers are direct; later sub-steps also inherit their 
 
 | Open item | Effect |
 |---|---|
-| Define repository enrollment and explicit instruction loading. | blocks sub-step 2 |
+| Connect the agreed handoff, enrolled checkout, model destination consent and authorized result storage to the live dispatcher. | blocks sub-step 2 |
 | Define task-state transitions and task-to-session identity. | blocks sub-step 2 and sub-step 3 |
-| Checkpoints and safe retention remain open. Replacing the Git Checkpoint with the clone is an unapproved proposal in the [bouncer review](../archive/bouncer-review.md#changes). | does not block; the details assume nothing about it |
+| Checkpoints and safe retention remain open. Replacing the Git Checkpoint with the clone is an unapproved proposal in the [bouncer review](../bouncer-review.md#changes). | does not block; the details assume nothing about it |
 | Decision Record scope remains open. Recording results and every approval, instead of routine decisions, is an unapproved proposal in the bouncer review. | does not block; the details assume nothing about it |
 | How a Bartender takes in the changes of its Barback is not checked. | blocks sub-step 3 |
 | Resolve cross-organization links and separate local-only records before integration. | blocks sub-step 3 |

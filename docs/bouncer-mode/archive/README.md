@@ -1,11 +1,28 @@
-# Archive
+# Rounds-hosted design archive
 
-The archive records how the design of Bouncer mode came about. [Decisions](../decisions.md) and [slice briefs](../slices/README.md) win over it. Archived docs can use old names; [CONTEXT.md](../CONTEXT.md) maps them to current names in its `Not` column. Do not update archived docs, except to fix links.
+These files record how the Rounds-hosted design developed. Source paths refer to the code at commit `124fa0f`. See the [current Bouncer mode documentation](../README.md) and the [owner decision log](../decisions.md).
 
-| Doc | Holds | Status |
-|---|---|---|
-| [plan.md](plan.md) | The plan up to 2026-11-19: objective, scope, acceptance scenarios, remaining work and slice order. Its content now lives in the [overview](../overview.md), [decisions](../decisions.md) and [slice briefs](../slices/README.md). | Record only |
-| [reuse-review.md](reuse-review.md) | Existing tools checked for reuse, orchestration options for option 3, and the pi-durable probe of 2026-11-19 | Read by [slice 02](../slices/02-node-harness-host.md) (section [pi-durable](reuse-review.md#pi-durable-checked-2026-11-18)) |
-| [feasibility-check.md](feasibility-check.md) | Delegate cancellation, recovery, sandbox, container-use, Dagger and egress probes | Read by [slice 02](../slices/02-node-harness-host.md) |
-| [attention-review.md](attention-review.md) | The review of the task area for user attention, approved 2026-11-19 | Read by [slice 01](../slices/01-bouncer-mode.md) |
-| [bouncer-review.md](bouncer-review.md) | The review of agents, approvals and recovery, and option 3 | Read by [slice 03](../slices/03-dispatch-and-results.md); decision "Option 3" links it |
+| File | What it held |
+|---|---|
+| [overview.md](overview.md) | Scope, components and build order |
+| [CONTEXT.md](CONTEXT.md) | Historical terms and old names |
+| [bouncer-mockups.html](bouncer-mockups.html) | Window and pill layouts |
+| [Slice index](slices/README.md) | Four implementation briefs and a walkthrough |
+
+## Decision records
+
+| File | What it held |
+|---|---|
+| [Repository visibility](decisions/repository-visibility.md) | Storage and repository visibility |
+| [Authority](decisions/authority.md) | Approval and enforcement rules |
+
+## Research and reviews
+
+| File | What it held |
+|---|---|
+| [plan.md](plan.md) | The plan through 2026-11-19 |
+| [reuse-review.md](reuse-review.md) | Tools and coordination options |
+| [feasibility-check.md](feasibility-check.md) | Cancellation, recovery, isolation and network tests |
+| [attention-review.md](attention-review.md) | Tasks that needed the user’s attention |
+| [bouncer-review.md](bouncer-review.md) | Agents, approvals and recovery |
+| [ework-integration-tests.md](research/ework-integration-tests.md) | Integration test results and gaps |

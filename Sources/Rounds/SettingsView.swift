@@ -84,7 +84,6 @@ struct SettingsView: View {
     @Bindable private var drawer = DrawerSettings.shared
     @Bindable private var updater = Updater.shared
     @Bindable private var push = PushStore.shared
-    @Bindable private var bouncer = BouncerModel.shared
 
     /// Settings pages in a sidebar (spec 5.4).
     var body: some View {
@@ -290,10 +289,6 @@ struct SettingsView: View {
                 described("Session window shortcut", "Opens or closes the session window.")
             }
             .help("Works in any app. With no shortcut, open the window from the pill.")
-            Toggle(isOn: $bouncer.on) {
-                described("Bouncer mode", "The pill opens the Bouncer Window. The shortcut opens the session window.")
-            }
-            .help("The Bouncer runs pi without tools in the bar folder. The pill's right-click menu also opens the session window.")
         } footer: {
             footer(state.error ?? state.recorder.message)
         }
@@ -394,22 +389,13 @@ struct SettingsView: View {
         }
     }
 
-    @ViewBuilder private var keys: some View {
+    private var keys: some View {
         Section {
             ForEach(Self.cheatsheet, id: \.action) { item in
                 LabeledContent { keycaps(item.keys) } label: { Text(item.action).labelColumn() }
             }
         } footer: {
             footer(nil, help: "The keys work while the session window is in front.")
-        }
-        if bouncer.on {
-            Section {
-                ForEach(Self.bouncerCheatsheet, id: \.action) { item in
-                    LabeledContent { keycaps(item.keys) } label: { Text(item.action).labelColumn() }
-                }
-            } header: {
-                Text("Bouncer Window")
-            }
         }
     }
 
@@ -779,16 +765,6 @@ struct SettingsView: View {
         ("Clear the search, then close", "[Esc]"),
         ("More actions", "Right-click a row"),
         ("Move the pill along the edge", "[⌘] and drag"),
-    ]
-
-    /// Keys of the Bouncer Window (BouncerWindowController.handle); keep in step with spec 5.9.
-    private static let bouncerCheatsheet: [(action: String, keys: String)] = [
-        ("New task", "[⌘][N]"),
-        ("Select the next or previous row", "[⌃][Tab] [⌃][⇧][Tab]"),
-        ("Send", "[Return]"),
-        ("Add a line", "[⇧][Return]"),
-        ("Close the popover, or stop the reply", "[Esc]"),
-        ("Close the window", "[⌘][W]"),
     ]
 
     /// "[⌘][1] to [⌘][5]": each bracketed key in a small keycap with a hairline, the words between as text, and a

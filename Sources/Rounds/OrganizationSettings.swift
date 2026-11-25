@@ -202,7 +202,6 @@ final class OrganizationSettingsState {
 struct OrganizationSettingsView: View {
     let model: AppModel
     @Bindable private var state = OrganizationSettingsState.shared
-    @Bindable private var bars = BarSettingsState.shared
 
     private var paths: [String] {
         let stored = state.policy.rules.compactMap { rule -> String? in
@@ -255,34 +254,9 @@ struct OrganizationSettingsView: View {
         .sheet(item: $state.permissionOrganization) { organization in
             OrganizationPermissionsView(organization: organization)
         }
-        .onAppear { bars.refresh() }
         .onDisappear {
             state.confirmRecovery = false
             state.permissionOrganization = nil
-            bars.ownerOrganization = nil
-            bars.confirmCreate = false
-        }
-        .sheet(item: $bars.ownerOrganization) { organization in
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Owner of \(organization.name)").font(.headline)
-                Text("The host and the account that may receive pushes of this organization, such as github.com/HenryQW. The account can be a person or a GitHub organization.")
-                    .foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                TextField("Owner", text: $bars.ownerText, prompt: Text("github.com/account"))
-                if let error = bars.ownerError { Text(error).foregroundStyle(.red) }
-                HStack {
-                    Spacer()
-                    Button("Cancel") { bars.ownerOrganization = nil }
-                    Button("Save") { _ = bars.saveOwner() }.keyboardShortcut(.defaultAction)
-                }
-            }
-            .padding(20).frame(width: 400)
-        }
-        .alert("Create a repository in this folder?", isPresented: $bars.confirmCreate) {
-            TextField("Bar name", text: $bars.repositoryName)
-            Button("Cancel", role: .cancel) {}
-            Button("Create") { bars.create(projectFolders: paths) }
-        } message: {
-            Text("Rounds runs git init in \(bars.createOrganization.flatMap { bars.pendingFolders[$0] } ?? "") and writes the bar name to \(barFileName). It does not add a remote, commit or push.")
         }
         .sheet(isPresented: $state.addingOrganization) {
             VStack(alignment: .leading, spacing: 16) {
@@ -312,7 +286,6 @@ struct OrganizationSettingsView: View {
             ForEach(state.policy.organizations) { item in
                 GroupBox(item.name) {
                     VStack(alignment: .leading, spacing: 8) {
-                        OrganizationBarRows(organization: item, projectFolders: paths)
                         projectList(paths.filter { organization(for: $0) == item.id }, target: item.id)
                         Divider()
                         Button("Review Permissions…") { state.permissionOrganization = item }

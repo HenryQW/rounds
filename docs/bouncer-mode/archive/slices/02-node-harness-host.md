@@ -25,11 +25,11 @@ Slice 01: the `BouncerAdapter` protocol and the Bouncer Window.
 
 ## Decided
 
-- Decisions "Bouncer on pi-durable", "pi-durable Harness for Bartenders and Barbacks", "Build on unreleased pi-durable" and "Option 3: container-use for all agent work" ([decisions.md](../decisions.md)).
+- Decisions "Bouncer on pi-durable", "pi-durable Harness for Bartenders and Barbacks", "Build on unreleased pi-durable" and "Option 3: container-use for all agent work" ([decisions.md](../../decisions.md)).
 - Build pi-durable in a folder with no symbolic link in its path. Under `/tmp` (a link to `/private/tmp`) TypeScript loads the same file twice and `harness.ts(202,49)` fails with TS2322.
 - Preview packages at `pkg.earendil.com` need a login (HTTP 401), so Rounds cannot use them.
 - The new database format cannot go back to 1.5.2, so keep no data from earlier probes.
-- Evidence for this brief: the pi-durable probe results in [archive/reuse-review.md](../archive/reuse-review.md#pi-durable-checked-2026-11-18), and the container-use, Dagger and egress rows in [archive/feasibility-check.md](../archive/feasibility-check.md).
+- Evidence for this brief: the pi-durable probe results in [archive/reuse-review.md](../reuse-review.md#pi-durable-checked-2026-11-18), and the container-use, Dagger and egress rows in [archive/feasibility-check.md](../feasibility-check.md).
 
 ### Implementation defaults
 
@@ -49,8 +49,8 @@ Slice 01: the `BouncerAdapter` protocol and the Bouncer Window.
 |---|---|
 | `AGENTS.md`, `DESIGN.md`, `GLOSSARY.md` | Rules, visual conventions and names |
 | This brief and [slices/README.md](README.md) | Scope and build order |
-| [decisions.md](../decisions.md) | The four decisions cited under Decided |
-| [overview.md](../overview.md), [archive/reuse-review.md](../archive/reuse-review.md) | Structure and source evidence |
+| [decisions.md](../../decisions.md) | The four decisions cited under Decided |
+| [overview.md](../overview.md), [archive/reuse-review.md](../reuse-review.md) | Structure and source evidence |
 | `Sources/RoundsCore/BouncerAdapter.swift`, `Sources/RoundsCore/HarnessBouncer.swift` | Adapter interface and durable Bouncer |
 | `Sources/Rounds/BouncerModel.swift`, `Sources/Rounds/RoundsApp.swift` | Start, mode off and quit callers |
 | `Package.swift`, `scripts/test.sh`, `scripts/bundle.sh` | Build, tests and app packaging |
@@ -208,7 +208,7 @@ flowchart LR
 | Pi launch failure | Rounds shuts down the already running host |
 | Host shutdown notice | The notice stays pending across Pi start and exit while the Bouncer window is hidden |
 | Leftover group | A replacement cleans the recorded group before launching its new host |
-| Identity mismatch | Cleanup never signals an unrelated live process that has the recorded leader pid. While a recorded child still runs, start stops and keeps the record. When no recorded child runs, start clears the record and continues |
+| Identity mismatch | Cleanup refuses to signal an unrelated live process and preserves the record |
 | Two owners | The folder lock rejects the second owner without stopping the first |
 | Released failed owner | The record remains, but releasing the actor closes its lock; a new owner can read a corrected record |
 | Exited child or closed input | Start Again starts a healthy replacement on its first attempt |

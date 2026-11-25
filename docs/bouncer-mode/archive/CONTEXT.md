@@ -2,17 +2,17 @@
 
 Bouncer mode coordinates work across independent repositories through one user-facing Bouncer. See the overview for current behavior and the remaining plan. The bar is separate from the Rounds source repository unless the user chooses otherwise.
 
-Rounds owns its existing session language in [GLOSSARY.md](../../GLOSSARY.md). A Task Record is not a session: a task can outlive a session or span several sessions. The `Not` column lists rejected and old names; only `archive/` uses them. An old name with a date is the name that a doc used before that date.
+Rounds owns its existing session language in [GLOSSARY.md](../../../GLOSSARY.md). A Task Record is not a session: a task can outlive a session or span several sessions. The `Not` column lists rejected and old names; only `archive/` uses them. An old name with a date is the name that a doc used before that date.
 
 ## Names
 
 | Name | Means | Not |
 |---|---|---|
 | **Bouncer mode** | The Rounds mode that coordinates work across repositories. Its repository records and task records stay in a bar, not copies of application code. | Router Workspace (old name, before 2026-11-24) |
-| **Bar** | The Git repository that holds the coordination records of Bouncer mode and their configuration, defined in [GLOSSARY.md](../../GLOSSARY.md). Each organization has its own private bar, which holds only that organization's records and task details. Each bar is a workspace for the Bouncer and its Bartenders. | Workspace (old name, before 2026-11-24), Root Repository (old name, before 2026-11-19), Git superproject, monorepo |
-| **Bouncer** | The user-facing coordination role, defined in [GLOSSARY.md](../../GLOSSARY.md#planned-coordination-roles). | router agent; Bartender (old name for this role, before 2026-11-17) |
-| **Bartender** | The role that carries out one repository task, defined in [GLOSSARY.md](../../GLOSSARY.md#planned-coordination-roles). In the design, a conversation in the Node Host Harness. | repository agent, network server, Server (old name, before 2026-11-17) |
-| **Barback** | The role that does bounded work for one Bartender, defined in [GLOSSARY.md](../../GLOSSARY.md#planned-coordination-roles). In the design, a child conversation of its Bartender. | worker, Runner (old name, before 2026-11-17) |
+| **Bar** | The Git repository that holds the coordination records of Bouncer mode and their configuration. See `GLOSSARY.md` at commit `124fa0f`. Each organization has its own private bar, which holds only that organization's records and task details. Each bar is a workspace for the Bouncer and its Bartenders. | Workspace (old name, before 2026-11-24), Root Repository (old name, before 2026-11-19), Git superproject, monorepo |
+| **Bouncer** | The user-facing coordination role, defined in [GLOSSARY.md](../../../GLOSSARY.md). | router agent; Bartender (old name for this role, before 2026-11-17) |
+| **Bartender** | The role that carries out one repository task, defined in [GLOSSARY.md](../../../GLOSSARY.md). In the design, a conversation in the Node Host Harness. | repository agent, network server, Server (old name, before 2026-11-17) |
+| **Barback** | The role that does bounded work for one Bartender, defined in [GLOSSARY.md](../../../GLOSSARY.md). In the design, a child conversation of its Bartender. | worker, Runner (old name, before 2026-11-17) |
 | **Bouncer mode** | The mode of Rounds in which the pill is the Bouncer and a click on it opens the Bouncer Window. | separate Bouncer app |
 | **Bouncer Window** | The native window of Rounds in Bouncer mode. It holds the Bouncer conversation, its results and its decisions. Approvals show as inline cards in the conversation, drawn by host code. In Bouncer mode the pill bounces only when the Bouncer waits for the user. | Task View (replaced 2026-11-19), Tasks section, Task Group (no tasks section, so no task groups, 2026-11-19) |
 | **Bouncer Session** | The durable conversation in the Node Host that holds the user's messages, model choice and questions. Rounds reopens it when the Bouncer starts. An interrupted reply stops on restart. | Bartender Session (old name, before 2026-11-17) |

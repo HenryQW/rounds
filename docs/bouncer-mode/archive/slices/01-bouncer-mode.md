@@ -21,10 +21,10 @@ None. Organization rules and bar setup are built ([overview](../overview.md#buil
 
 ## Decided
 
-- Decision "Bouncer mode in Rounds" ([decisions.md](../decisions.md)).
-- Decision "Bouncer Window has a task sidebar" ([decisions.md](../decisions.md)). Patterns to take from the Claude desktop app Code tab ([its docs](https://code.claude.com/docs/en/desktop)): **+ New** at the top of the sidebar; group and sort on hover; archive from a hover menu; a details panel of cards beside the chat; one view only (owner, 2026-11-19), where each agent report shows its tool steps collapsed and a click opens them; a control row under the prompt box; a stop button; Cmd+N and Ctrl+Tab; reports from other agents labeled with their task and a link back.
-- Decision "Approvals as inline cards" ([decisions.md](../decisions.md)).
-- Decisions "No shared theme in version one" and "Set Up row in the Bouncer Window" ([decisions.md](../decisions.md)).
+- Decision "Bouncer mode in Rounds" ([decisions.md](../../decisions.md)).
+- Decision "Bouncer Window has a task sidebar" ([decisions.md](../../decisions.md)). Patterns to take from the Claude desktop app Code tab ([its docs](https://code.claude.com/docs/en/desktop)): **+ New** at the top of the sidebar; group and sort on hover; archive from a hover menu; a details panel of cards beside the chat; one view only (owner, 2026-11-19), where each agent report shows its tool steps collapsed and a click opens them; a control row under the prompt box; a stop button; Cmd+N and Ctrl+Tab; reports from other agents labeled with their task and a link back.
+- Decision "Approvals as inline cards" ([decisions.md](../../decisions.md)).
+- Decisions "No shared theme in version one" and "Set Up row in the Bouncer Window" ([decisions.md](../../decisions.md)).
 - Design reference: [bouncer-mockups.html](../bouncer-mockups.html), the mockup the owner picked (layout C, inline approval cards). It covers the task, approval, error and accessibility states that the attention review asked for.
 - Rounds still watches all sessions. The session list stays on the global shortcut.
 - *Default* (agent, 2026-11-19, reversible): the Bouncer agent sees nothing of the sessions that it does not manage. On user request it reads metadata only (title, state, project, organization), never transcript text, and never sends them input. Organization rules decide what goes to the model.
@@ -47,12 +47,12 @@ None.
 
 ## Read first, in full
 
-- [AGENTS.md](../../../AGENTS.md), [DESIGN.md](../../../DESIGN.md), [GLOSSARY.md](../../../GLOSSARY.md).
-- [spec.md](../../spec.md) 2.7 (pi sessions), 4 (Components), 5.1, 5.4, 5.7 and 7.1 (Demo mode).
-- [CONTEXT.md](../CONTEXT.md) (Bouncer Session, Approval Request) and [decisions.md](../decisions.md).
+- [AGENTS.md](../../../../AGENTS.md), [DESIGN.md](../../../../DESIGN.md), [GLOSSARY.md](../../../../GLOSSARY.md).
+- [spec.md](../../../spec.md) 2.7 (pi sessions), 4 (Components), 5.1, 5.4, 5.7 and 7.1 (Demo mode).
+- [CONTEXT.md](../CONTEXT.md) (Bouncer Session, Approval Request) and [decisions.md](../../decisions.md).
 - [bouncer-mockups.html](../bouncer-mockups.html): the pill, the window and the keyboard handler at the end of the script.
 - Pi 1.5.2 package docs, in the installed package's `docs/` folder: `rpc.md`, `rpc-commands.md` (`prompt`, `abort`, `get_state`, `get_messages`, `set_model`, `get_available_models`), `rpc-extension-ui.md`, `json.md`. `pi --help` is the authority for flags.
-- Code: [EdgeDrawer.swift](../../../Sources/Rounds/EdgeDrawer.swift) (`EdgeDrawer.apply`, `observe`, `open(display:)`, `EdgePill`, `RingingTab`), [AppModel.swift](../../../Sources/Rounds/AppModel.swift) (`regroup`, the pill counts), [RoundsApp.swift](../../../Sources/Rounds/RoundsApp.swift), [Demo.swift](../../../Sources/Rounds/Demo.swift), [BarSettings.swift](../../../Sources/Rounds/BarSettings.swift), [SettingsView.swift](../../../Sources/Rounds/SettingsView.swift) (`SettingsPage`, `SettingsState.page`), [Pi.swift](../../../Sources/RoundsCore/Pi.swift), [Bar.swift](../../../Sources/RoundsCore/Bar.swift).
+- Code: `Sources/Rounds/EdgeDrawer.swift` (`EdgeDrawer.apply`, `observe`, `open(display:)`, `EdgePill`, `RingingTab`), `Sources/Rounds/AppModel.swift` (`regroup`, the pill counts), `Sources/Rounds/RoundsApp.swift`, `Sources/Rounds/Demo.swift`, `Sources/Rounds/BarSettings.swift`, `Sources/Rounds/SettingsView.swift` (`SettingsPage`, `SettingsState.page`), `Sources/RoundsCore/Pi.swift`, `Sources/RoundsCore/Bar.swift`.
 
 ## Files
 

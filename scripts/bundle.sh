@@ -1,23 +1,13 @@
 #!/bin/sh
-# Build or package a checked host payload. --install also copies the app to /Applications.
+# Build and sign the app bundle. --install also copies the app to /Applications.
 set -e
 cd -P "$(dirname "$0")/.."
 INSTALL=false
 case "${1:-}" in
-    --harness-payload)
-        PAYLOAD="${2:?Expected the checked Harness payload directory.}"
-        ;;
-    ''|--install)
-        [ "${1:-}" != --install ] || INSTALL=true
-        scripts/build-harness-host.sh
-        PAYLOAD=.build/harness-host
-        ;;
-    *) echo "Usage: $0 [--install | --harness-payload directory]" >&2; exit 1 ;;
+    --install) INSTALL=true ;;
+    '') ;;
+    *) echo "Usage: $0 [--install]" >&2; exit 1 ;;
 esac
-if [ "$(cat "$PAYLOAD/commit")" != 5a14e69c067d40dfbff4f2fff7d3b34c897e2dc9 ]; then
-    echo 'Wrong Harness payload commit.' >&2
-    exit 1
-fi
 swift build -c release
 BIN="$(swift build -c release --show-bin-path)"
 APP="build/Rounds.app"
@@ -25,11 +15,6 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Helpers" "$APP/Contents/Resources" "$APP/Contents/Frameworks"
 cp "$BIN/Rounds" "$APP/Contents/MacOS/Rounds"
 cp "$BIN/rounds-hook" "$APP/Contents/Helpers/rounds-hook"
-HOST="$APP/Contents/Helpers/harness-host"
-HOST_RESOURCES="$APP/Contents/Resources/harness-host"
-mkdir "$HOST" "$HOST_RESOURCES"
-install -m 755 "$PAYLOAD/node" "$HOST/node"
-cp "$PAYLOAD/host.mjs" "$PAYLOAD/commit" "$HOST_RESOURCES/"
 ditto "$BIN/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 # VERSION is the one place the version lives; Settings reads it from there, and Sparkle compares CFBundleVersion. A beta
@@ -47,7 +32,7 @@ else
 fi
 SPARKLE="$APP/Contents/Frameworks/Sparkle.framework"
 codesign --force --deep -s "$IDENTITY" "$SPARKLE"
-codesign --force -s "$IDENTITY" "$APP/Contents/Helpers/rounds-hook" "$HOST/node"
+codesign --force -s "$IDENTITY" "$APP/Contents/Helpers/rounds-hook"
 if [ "$IDENTITY" = - ]; then
     codesign --force -s - "$APP"
 else

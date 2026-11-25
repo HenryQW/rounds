@@ -1,6 +1,6 @@
 # Bouncer mode overview
 
-Bouncer mode extends Rounds so one user-facing Bouncer coordinates Bartenders and their bounded Barbacks across independent repositories. Durable records must support recovery without the old conversation. Rounds is the product home. Each organization's bar is a separate coordination repository, not the Rounds source repository unless the user chooses otherwise. Names are in [CONTEXT.md](CONTEXT.md); decisions are in [decisions.md](decisions.md).
+Bouncer mode extends Rounds so one user-facing Bouncer coordinates Bartenders and their bounded Barbacks across independent repositories. Durable records must support recovery without the old conversation. Rounds is the product home. Each organization's bar is a separate coordination repository, not the Rounds source repository unless the user chooses otherwise. Names are in [CONTEXT.md](CONTEXT.md); decisions are in [decisions.md](../decisions.md).
 
 ```mermaid
 flowchart TD
@@ -17,8 +17,8 @@ The user gives goals in the Bouncer conversation, makes decisions and reviews re
 
 ## Built so far
 
-- Organization rules, destination consent and outbound checks: [spec 2.7.1](../spec.md#271-organization-boundaries).
-- The owner and the bar of each organization in Settings > Organizations, and the owner check of bar remotes: [spec 2.7.2](../spec.md#272-bar-setup). Nothing calls `storageProblem(for:)` until task dispatch exists.
+- Organization rules, destination consent and outbound checks: [spec 2.7.1](../../spec.md#271-organization-boundaries).
+- The owner and the bar of each organization in Settings > Organizations, and the owner check of bar remotes: spec 2.7.2 (specification at `124fa0f`). Nothing calls `storageProblem(for:)` until task dispatch exists.
 - The task graph and the task detail store are in the source, but the app does not use them yet. Agent dispatch is not built.
 - [Slice 02](slices/02-node-harness-host.md) adds the Node Host, SQLite storage and a Bouncer conversation with no tools. The container tool bridge remains in 02c.
 
@@ -27,7 +27,7 @@ The user gives goals in the Bouncer conversation, makes decisions and reviews re
 | Part | Runs where | Holds |
 |---|---|---|
 | Bouncer | A conversation in the Node Host's pi-durable Harness | The user's conversation. Dispatch and result tools come in slice 03. |
-| Node Host | One Node process that Rounds starts and stops | A [pi-durable](archive/reuse-review.md#pi-durable-checked-2026-11-18) Harness with SQLite storage |
+| Node Host | One Node process that Rounds starts and stops | A [pi-durable](reuse-review.md#pi-durable-checked-2026-11-18) Harness with SQLite storage |
 | Bartender | A conversation in the Harness | The model sees container-use tools only |
 | Barback | A child conversation of its Bartender | The same tool limits; it cannot delegate further |
 | container-use | Host process, one for each Bartender | Access to the task repository |
@@ -43,6 +43,7 @@ Agents produce and Rounds publishes: agents cannot do a protected action, and Ro
 | Area | Requirement |
 |---|---|
 | Product | Build in the Rounds repository. Preserve existing session features unless a change is agreed. |
+| Work tracker | Use GitHub Issues for Bouncer work in version one. Linear is not a Bouncer work tracker in this version. |
 | Bar | Keep coordination records separate from application code. Setup can use `/router-setup` or a natural-language request. Check whether the chosen directory is already in a Git repository; otherwise ask whether to create one and ask for its name. |
 | Storage | One private bar for each organization holds all of its task records and details. A bar never holds another organization's records. The Bouncer shows the tasks of all bars in one view. See decision "One bar for each organization". |
 | Push | Rounds pushes a repository, a bar included, only to a remote of its organization's one owner (decision "One owner for each organization"). A project with no organization cannot push. |
@@ -76,7 +77,7 @@ Agents produce and Rounds publishes: agents cannot do a protected action, and Ro
 
 ## Build order
 
-Build the slices in the order of [slices/README.md](slices/README.md). Each slice has its own tests and spec update. When a slice is built, update the [Rounds specification](../spec.md) and [glossary](../../GLOSSARY.md) with the accepted product behavior.
+Build the slices in the order of [slices/README.md](slices/README.md). Each slice has its own tests and spec update. When a slice is built, update the [Rounds specification](../../spec.md) and [glossary](../../../GLOSSARY.md) with the accepted product behavior.
 
 ## Open for the whole project
 

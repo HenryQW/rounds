@@ -98,6 +98,16 @@ Each tile is a filter for one group. A click shows only that group; a click on t
 | Served | Quiet | Results you opened, and Offline sessions. |
 | Aged | Older | Sessions with no activity for a day (you can change the time), unless they run or wait. |
 
+## Bouncer mode roles
+
+Bouncer mode runs as the `henry` skill in Claude desktop. Rounds reads the session titles.
+
+| Role | What it does |
+| --- | --- |
+| Bouncer | Assigns repository tasks to Bartenders. It brings questions and results to the user. |
+| Bartender | Works on a repository task in its own worktree. It reports to the Bouncer. |
+| Barback | Does a part of a task for a Bartender. It reports to that Bartender. |
+
 ## Words
 
 - **Seen:** You opened the session, in Rounds or in its app, after its current state began. A seen result leaves Last Call. A seen wait stays in Last Call, but the pill no longer rings for it. A new state makes the session unseen again.

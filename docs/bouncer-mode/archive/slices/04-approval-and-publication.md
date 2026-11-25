@@ -6,7 +6,7 @@ Rounds pushes a branch or opens a draft pull request for a result only after the
 
 ## State
 
-Local records save requests, answers and a binding to one Harness tool call. A local fixture verifies durable delivery. The running app needs task identifiers, organization scope and current storage grants to show or deliver a saved answer. See [Open](#open) for production publication.
+Local records save requests, answers and a binding to one Harness tool call. A local fixture verifies durable delivery. The app loads local cards for dispatch runs that identify their original organization bar. It rechecks the checkout, organization policy and bar for each load and answer. Live creation of dispatch runs and signal delivery remain open. See [Open](#open) for production publication.
 
 ## Depends
 
@@ -16,14 +16,14 @@ Local records save requests, answers and a binding to one Harness tool call. A l
 
 | Read | Reason |
 |---|---|
-| [AGENTS.md](../../../AGENTS.md), [DESIGN.md](../../../DESIGN.md), [GLOSSARY.md](../../../GLOSSARY.md) | Change rules, existing controls and state words. |
-| [Spec 2.7](../../spec.md#27-pi-sessions), including 2.7.1 and 2.7.2; [spec 5.9](../../spec.md#59-bouncer-window) | Session identity, organization rules, authorized storage and the Bouncer Window. |
+| [AGENTS.md](../../../../AGENTS.md), [DESIGN.md](../../../../DESIGN.md), [GLOSSARY.md](../../../../GLOSSARY.md) | Change rules, existing controls and state words. |
+| Spec 2.7 and 5.9 at commit `124fa0f` | Session identity, organization rules, authorized storage and the Bouncer Window. |
 | This brief; [03](03-dispatch-and-results.md); [01](01-bouncer-mode.md); [slice index](README.md) | Approval scope, result identity and existing card contracts. |
-| [Decisions](../decisions.md) | Read the complete entries named under Decided. |
-| [Context](../CONTEXT.md); [archived Bouncer review](../archive/bouncer-review.md) | Authority chain and proposals that remain open. |
-| [Bouncer.swift](../../../Sources/RoundsCore/Bouncer.swift), [BouncerModel.swift](../../../Sources/Rounds/BouncerModel.swift), [BouncerWindow.swift](../../../Sources/Rounds/BouncerWindow.swift) | Current approval types and adapter boundary. |
-| [BouncerCards.swift](../../../Sources/Rounds/BouncerCards.swift) | The existing card, its callback and the local result display. |
-| [TaskDetailStore.swift](../../../Sources/RoundsCore/TaskDetailStore.swift), [TaskRecordStore.swift](../../../Sources/RoundsCore/TaskRecordStore.swift), [Bar.swift](../../../Sources/RoundsCore/Bar.swift) | Immutable records, graph references and local repository inspection. |
+| [Decisions](../../decisions.md) | Read the complete entries named under Decided. |
+| [Context](../CONTEXT.md); [archived Bouncer review](../bouncer-review.md) | Authority chain and proposals that remain open. |
+| `Sources/RoundsCore/Bouncer.swift`, `Sources/Rounds/BouncerModel.swift`, `Sources/Rounds/BouncerWindow.swift` | Current approval types and adapter boundary. |
+| `Sources/Rounds/BouncerCards.swift` | The existing card, its callback and the local result display. |
+| `Sources/RoundsCore/TaskDetailStore.swift`, `Sources/RoundsCore/TaskRecordStore.swift`, `Sources/RoundsCore/Bar.swift` | Immutable records, graph references and local repository inspection. |
 | `living-docs/SKILL.md`, section "Slice brief" | Read from `vps:~/.local/share/magpie/shared-skills/skills/living-docs/SKILL.md`. |
 | Pi source at `5a14e69c067d40dfbff4f2fff7d3b34c897e2dc9` | Read `packages/durable/test/examples/44-approval-gate.ts`, `packages/durable/src/signals.ts`, and the `signal` definitions in `packages/durable/src/harness/{types,harness}.ts`. |
 
@@ -35,7 +35,7 @@ Each row is a separate merge. Merge 04a first; 04b adds no publication capabilit
 
 | Sub-step | Scope | Why it merges alone |
 |---|---|---|
-| 04a: local approval records | Store a request and answer; recheck the local revision and remote URL after restart; connect card decisions to stored answers. | Local repository fixtures prove storage and rechecks. App registration awaits real task context and storage grants. No container, model or network is needed for the fixtures. |
+| 04a: local approval records | Store a request and answer; recheck the local revision and remote URL after restart; connect card decisions to stored answers. | Local repository fixtures prove storage and rechecks. Registered runs supply task context. The app checks current storage authority before saving a card decision. No container, model or network is needed for the fixtures. |
 | 04b: durable gate connection | Connect stored requests and answers to a sleeping Pi task, using an inert test tool and a fake provider. | Proves persistence and signal recovery independently of the publication guard. No agent dispatch or protected tool is enabled. |
 | 04c: publication | Local action guard with an inert executor. Real publication depends on the open ownership, recovery and review requirements. | Verify action order and recovery before adding a protected transport. |
 
@@ -48,13 +48,13 @@ These are implementation locations for later work. This details step changes doc
 | Sub-step | File | Change |
 |---|---|---|
 | 04a | `Sources/RoundsCore/Approval.swift` (new) | Typed request, answer, local snapshot comparison and state transitions. No executor. |
-| 04a | [TaskDetailStore.swift](../../../Sources/RoundsCore/TaskDetailStore.swift), [TaskRecordStore.swift](../../../Sources/RoundsCore/TaskRecordStore.swift), `Sources/RoundsCore/TaskInterface.swift` (03 prerequisite) | Add approval records to immutable detail revisions. Carry them through every existing write caller and the task interface's storage authorization. |
-| 04a | [Bar.swift](../../../Sources/RoundsCore/Bar.swift) | Extend the local inspector to resolve the result's named source reference to its full commit revision. Reuse remote inspection. |
-| 04a | [Bouncer.swift](../../../Sources/RoundsCore/Bouncer.swift), [BouncerModel.swift](../../../Sources/Rounds/BouncerModel.swift), [BouncerWindow.swift](../../../Sources/Rounds/BouncerWindow.swift) | Project records into cards. Save before updating a card's decision. |
+| 04a | `Sources/RoundsCore/TaskDetailStore.swift`, `Sources/RoundsCore/TaskRecordStore.swift`, `Sources/RoundsCore/TaskInterface.swift` (03 prerequisite) | Add approval records to immutable detail revisions. Carry them through every existing write caller and the task interface's storage authorization. |
+| 04a | `Sources/RoundsCore/Bar.swift` | Extend the local inspector to resolve the result's named source reference to its full commit revision. Reuse remote inspection. |
+| 04a | `Sources/RoundsCore/Bouncer.swift`, `Sources/Rounds/BouncerModel.swift`, `Sources/Rounds/BouncerWindow.swift` | Project records into cards. Save before updating a card's decision. |
 | 04a | `Sources/Rounds/BouncerCards.swift` (01c prerequisite) | Reuse its decision callback and rejection reason. Select the card copy from host provenance. |
-| 04a | [TaskInterfaceTests.swift](../../../Tests/RoundsCoreTests/TaskInterfaceTests.swift), [TaskDetailStoreTests.swift](../../../Tests/RoundsCoreTests/TaskDetailStoreTests.swift) | Exercise approval boundaries, saved answers, stale records and old checksums in the existing Swift test target. |
+| 04a | `Tests/RoundsCoreTests/TaskInterfaceTests.swift`, `Tests/RoundsCoreTests/TaskDetailStoreTests.swift` | Exercise approval boundaries, saved answers, stale records and old checksums in the existing Swift test target. |
 | 04b | Node Host source and test files established by slice 02 | Add the gate and local approval messages there. Set exact paths in slice 02 before implementation; do not create another host or database. |
-| 04a, 04b | [Spec](../../spec.md#59-bouncer-window), this brief and [slice index](README.md) | Update current behavior when each implementation merges. Keep future publication marked as blocked. |
+| 04a, 04b | Spec (specification at `124fa0f`), this brief and [slice index](README.md) | Update current behavior when each implementation merges. Keep future publication marked as blocked. |
 | 04c | None selected | Publication files await the complete guard. |
 
 ## Contracts
@@ -93,7 +93,7 @@ A result must carry the repository identifier and folder identity supplied by it
 
 Only a fully saved detail and graph reference can change the visible answer. Pin the graph directory before its first authorized read and keep that identity through the save and reload. A per-task lock serializes approval checks and saves with detail links. A competing operation reports a conflict when the lock is held. During a recheck, earlier cards cannot accept answers. On a failed recheck, the banner offers Try Again, even if no card was loaded. On a storage read or authorization error, Rounds also hides earlier cards. The waiting pill counts each task that needs a retry. Restore answer controls only after a successful recheck. An approval save or a result change that invalidates an approval sets an inspection marker. Reject an oversized revision before setting the marker. Clear the marker only after both writes are durable. An uncertain save blocks further detail links and answers until local storage inspection.
 
-Authorize each destination separately under [spec 2.7.2](../../spec.md#272-bar-setup). Request text, targets and reasons stay outside the bar. Gate state must also use storage authorized for that organization. An unclassified task does not acquire transmission permission.
+Authorize each destination separately under spec 2.7.2 (specification at `124fa0f`). Request text, targets and reasons stay in the task’s detail revisions in its organization’s private bar. Gate state must also use storage authorized for that organization. An unclassified task does not acquire transmission permission.
 
 ### Restart comparison
 
@@ -252,8 +252,8 @@ Add these cases with the implementation, boundary cases first. Run Swift cases t
 
 ## Decided
 
-- Owner decisions: "Authority and approval enforcement", "Option 3: container-use for all agent work", "Attention review" (Approval row), "Restart rechecks replace the Interrupted state" and "Approvals as inline cards" ([decisions.md](../decisions.md)).
-- Owner decisions: "pi-durable Harness for Bartenders and Barbacks", "Build on unreleased pi-durable" and "Bouncer on pi-durable" ([decisions.md](../decisions.md)).
+- Owner decisions: "Authority and approval enforcement", "Option 3: container-use for all agent work", "Attention review" (Approval row), "Restart rechecks replace the Interrupted state" and "Approvals as inline cards" ([decisions.md](../../decisions.md)).
+- Owner decisions: "pi-durable Harness for Bartenders and Barbacks", "Build on unreleased pi-durable" and "Bouncer on pi-durable" ([decisions.md](../../decisions.md)).
 - *default*: The proposed Contracts, How it works, Tests and Numbers sections define implementation defaults, not new owner decisions.
 - *default*: Split 04a, 04b and blocked 04c as above, so local approval behavior can merge without publication authority.
 - *default*: Extend immutable task detail revisions, with typed approval records and first-answer semantics, instead of adding another store. Keep result identity separate from storage revisions.
