@@ -88,11 +88,6 @@ jobs:
           gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 ||
             gh release create "$GITHUB_REF_NAME" --title "Rounds $VERSION" --notes-file build/notes.md
           gh release upload "$GITHUB_REF_NAME" build/Rounds.dmg build/appcast.xml --clobber
-          # The Beta channel gets each release too: the rolling prerelease "beta" takes the same files (beta.yml).
-          git tag -f beta && git push -f origin refs/tags/beta
-          gh release view beta > /dev/null 2>&1 || gh release create beta --prerelease --latest=false --title "Rounds beta" --notes "Beta"
-          gh release upload beta build/Rounds.dmg build/appcast.xml --clobber
-          gh release edit beta --prerelease --latest=false --title "Rounds $VERSION" --notes-file build/notes.md
 
       - name: Update the Homebrew tap
         env:
@@ -107,3 +102,35 @@ jobs:
           git add Casks/rounds.rb
           git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit -m "rounds $VERSION"
           git push
+
+  beta:
+    # The Beta channel gets each release too: the rolling prerelease "beta" takes the same files (beta.yml). The group
+    # of beta.yml, so only one run writes the beta release at a time. A newer beta build can still cancel this job; that
+    # build then publishes the same commit or a later one.
+    needs: release
+    runs-on: ubuntu-latest
+    concurrency:
+      group: beta
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Publish the beta
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(cat VERSION)"
+          mkdir -p build
+          gh release download "$GITHUB_REF_NAME" --pattern Rounds.dmg --pattern appcast.xml --dir build
+          gh release view "$GITHUB_REF_NAME" --json body --jq .body > build/notes.md
+          # A versioned name, like beta.yml. This appcast names the DMG of the tag release.
+          mv build/Rounds.dmg "build/Rounds-$VERSION.dmg"
+          git tag -f beta && git push -f origin refs/tags/beta
+          gh release view beta > /dev/null 2>&1 || gh release create beta --prerelease --latest=false --title "Rounds beta" --notes "Beta"
+          gh release upload beta "build/Rounds-$VERSION.dmg" --clobber
+          gh release upload beta build/appcast.xml --clobber
+          gh release view beta --json assets --jq '.assets[].name' | grep -E '^Rounds(-.+)?\.dmg$' | grep -vxF "Rounds-$VERSION.dmg" |
+            while read -r NAME; do gh release delete-asset beta "$NAME" --yes; done
+          gh release edit beta --prerelease --latest=false --title "Rounds $VERSION" --notes-file build/notes.md
