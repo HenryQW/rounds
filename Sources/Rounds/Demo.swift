@@ -23,9 +23,6 @@ enum Demo {
     /// goes as the rows come); window-slide does so 0.1 s into the opening slide.
     private static var quiet: Bool { ["window-quiet", "pill-running", "window-turn", "window-slide"].contains(scene) }
 
-    /// The `bouncer-setup` scene: Bouncer mode with no `pi`, so the Set Up row shows and the Bouncer does not start.
-    static var bouncerSetup: Bool { scene == "bouncer-setup" }
-
     private static func argument(_ name: String) -> String? {
         let args = CommandLine.arguments
         return args.firstIndex(of: name).flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil }
@@ -33,11 +30,8 @@ enum Demo {
 
     /// Called once the app has finished launching. Pill scenes need no window: the drawer shows the pill. `settings` opens
     /// the Settings window; `settings-<page>` opens it at that page (`settings-agents`, `settings-tickets`, `settings-organizations`).
-    /// Scenes that start with `bouncer` turn on Bouncer mode: `bouncer-pill` shows the pill only, `bouncer` opens the Bouncer
-    /// Window, `bouncer-note` also opens its host note, and `bouncer-setup` shows the Set Up row.
     @MainActor static func start() {
         guard isOn else { return }
-        if scene?.hasPrefix("bouncer") == true { BouncerModel.shared.on = true }
         switch argument("--demo-appearance") {
         case "light": NSApp.appearance = NSAppearance(named: .aqua)
         case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
@@ -59,19 +53,6 @@ enum Demo {
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                             SettingsState.shared.window?.setContentSize(NSSize(width: 1180, height: 900))
                         }
-                    }
-                }
-                if scene?.hasPrefix("bouncer") == true, scene != "bouncer-pill" {
-                    if ["bouncer-cards", "bouncer-details"].contains(scene) { BouncerModel.shared.selection = "t1" }
-                    if scene == "bouncer-details" { BouncerWindowController.shared.state.detailSections = ["Agents", "Environment"] }
-                    BouncerWindowController.shared.show()
-                    if ["bouncer-cards", "bouncer-details"].contains(scene), let window = BouncerWindowController.shared.window {
-                        window.setContentSize(NSSize(width: 1200, height: 960))
-                        window.center()
-                    }
-                    if scene == "bouncer-note" { BouncerWindowController.shared.state.hostNote = true }
-                    if let path = argument("--demo-render") {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { renderBouncer(to: path) }
                     }
                 }
                 if scene?.hasPrefix("window") == true {
@@ -98,27 +79,6 @@ enum Demo {
                 }
             }
         }
-    }
-
-    /// An in-app window render when macOS does not permit external window capture.
-    @MainActor private static func renderBouncer(to path: String) {
-        guard let view = BouncerWindowController.shared.window?.contentView else { fatalError("No Bouncer window to render") }
-        view.layoutSubtreeIfNeeded()
-        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { fatalError("Cannot render the Bouncer window") }
-        view.cacheDisplay(in: view.bounds, to: bitmap)
-        // Material layers are transparent in a cached display. Use the window colour behind them.
-        let image = NSImage(size: view.bounds.size)
-        view.effectiveAppearance.performAsCurrentDrawingAppearance {
-            image.lockFocus()
-            NSColor.windowBackgroundColor.setFill()
-            view.bounds.fill()
-            bitmap.draw(in: view.bounds)
-            image.unlockFocus()
-        }
-        guard let tiff = image.tiffRepresentation, let flattened = NSBitmapImageRep(data: tiff),
-              let data = flattened.representation(using: .png, properties: [:]) else { fatalError("Cannot encode the Bouncer render") }
-        do { try data.write(to: URL(fileURLWithPath: path)) }
-        catch { fatalError("Cannot write the Bouncer render: \(error)") }
     }
 
     /// The placeholder sessions: every state, a Ready row the user opened (seen), a starred row, a parent with a direct and an isolated child, background

@@ -15,7 +15,7 @@ Each organization has one private bar. Its graph is in `tasks/graph` and its imm
 | Read | Purpose |
 |---|---|
 | [AGENTS.md](../../../../AGENTS.md), [DESIGN.md](../../../../DESIGN.md), [GLOSSARY.md](../../../../GLOSSARY.md) | Project rules, existing components and product terms |
-| [Spec 2.7](../../../spec.md#27-pi-sessions), [2.8](../../../spec.md#28-tickets), [3](../../../spec.md#3-classification) | Organization checks, bar setup and session classification; include every subsection |
+| Spec 2.7, 2.8 and 3 at commit `124fa0f` | Organization checks, bar setup and session classification |
 | This brief, [01](01-bouncer-mode.md), [02](02-node-harness-host.md), [slice index](README.md) | Scope, adapter boundary and Node Host prerequisites |
 | [Overview](../overview.md), [decisions](../../decisions.md), [context](../CONTEXT.md) | Agreed behavior, owner decisions and task/session distinction |
 | [Bouncer review](../bouncer-review.md), [plan](../plan.md) | Evidence and proposals; proposals do not replace owner decisions |

@@ -18,27 +18,6 @@ private func tempFolder() throws -> URL {
 
 @Test
 @MainActor
-func barCheckEndsWhenSettingsChangeDuringTheCheck() async throws {
-    let base = try tempFolder()
-    defer { try? FileManager.default.removeItem(at: base) }
-    let bar = base.appending(path: "bar")
-    try FileManager.default.createDirectory(at: bar, withIntermediateDirectories: true)
-    let id = UUID()
-    _ = try BarSettingsStore(url: base.appending(path: "bar-settings.json")).update { settings in
-        settings.setOwner(RemoteOwner("github.com/first"), for: id)
-        try settings.setBar(bar.path, for: id, projectFolders: [])
-    }
-    let state = BarSettingsState(directory: base)
-    #expect(state.checks[id] == .checking)
-    // The change lands before the background check returns.
-    _ = try state.store.update { $0.setOwner(RemoteOwner("github.com/second"), for: id) }
-    state.reload()
-    #expect(await waitUntil { state.checks[id] != .checking })
-    #expect(state.checks[id] == .done(.notRepository))
-}
-
-@Test
-@MainActor
 func pushChannelWithMissingValuesIsNotReady() async {
     appDefaults.set([PushChannel.telegram.rawValue], forKey: "pushChannels")
     defer { appDefaults.removeObject(forKey: "pushChannels") }

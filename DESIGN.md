@@ -81,10 +81,6 @@ Rounds is a background utility, so its design gets out of the way. It uses nativ
 
 Colour is information. Orange means a session needs the user, blue means it runs, green means a result is ready (the pill turns green, still, while only unseen results wait: Ready, Finished, Stopped), red means a failure, grey means nothing to do. The Served tile is the one exception: its symbol is green, for drinks served. The PR mark takes GitHub's colours on its symbol only: green open, purple merged, grey closed (not red, which means a failure). The ticket mark is grey: its shape gives the ticket's state (a circle, a half-filled circle, a check, a cross), as orange and blue already mean session states. Hover is a grey fill and selection is the system accent, and the two never look alike.
 
-In the planned task area, short state labels can use the same colour as their state marks. Keep body text neutral. Show a state word as well as its colour.
-
-Rounds blue (#0A6BDB) is the one brand colour: the app icon (a white glass two-thirds full, with an orange bubble), the running pill and the Another round? banner. White text on it keeps about 5:1; system blue gives about 4:1, which is too low. The author link uses henry.wang's Decisive Cobalt (#1D4ED8), or its Evidence Blue (#8FB3FF) in dark mode.
-
 ## Typography
 
 System fonts only (SF Pro, SF Mono). Counts and titles take a small negative tracking; section labels take +0.4 pt, as taxonomy rather than titles. Times, PR numbers and ticket identifiers are monospaced, so columns do not jump. Tile names are drinking puns (Last Call, On Tap, Served, Aged); their plain names (Your Turn, Running, Quiet, Older) are in the hints and VoiceOver. Copy follows ASD-STE100 Simplified Technical English, with no em or en dashes.

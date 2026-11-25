@@ -119,8 +119,7 @@ final class EdgeDrawer {
             pills[id] = nil
             pillFrames[id] = nil
         }
-        let bouncer = BouncerModel.shared
-        let size = (bouncer.on ? bouncer.pillWaiting > 0 : AppModel.shared.ringing) ? Self.attentionSize : Self.pillSize
+        let size = AppModel.shared.ringing ? Self.attentionSize : Self.pillSize
         let windowShown = PanelController.shared.panel?.isVisible == true
         for (screen, info) in zip(screens, infos) where chosen.contains(info.id) {
             let pill = pills[info.id] ?? makePill(display: info.id)
@@ -129,7 +128,7 @@ final class EdgeDrawer {
             let frame = NSRect(x: settings.edge == .right ? visible.maxX - size.width : visible.minX,
                                y: Self.pillY(settings.pillPosition, height: size.height, in: visible), width: size.width, height: size.height)
             // The frame the last apply set, not `pill.frame`: during a spring that is still the start, so a change back
-            // within the spring (a wait that comes as the mode turns on) would be lost.
+            // within the spring would be lost.
             let last = pillFrames[info.id] ?? pill.frame
             if last != frame {
                 pillFrames[info.id] = frame
@@ -159,8 +158,6 @@ final class EdgeDrawer {
             _ = settings.displaysOff
             _ = settings.pillPosition
             _ = AppModel.shared.ringing
-            _ = BouncerModel.shared.on
-            _ = BouncerModel.shared.pillWaiting
         } onChange: { [weak self] in
             Task { @MainActor in
                 self?.apply()
@@ -178,9 +175,8 @@ final class EdgeDrawer {
         pill.isOpaque = false
         pill.backgroundColor = .clear
         pill.hasShadow = false
-        pill.contentView = NSHostingView(rootView: EdgePill(model: AppModel.shared, bouncer: BouncerModel.shared,
+        pill.contentView = NSHostingView(rootView: EdgePill(model: AppModel.shared,
                                                             open: { [weak self] in self?.open(display: display) },
-                                                            openList: { [weak self] in self?.open(display: display, list: true) },
                                                             drag: { [weak self] ended in self?.drag(display: display, ended: ended) }))
         return pill
     }
@@ -204,9 +200,7 @@ final class EdgeDrawer {
         }
     }
 
-    /// In Bouncer mode the pill opens the Bouncer Window, and `list` (Open Session List) the session window.
-    private func open(display: String, list: Bool = false) {
-        if BouncerModel.shared.on, !list { return BouncerWindowController.shared.show() }
+    private func open(display: String) {
         pendingClose?.cancel()
         screen = NSScreen.screens.first { $0.displayInfo.id == display }
         // A hover, or a click on a panel that takes no focus, does not activate the app, and the cooperative
@@ -389,10 +383,7 @@ final class EdgeDrawer {
 /// a shaker on orange and a broken glass on red.
 /// Both are flat colour with a hairline dark edge, so no wallpaper shows through and the tab reads on any wallpaper. Every 2 s it peeks: it eases `peek` points out from the edge
 /// with a small bounce, rests, and slides back; never a colour change.
-/// In Bouncer mode it shows the Bouncer only (spec 5.7): the empty clear tab, still, while nothing waits; the orange ringing
-/// tab with the count while an approval or a question waits. Only a click opens the Bouncer Window.
-/// Right-click: Settings, Check for Updates and Quit, since there is no menu bar item; in Bouncer mode also Open Session List. ⌘-drag moves it along the edge; a hover with ⌘
-/// down does not open the window, so the pill can be grabbed.
+/// Right-click opens the menu. ⌘-drag moves the pill along the edge. Holding ⌘ prevents hover from opening the window.
 private struct EdgePill: View {
     static let peek: CGFloat = 12, ripple: CGFloat = 30
     static let width: CGFloat = 28, height: CGFloat = 100
@@ -404,25 +395,19 @@ private struct EdgePill: View {
             : UnevenRoundedRectangle(bottomTrailingRadius: r, topTrailingRadius: r)
     }
     let model: AppModel
-    let bouncer: BouncerModel
     let open: () -> Void
-    /// Open Session List, in Bouncer mode.
-    let openList: () -> Void
     /// Called while the pill is dragged (false) and once at the end (true).
     let drag: (_ ended: Bool) -> Void
     @Environment(\.openSettings) private var openSettings
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        // In Bouncer mode the pill is the Bouncer: still and empty while nothing waits, orange with the count while an
-        // approval or a question waits, seen or not.
-        let mode = bouncer.on
-        let waiting = mode ? bouncer.pillWaiting : model.yourTurnCount, running = mode ? 0 : model.runningCount
-        let ringing = mode ? waiting > 0 : model.ringing, failing = !mode && model.failedCount > 0
+        let waiting = model.yourTurnCount, running = model.runningCount
+        let ringing = model.ringing, failing = model.failedCount > 0
         let peeking = ringing && !reduceMotion
         Button(action: open) {
             ZStack {
-                if mode ? waiting > 0 : model.waitCount > 0 {
+                if model.waitCount > 0 {
                     // Red wins over orange: a failed turn stopped and does not go on by itself.
                     let fill: NSColor = failing ? .systemRed : .systemOrange
                     let ink = failing ? NSColor(srgbRed: 0.2, green: 0.02, blue: 0.02, alpha: 1) : NSColor(srgbRed: 0.17, green: 0.1, blue: 0, alpha: 1)
@@ -451,10 +436,8 @@ private struct EdgePill: View {
         .highPriorityGesture(DragGesture(minimumDistance: 2).modifiers(.command)
             .onChanged { _ in drag(false) }
             .onEnded { _ in drag(true) })
-        // In Bouncer mode only a click opens the window: it is a normal window, not a slide.
-        .onHover { if $0, !mode, !NSEvent.modifierFlags.contains(.command) { open() } }
+        .onHover { if $0, !NSEvent.modifierFlags.contains(.command) { open() } }
         .contextMenu {
-            if mode { Button("Open Session List") { openList() } }
             Button("Settings…") {
                 NSApp.activate(ignoringOtherApps: true)
                 openSettings()
@@ -463,11 +446,9 @@ private struct EdgePill: View {
             Divider()
             Button("Quit Rounds") { NSApp.terminate(nil) }
         }
-        .help(mode ? "Open the Bouncer. ⌘-drag to move." : "Open Rounds. ⌘-drag to move.")
-        .accessibilityLabel(mode ? "Bouncer" : "Open Rounds")
-        .accessibilityValue(mode ? (waiting > 0 ? "\(waiting) waiting for you" : "Nothing waiting")
-                            : waiting > 0 ? "\(waiting) in Last Call" + (failing ? ", \(model.failedCount) failed" : "") : running > 0 ? "\(running) running" : "")
-        .accessibilityHint(mode ? "Opens the Bouncer Window" : "")
+        .help("Open Rounds. ⌘-drag to move.")
+        .accessibilityLabel("Open Rounds")
+        .accessibilityValue(waiting > 0 ? "\(waiting) in Last Call" + (failing ? ", \(model.failedCount) failed" : "") : running > 0 ? "\(running) running" : "")
     }
 
     /// An opaque tab with the count under a symbol: a pouring tumbler with fizz behind it (`pour`), a still `symbol`, a

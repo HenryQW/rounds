@@ -59,24 +59,16 @@ _Avoid_: provider, integration, sink
 The repository a session belongs to; worktrees join their repository.
 _Avoid_: repo, workspace, folder
 
-**Bar**:
-The private Git repository of one organization that holds its coordination records of Bouncer mode, task records and details included. Each organization has its own bar, and a bar never holds the records of another organization. It is not a project; application code stays in its own repositories.
-_Avoid_: workspace, root folder, router repo, task detail folder
+## Bouncer mode roles
 
-**Owner**:
-The one Git host account of an organization, such as `github.com/HenryQW`: a person or a GitHub organization. Every remote of the organization's bar must belong to it, and Rounds pushes only to it.
-_Avoid_: remote owner list, account (alone)
-
-## Planned coordination roles
-
-These roles describe Bouncer mode. Today it runs as the `henry` skill in Claude desktop, and Rounds knows its sessions by their titles (spec 2.1). The design in `docs/bouncer-mode`, which runs it in Rounds, is planned. A task can outlive a session or span several sessions.
+Bouncer mode runs as the `henry` skill in Claude desktop. Rounds reads the session titles (spec 2.1).
 
 **Bouncer**:
-The user-facing agent that assigns repository tasks to Bartenders and coordinates their results. It makes routine decisions and decides which results need the user's attention. Rounds host code, not the Bouncer, shows each approval request to the user.
+The user-facing agent that assigns repository tasks to Bartenders and coordinates their results. It makes routine decisions and decides which results need the user's attention.
 _Avoid_: router agent
 
 **Bartender**:
-An agent that carries out a repository task in its own worktree (in the planned design, its own container environment) on its own branch and reports to the Bouncer. Rounds shows it as a subagent of its Bouncer. One repository can have multiple Bartenders in separate worktrees. A Bartender can delegate bounded work to Barbacks.
+An agent that carries out a repository task in its own worktree on its own branch and reports to the Bouncer. Rounds shows it as a subagent of its Bouncer. One repository can have multiple Bartenders in separate worktrees. A Bartender can delegate bounded work to Barbacks.
 _Avoid_: repository agent, network server
 
 **Barback**:
@@ -187,20 +179,12 @@ Claude Code's record of a session's messages.
 ## Window
 
 **Pill**:
-The tab at a screen edge that shows the counts and opens the session window. It shows the Your Turn count: red while a session in it failed, orange while one needs input, and green while it holds only results (Ready, Finished, Stopped); with no Your Turn session it turns blue with the running count while sessions run. It rings (peeks out) only while a wait is not yet seen. It is the app's only entry point. In Bouncer mode it shows only what waits for the user in the Bouncer: orange with that count, ringing while anything waits, else empty and still; a click opens the Bouncer Window.
+The tab at a screen edge that shows the counts and opens the session window. It shows the Your Turn count: red while a session in it failed, orange while one needs input, and green while it holds only results (Ready, Finished, Stopped); with no Your Turn session it turns blue with the running count while sessions run. It rings (peeks out) only while a wait is not yet seen. It is the app's only entry point.
 _Avoid_: handle, badge, edge tab
 
 **Session window**:
 The window that slides out from the pill's edge with the filter bar and the list.
 _Avoid_: drawer, panel, popover
-
-**Bouncer**:
-In Bouncer mode (Settings > General), the agent that the user talks to in the Bouncer Window. The role is in Planned coordination roles.
-_Avoid_: router agent
-
-**Bouncer Window**:
-The normal window that a click on the pill opens in Bouncer mode. It holds the Bouncer conversation, the questions and approvals that wait for the user, and the composer.
-_Avoid_: Task View, chat window
 
 **Filter bar**:
 The tiles and agent toggles above the list.

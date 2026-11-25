@@ -17,7 +17,7 @@ Local records save requests, answers and a binding to one Harness tool call. A l
 | Read | Reason |
 |---|---|
 | [AGENTS.md](../../../../AGENTS.md), [DESIGN.md](../../../../DESIGN.md), [GLOSSARY.md](../../../../GLOSSARY.md) | Change rules, existing controls and state words. |
-| [Spec 2.7](../../../spec.md#27-pi-sessions), including 2.7.1 and 2.7.2; spec 5.9 (specification at `124fa0f`) | Session identity, organization rules, authorized storage and the Bouncer Window. |
+| Spec 2.7 and 5.9 at commit `124fa0f` | Session identity, organization rules, authorized storage and the Bouncer Window. |
 | This brief; [03](03-dispatch-and-results.md); [01](01-bouncer-mode.md); [slice index](README.md) | Approval scope, result identity and existing card contracts. |
 | [Decisions](../../decisions.md) | Read the complete entries named under Decided. |
 | [Context](../CONTEXT.md); [archived Bouncer review](../bouncer-review.md) | Authority chain and proposals that remain open. |
