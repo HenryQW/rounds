@@ -122,6 +122,8 @@ struct SettingsView: View {
         .sheet(isPresented: $state.linearSheet, onDismiss: { state.linearKey = "" }) { linearSheet }
         .sheet(item: $state.pushSheet, onDismiss: { (state.pushValues, state.pushChecking, state.pushError) = ([:], false, nil) }) { pushSheet($0) }
         .onAppear {
+            // A regular app while Settings is open: the menu bar shows Rounds, with a Dock icon (spec 5.4).
+            NSApp.setActivationPolicy(.regular)
             NSApp.activate()
             model.refreshHookStatus()
             // gh may be installed or signed in since the last check.
@@ -131,6 +133,7 @@ struct SettingsView: View {
             DispatchQueue.main.async { state.window?.center() }
         }
         .onDisappear {
+            NSApp.setActivationPolicy(.accessory)
             state.recorder.stop()
             state.isOpen = false
             // A key typed but not saved does not stay in memory.

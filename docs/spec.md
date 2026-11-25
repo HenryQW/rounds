@@ -4,7 +4,7 @@ Date: 2026-10-26. Status: draft for review.
 
 ## 1. Goal
 
-Rounds is a macOS background app (no Dock icon, no menu bar item). It shows the live state of AI coding sessions (Claude desktop Code-tab sessions, Codex threads, pi sessions and herdr agents) in four groups (3.2):
+Rounds is a macOS background app (no Dock icon, no menu bar item; only while the Settings window is open, it has a Dock icon and the menu bar shows its menus, 5.4). It shows the live state of AI coding sessions (Claude desktop Code-tab sessions, Codex threads, pi sessions and herdr agents) in four groups (3.2):
 
 1. Your Turn
 2. Running
@@ -369,6 +369,7 @@ There is no menu bar item (removed on 2026-10-27): the edge pill (5.7) does its 
 - Stop the alert for opened sessions (default on): a seen session (3.2) gets a ring dot; a seen result leaves Last Call, and a seen wait stays but the pill no longer rings for it. Off: no session is seen, so the pill rings and Last Call keeps each session until its state changes.
 - Shortcut recorder: click, press a combination with ⌘, ⌥ or ⌃ (or an F-key). Esc cancels. The field is the Session window shortcut row in General; empty, it shows "Record Shortcut". The clear button (×) in the field, or Delete while recording, removes the shortcut; it stays empty after relaunch (a stored `null`). Saved in `UserDefaults` as key code and modifiers. If registration fails: "Another app uses this shortcut.", keep the old one.
 - A normal resizable window: the form scrolls; minimum 560 x 360 pt, first shown at 640 x 560 (frame name `RoundsSettingsSidebar`, so the narrow frame of the old tab window does not come back), then at the size the user gave it; it opens at the centre of the screen each time. While Settings shows, the session window stays open (it does not slide back), so changes show in it at once. SwiftUI gives the Settings window no resizable style, so the view adds `.resizable` to its window.
+- While Settings is open, Rounds is a regular app (`NSApp.setActivationPolicy(.regular)`): the menu bar shows the Rounds menus (Cmd-Q, Cmd-W, Edit) and the Dock shows its icon. When Settings closes, Rounds is a background app again (`.accessory`), and the menu bar goes back to the app in front.
 - Launch at Login (`SMAppService.mainApp`).
 - Open a session with: Single Click or Double-Click (default), how a click on a row opens it in its app; with Double-Click, a single click only selects the row.
 - An agent is on while it can report live state: Claude Code and Codex while their hooks are installed (a wrong helper path still counts, until Repair Hooks), pi while its extension is installed (an older copy still counts, until Update Extension), herdr while it is connected. The window shows only agents that are on; each agent's row shows whether it is on.
