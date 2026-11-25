@@ -638,7 +638,7 @@ private struct PromptKey: Hashable, Sendable {
     let file: PromptFile
 }
 
-private struct CommandOutput: Sendable {
+struct CommandOutput: Sendable {
     var status: Int32
     var stdout: Data
     var stderr: Data
@@ -683,10 +683,10 @@ private func writeCache(_ data: Data) {
           rename(temp.path, ticketCacheURL.path) == 0 else { return log.error("tickets: cache not saved") }
 }
 
-/// Exit status, stdout and stderr of a command; nil when it does not start. A command that runs for 30 s is stopped
+/// Exit status, stdout and stderr of a command; nil when it does not start. A command that runs past `timeout` is stopped
 /// (`timedOut`; a crash is not a timeout). A child of the command can keep a pipe open after the command ends, so the
 /// pipes get at most 2 s after the exit; output not read by then is empty.
-private func runCommand(_ path: String, _ arguments: [String]) -> CommandOutput? {
+func runCommand(_ path: String, _ arguments: [String], timeout: TimeInterval = 30) -> CommandOutput? {
     let process = Process(), out = Pipe(), err = Pipe()
     (process.executableURL, process.arguments, process.standardOutput, process.standardError) = (URL(fileURLWithPath: path), arguments, out, err)
     guard (try? process.run()) != nil else { return nil }
@@ -696,7 +696,7 @@ private func runCommand(_ path: String, _ arguments: [String]) -> CommandOutput?
         stopped = true
         process.terminate()
     }
-    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 30, execute: stop)
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + timeout, execute: stop)
     // Each pipe on its own thread, so a full pipe cannot block the command.
     let pipes = DispatchGroup()
     DispatchQueue.global(qos: .utility).async(group: pipes) { stdout = out.fileHandleForReading.readDataToEndOfFile() }

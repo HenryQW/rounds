@@ -171,7 +171,11 @@ struct SettingsView: View {
     /// Opens a new GitHub issue with the versions filled in (spec 5.4).
     private var reportBug: some View {
         sidebarButton("Report a Bug", "ladybug", help: "Open a new GitHub issue with the versions filled in") {
-            NSWorkspace.shared.open(Self.bugReportURL())
+            // herdr can hang; ask it off the main thread.
+            DispatchQueue.global(qos: .userInitiated).async {
+                let herdr = Self.version(of: URL.homeDirectory.appending(path: ".local/bin/herdr").path)
+                DispatchQueue.main.async { MainActor.assumeIsolated { NSWorkspace.shared.open(Self.bugReportURL(herdr: herdr)) } }
+            }
         }
     }
 
@@ -200,19 +204,18 @@ struct SettingsView: View {
     }
 
     /// github.com/HenryQW/rounds/issues/new with the Rounds, macOS, Claude, Codex and herdr versions in the body.
-    private static func bugReportURL() -> URL {
+    private static func bugReportURL(herdr: String) -> URL {
         let info = Bundle.main.infoDictionary ?? [:]
         func app(_ url: URL?) -> String {
             url.flatMap { Bundle(url: $0)?.infoDictionary?["CFBundleShortVersionString"] as? String } ?? "not found"
         }
-        let herdr = URL.homeDirectory.appending(path: ".local/bin/herdr")
         let body = """
             **Versions**
             - Rounds \(info["CFBundleShortVersionString"] as? String ?? "?") (\(info["CFBundleVersion"] as? String ?? "?"))
             - macOS \(ProcessInfo.processInfo.operatingSystemVersionString)
             - Claude \(app(NSWorkspace.shared.urlForApplication(withBundleIdentifier: "com.anthropic.claudefordesktop")))
             - Codex \(app(URL(string: "codex://").flatMap(NSWorkspace.shared.urlForApplication(toOpen:))))
-            - herdr \(Self.output(of: herdr, "--version") ?? "not found")
+            - herdr \(herdr)
 
             **What happened**
 
@@ -225,14 +228,12 @@ struct SettingsView: View {
         return components.url!
     }
 
-    /// The first line a command prints, or nil when it is not there or fails.
-    private static func output(of executable: URL, _ arguments: String...) -> String? {
-        let process = Process(), pipe = Pipe()
-        (process.executableURL, process.arguments, process.standardOutput) = (executable, arguments, pipe)
-        guard (try? process.run()) != nil else { return nil }
-        process.waitUntilExit()
-        let text = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-        return process.terminationStatus == 0 ? text.split(separator: "\n").first.map(String.init) : nil
+    /// The first line `--version` prints; "not found" when the command is not there or fails, empty after 2 s.
+    nonisolated static func version(of executable: String, timeout: TimeInterval = 2) -> String {
+        guard let out = runCommand(executable, ["--version"], timeout: timeout) else { return "not found" }
+        if out.timedOut { return "" }
+        guard out.status == 0 else { return "not found" }
+        return String(decoding: out.stdout, as: UTF8.self).split(separator: "\n").first.map(String.init) ?? ""
     }
 
     /// henry.wang's Decisive Cobalt, oklch(0.488 0.217 264.4); in dark mode its Evidence Blue, oklch(0.77 0.116 264.4).

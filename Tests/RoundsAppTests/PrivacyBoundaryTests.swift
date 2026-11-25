@@ -50,6 +50,19 @@ func pushChannelWithMissingValuesIsNotReady() async {
 }
 
 @Test
+func versionOfACommandThatHangsIsEmptyAfterTheTimeout() throws {
+    let base = try tempFolder()
+    defer { try? FileManager.default.removeItem(at: base) }
+    let script = base.appending(path: "hang")
+    try "#!/bin/sh\nexec sleep 10\n".write(to: script, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: script.path)
+    let start = ContinuousClock.now
+    #expect(SettingsView.version(of: script.path, timeout: 0.2) == "")
+    #expect(ContinuousClock.now - start < .seconds(3))
+    #expect(SettingsView.version(of: base.appending(path: "missing").path) == "not found")
+}
+
+@Test
 func linearBatchNeedsAGrant() throws {
     let base = try tempFolder()
     defer { try? FileManager.default.removeItem(at: base) }
