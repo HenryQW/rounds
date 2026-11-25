@@ -621,11 +621,26 @@ func harnessHostRechecksARecordedChildOutsideTheGroup(reusedPID: Bool) async thr
     try? await original.stop()
 }
 
-@Test func harnessHostRefusesAReusedProcessIdentity() async throws {
+@Test func harnessHostClearsAReusedLeaderWithNoRecordedChild() async throws {
     let fixture = try HarnessFixture()
+    defer { fixture.remove() }
     let info = try #require(HostProcessRecord.info(getpid()))
     let unrelated = HostProcessRecord(pid: getpid(), seconds: info.pbi_start_tvsec + 1,
                                       microseconds: info.pbi_start_tvusec, uid: getuid(), marker: UUID().uuidString)
+    try JSONEncoder().encode(unrelated).write(to: fixture.folder.appending(path: "host-process.json"))
+    let host = fixture.host()
+    #expect(try await host.start().scheduling == "paused")
+    #expect(try fixture.record().pid != getpid())
+    try await host.stop()
+}
+
+@Test func harnessHostRefusesAReusedLeaderWhileARecordedChildRuns() async throws {
+    let fixture = try HarnessFixture()
+    let info = try #require(HostProcessRecord.info(getpid()))
+    let parent = try #require(HostProcessRecord.info(getppid()))
+    var unrelated = HostProcessRecord(pid: getpid(), seconds: info.pbi_start_tvsec + 1,
+                                      microseconds: info.pbi_start_tvusec, uid: getuid(), marker: UUID().uuidString)
+    unrelated.descendants = [HostProcessIdentity(pid: getppid(), seconds: parent.pbi_start_tvsec, microseconds: parent.pbi_start_tvusec)]
     try JSONEncoder().encode(unrelated).write(to: fixture.folder.appending(path: "host-process.json"))
     var failed: NodeHarnessHost? = fixture.host()
     await #expect(throws: (any Error).self) { try await failed!.start() }

@@ -514,10 +514,15 @@ struct HostProcessRecord: Codable, Sendable {
         guard pid > 1, uid == getuid(), UUID(uuidString: marker) != nil else {
             throw HarnessHostError("Invalid Harness process record. Cleanup stopped.")
         }
-        if let leader = Self.info(pid) {
-            guard leader.pbi_start_tvsec == seconds, leader.pbi_start_tvusec == microseconds else {
-                throw HarnessHostError("Harness process identity changed. Cleanup stopped.")
+        if let leader = Self.info(pid), leader.pbi_start_tvsec != seconds || leader.pbi_start_tvusec != microseconds {
+            // The leader died and another process has its pid: never signal that group. Only a recorded child that
+            // still runs shows that a Harness remains.
+            for known in descendants where known.pid > 1 && known.pid != pid {
+                if let info = try Self.liveInfo(known.pid), known.matchesBirth(info) {
+                    throw HarnessHostError("Harness process identity changed. Cleanup stopped.")
+                }
             }
+            return []
         }
         let needed = proc_listpids(UInt32(PROC_PGRP_ONLY), UInt32(pid), nil, 0)
         guard needed >= 0 else { throw HarnessHostError("Cannot inspect the Harness process group.") }

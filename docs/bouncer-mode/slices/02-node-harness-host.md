@@ -208,7 +208,7 @@ flowchart LR
 | Pi launch failure | Rounds shuts down the already running host |
 | Host shutdown notice | The notice stays pending across Pi start and exit while the Bouncer window is hidden |
 | Leftover group | A replacement cleans the recorded group before launching its new host |
-| Identity mismatch | Cleanup refuses to signal an unrelated live process and preserves the record |
+| Identity mismatch | Cleanup never signals an unrelated live process that has the recorded leader pid. While a recorded child still runs, start stops and keeps the record. When no recorded child runs, start clears the record and continues |
 | Two owners | The folder lock rejects the second owner without stopping the first |
 | Released failed owner | The record remains, but releasing the actor closes its lock; a new owner can read a corrected record |
 | Exited child or closed input | Start Again starts a healthy replacement on its first attempt |
