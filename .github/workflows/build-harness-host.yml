@@ -14,6 +14,9 @@ jobs:
   build:
     # A fresh GitHub-hosted Apple silicon runner keeps dependency builds outside the signing job.
     runs-on: macos-15
+    env:
+      # build-harness-host.sh also runs the approval gate and task dispatch tests.
+      ROUNDS_TEST_HARNESS_WORKFLOW: '1'
     outputs:
       payload-id: ${{ steps.upload.outputs.artifact-id }}
     steps:
