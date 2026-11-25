@@ -204,7 +204,8 @@ export function bouncer(harness, models, emit) {
         }
         emit("banner", { text: null });
         emit("replying", { replying: true });
-        await entries();
+        // A read error must not strand the turn: finish reads the entries again and ends "replying".
+        await entries().catch(() => {});
         const turn = { submission, watch, partial: "" };
         active = turn;
         watch.start(async call => {

@@ -82,51 +82,83 @@ class Host {
     }
 }
 
-test("recovery preserves an aborted partial reply without a user stop on later opens", async () => {
+// The Bouncer source with fixtures in place of its imports.
+async function importBouncer(magpie) {
     const source = (await readFile(new URL("../Resources/harness-bouncer.mjs", import.meta.url), "utf8"))
         .split("\n").filter(line => !line.startsWith("import ")).join("\n");
     globalThis.roundsFixture = {
         context: {}, AssistantEntry: { is: entry => entry.kind === "assistant" },
         UserEntry: { is: entry => entry.kind === "user" }, configure() {}, defineDoc: value => value,
-        LiveDoc: {}, BouncerRequestError: class extends Error {},
-        registerMagpie: async () => ({ resolve: () => null, models: [] }),
+        LiveDoc: {}, BouncerRequestError: class extends Error {}, registerMagpie: async () => magpie,
     };
     try {
         const prefix = "const { context, AssistantEntry, UserEntry, configure, defineDoc, LiveDoc, BouncerRequestError, registerMagpie } = globalThis.roundsFixture;\n";
-        const { bouncer } = await import(`data:text/javascript;base64,${Buffer.from(prefix + source).toString("base64")}`);
-        const rows = [
-            { id: 1, kind: "user", model: [{ content: "Question" }] },
-            { id: 2, kind: "assistant", model: [{ content: "Partial reply", stopReason: "aborted" }] },
-        ];
-        const conversation = {
-            id: "root", commit: async callback => callback({ doc: async () => ({ model: null }),
-                appendEntry: async (_id, entry) => { rows.push({ ...entry, id: rows.length + 1 }); } }),
-            configure: async () => {}, abort: async () => {},
-            entries: async ({ minEntryId }) => ({ items: rows.filter(row => !minEntryId || row.id >= minEntryId) }),
-            submit: async ({ entry }) => { rows.push({ ...entry, id: rows.length + 1 }); },
-        };
-        let recovering = true;
-        let interruptAbort = true;
-        const harness = {
-            root: async () => conversation,
-            inspect: async () => ({ tasks: recovering ? [{ record: { id: "task", conversationId: "root" } }] : [], submissions: [] }),
-            abortTask: async () => { if (interruptAbort) { interruptAbort = false; throw new Error("simulated crash"); } },
-        };
-        const failedOpen = bouncer(harness, {}, () => {});
-        await assert.rejects(failedOpen({ command: "bouncerOpen" }), /simulated crash/);
-        await assert.rejects(failedOpen({ command: "bouncerSend", text: "Do not schedule" }), /conversation is not open/);
-        assert.ok(rows.some(row => row.kind === "rounds.interrupted" && row.data.afterID === 1));
-        recovering = false;
-        for (let attempt = 0; attempt < 2; attempt++) {
-            const frames = [];
-            await bouncer(harness, {}, (event, fields) => frames.push({ event, ...fields }))({ command: "bouncerOpen" });
-            assert.ok(frames.some(frame => frame.event === "delta" && frame.text === "Partial reply"));
-            assert.equal(frames.some(frame => frame.event === "stopped"), false);
-            assert.ok(frames.some(frame => frame.event === "failed" && frame.text.includes("interrupted")));
-        }
+        const module = `${prefix}${source}\n// ${randomUUID()}`;
+        return (await import(`data:text/javascript;base64,${Buffer.from(module).toString("base64")}`)).bouncer;
     } finally {
         delete globalThis.roundsFixture;
     }
+}
+
+test("recovery preserves an aborted partial reply without a user stop on later opens", async () => {
+    const bouncer = await importBouncer({ resolve: () => null, models: [] });
+    const rows = [
+        { id: 1, kind: "user", model: [{ content: "Question" }] },
+        { id: 2, kind: "assistant", model: [{ content: "Partial reply", stopReason: "aborted" }] },
+    ];
+    const conversation = {
+        id: "root", commit: async callback => callback({ doc: async () => ({ model: null }),
+            appendEntry: async (_id, entry) => { rows.push({ ...entry, id: rows.length + 1 }); } }),
+        configure: async () => {}, abort: async () => {},
+        entries: async ({ minEntryId }) => ({ items: rows.filter(row => !minEntryId || row.id >= minEntryId) }),
+        submit: async ({ entry }) => { rows.push({ ...entry, id: rows.length + 1 }); },
+    };
+    let recovering = true;
+    let interruptAbort = true;
+    const harness = {
+        root: async () => conversation,
+        inspect: async () => ({ tasks: recovering ? [{ record: { id: "task", conversationId: "root" } }] : [], submissions: [] }),
+        abortTask: async () => { if (interruptAbort) { interruptAbort = false; throw new Error("simulated crash"); } },
+    };
+    const failedOpen = bouncer(harness, {}, () => {});
+    await assert.rejects(failedOpen({ command: "bouncerOpen" }), /simulated crash/);
+    await assert.rejects(failedOpen({ command: "bouncerSend", text: "Do not schedule" }), /conversation is not open/);
+    assert.ok(rows.some(row => row.kind === "rounds.interrupted" && row.data.afterID === 1));
+    recovering = false;
+    for (let attempt = 0; attempt < 2; attempt++) {
+        const frames = [];
+        await bouncer(harness, {}, (event, fields) => frames.push({ event, ...fields }))({ command: "bouncerOpen" });
+        assert.ok(frames.some(frame => frame.event === "delta" && frame.text === "Partial reply"));
+        assert.equal(frames.some(frame => frame.event === "stopped"), false);
+        assert.ok(frames.some(frame => frame.event === "failed" && frame.text.includes("interrupted")));
+    }
+});
+
+test("a failed entries read after a send still ends the reply and allows the next send", async () => {
+    const bouncer = await importBouncer({ resolve: () => ({}), models: [] });
+    let failRead = false;
+    const conversation = {
+        id: "root", commit: async callback => callback({ doc: async () => ({ model: null }) }),
+        configure: async () => {}, agent: async () => ({ model: { provider: "magpie", modelId: "first" } }),
+        entries: async () => {
+            if (failRead) { failRead = false; throw new Error("simulated read error"); }
+            return { items: [] };
+        },
+        submit: async () => { failRead = true; return { wait: async () => ({ status: "done" }) }; },
+    };
+    const harness = {
+        root: async () => conversation, inspect: async () => ({ tasks: [], submissions: [] }),
+        watchDoc: async () => ({ start() {}, stop: async () => {} }),
+    };
+    const frames = [];
+    const command = bouncer(harness, {}, (event, fields) => frames.push({ event, ...fields }));
+    await command({ command: "bouncerOpen" });
+    for (const text of ["First", "Second"]) {
+        await command({ command: "bouncerSend", id: randomUUID(), text });
+        await new Promise(resolve => setImmediate(resolve));
+        assert.deepEqual(frames.filter(frame => frame.event === "replying").at(-1), { event: "replying", replying: false });
+    }
+    assert.equal(frames.some(frame => frame.event === "failed"), false);
 });
 
 test("Bouncer streams and stops, restores questions and model, and never exposes tools", { timeout: 25_000 }, async () => {
