@@ -24,7 +24,7 @@ Run `scripts/bundle.sh --install`, then `pkill -x Rounds; open /Applications/Rou
 
 ## Demo check (no user needed)
 
-`scripts/check-frames.sh [scene]` runs one demo scene under the watch and exits 1 when a flag is on a `resized` line (a fault the user sees). It waits until the user is idle for 10 s, quits the installed app for the run (they share the global shortcut) and opens it again. Run `scripts/bundle.sh` first. Scenes: `window-turn` (default: opens on Last Call; after 2 s sessions come into Your Turn and the Another round? banner goes), `window-slide` (the same, 0.1 s into the opening slide), `window`, `window-children`, `window-quiet`.
+`scripts/check-frames.sh [scene]` runs one demo scene under the watch and exits 1 when a flag is on a `resized` line (a fault the user sees), when the app binary is missing, or when it records no `resized` line (nothing was checked). It waits until the user is idle for 10 s, quits the installed app for the run (they share the global shortcut) and opens it again. Run `scripts/bundle.sh` first. Scenes: `window-turn` (default: opens on Last Call; after 2 s sessions come into Your Turn and the Another round? banner goes), `window-slide` (the same, 0.1 s into the opening slide), `window`, `window-children`, `window-quiet`.
 
 Trap: the demo window takes keyboard focus with its search field active. If the user types while it shows, the keys filter the list, and the watch shows a false `FLIP`. A check that is red once and then green with the idle check was this.
 
