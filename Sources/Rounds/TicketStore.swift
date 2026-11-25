@@ -243,10 +243,14 @@ final class TicketStore {
         let now = Date()
         var due: [TicketService: [Lookup]] = [:], seen: [TicketService: Set<Lookup>] = [:]
         var sources: [TicketService: [Lookup: [SessionRow]]] = [:]
+        // One policy read and one destination each for all rows: a regroup can list hundreds of lookups.
+        let destinations = Dictionary(uniqueKeysWithValues: [TicketService.linear, .github].compactMap { s in organizationDestination(for: s).map { (s, $0) } })
+        let policy = try? OrganizationSettingsState.shared.withPolicy { $0 }
         for r in rows where folders[r.cwd] != nil {
             for (lookup, service) in lookups(r) {
-                guard let destination = organizationDestination(for: service),
-                      OrganizationSettingsState.shared.allows(row: r, destination: destination) else { continue }
+                guard let policy, let destination = destinations[service],
+                      policy.allowsTransmission(sessionDirectory: r.cwd, gitRemote: .unknown,
+                                                service: destination.service, destinationIdentity: destination.identity) else { continue }
                 sources[service, default: [:]][lookup, default: []].append(r)
                 guard seen[service, default: []].insert(lookup).inserted,
                       cache.due(lookup, service: service, now: now, hover: hover),
@@ -258,12 +262,8 @@ final class TicketStore {
             var sent = false
             if let destination = organizationDestination(for: .linear) {
                 _ = try? OrganizationSettingsState.shared.withPolicy { policy in
-                    let batch = Array((due[.linear] ?? []).filter { lookup in
-                        (sources[.linear]?[lookup] ?? []).contains { row in
-                            policy.allowsTransmission(sessionDirectory: row.cwd, gitRemote: .unknown,
-                                                      service: destination.service, destinationIdentity: destination.identity)
-                        }
-                    }.prefix(20))
+                    let batch = linearBatch(due[.linear] ?? [], folders: (sources[.linear] ?? [:]).mapValues { $0.map(\.cwd) },
+                                            policy: policy, destination: destination)
                     guard !batch.isEmpty else { return }
                     let (body, aliases) = linearRequest(batch)
                     // A lookup the request cannot ask about has no result.
@@ -583,6 +583,17 @@ final class TicketStore {
         changed()
         fetch(listed, hover: false)
     }
+}
+
+/// The due Linear lookups that a session folder with a grant for the destination asks for, at most 20 per request.
+func linearBatch(_ due: [Lookup], folders: [Lookup: [String]], policy: OrganizationPolicy,
+                 destination: OrganizationDestination) -> [Lookup] {
+    Array(due.filter { lookup in
+        (folders[lookup] ?? []).contains { folder in
+            policy.allowsTransmission(sessionDirectory: folder, gitRemote: .unknown,
+                                      service: destination.service, destinationIdentity: destination.identity)
+        }
+    }.prefix(20))
 }
 
 /// One service's request state: one request at a time, and a wait after a failure or a rate limit.

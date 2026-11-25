@@ -115,17 +115,6 @@ final class OrganizationSettingsState {
         }
     }
 
-    func allows(row: SessionRow, destination: OrganizationDestination) -> Bool {
-        guard lease != nil else { return false }
-        return Self.allows(storeURL: store.url, directory: row.cwd, destination: destination)
-    }
-
-    nonisolated static func allows(storeURL: URL, directory: String, destination: OrganizationDestination) -> Bool {
-        guard let policy = try? OrganizationPolicyStore(url: storeURL).load() else { return false }
-        return policy.allowsTransmission(sessionDirectory: directory, gitRemote: .unknown,
-                                         service: destination.service, destinationIdentity: destination.identity)
-    }
-
     func recoverRules() {
         guard lease != nil else { return }
         do {
