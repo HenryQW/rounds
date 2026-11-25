@@ -34,7 +34,7 @@ At [revision `53f8ffe`](https://github.com/MrLesk/Backlog.md/tree/53f8ffe7150e52
 - Its [grouping](https://github.com/HenryQW/rounds/blob/e3bf1a955c4c641b7410c93832c51ff6f6c200de/Sources/RoundsCore/Grouping.swift#L158-L182) excludes subagents from attention by default. It [flattens children under the root](https://github.com/HenryQW/rounds/blob/e3bf1a955c4c641b7410c93832c51ff6f6c200de/Sources/RoundsCore/Grouping.swift#L213-L225).
 - Its [notification specification](https://github.com/HenryQW/rounds/blob/e3bf1a955c4c641b7410c93832c51ff6f6c200de/docs/spec.md#L175-L183) describes metadata sent to configured channels. Its [package](https://github.com/HenryQW/rounds/blob/e3bf1a955c4c641b7410c93832c51ff6f6c200de/Package.swift#L1-L15) targets macOS.
 
-A network allowlist or hidden credential alone does not establish the required approval boundary. Verify the complete execution path against the [authority decision](../decisions/authority.md) before choosing a mechanism.
+A network allowlist or hidden credential alone does not establish the required approval boundary. Verify the complete execution path against the [authority decision](decisions/authority.md) before choosing a mechanism.
 
 ## Orchestration for option 3 (2026-11-18)
 
