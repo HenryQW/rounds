@@ -125,8 +125,9 @@ public struct DesktopSession: Sendable, Equatable, Identifiable {
 /// Bouncer mode names its sessions with fixed titles (spec 2.1); Rounds reads only the title.
 extension DesktopSession {
     /// A Bartender: `[<status>] 🍸 <TICKET> <repo>` or `[Idle] 🍸 <repo>`, with an optional `!` before it.
+    /// The emoji is its type: 🍸 Ticket, 🔧 Skill, 🧹 Cleanup.
     public var isBartender: Bool {
-        title.wholeMatch(of: #/!?\[[^\]]+\] 🍸 (?:\S+ )?\S+/#) != nil
+        title.wholeMatch(of: #/!?\[[^\]]+\] (?:🍸|🔧|🧹) (?:\S+ )?\S+/#) != nil
     }
 
     /// The questions that wait on the user, from the Bouncer's title `!<n> 🚪 Bouncer`; 0 for any other title.

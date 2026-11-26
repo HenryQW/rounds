@@ -15,6 +15,17 @@ The steps that need no judgment are scripts in `scripts/` next to this file (`${
 | Bartender | A linked Code session in its own worktree of the repo | One ticket at a time: plan, Barbacks, checks, the ticket record | Set by the Bouncer per ticket |
 | Barback | An Agent subagent with `isolation: "worktree"` | One bounded part of the ticket in its own worktree and branch | Chosen by the Bartender (the user's rules, else the Agent default) |
 
+### Bartender types
+A type picks the title emoji and the default model. Many Bartenders of one type can run in parallel. Each still does one task at a time and is cleared after it.
+
+| Type | Emoji | Default model, effort | Use |
+|---|---|---|---|
+| Ticket | 🍸 | `opus` `medium`; `sonnet` `medium` for Mechanical | One tracker ticket |
+| Skill | 🔧 | `opus` `medium` for design; `sonnet` `medium` for edits | Skills, plugins, agent rules, workflows |
+| Cleanup | 🧹 | `haiku` `low`; `sonnet` `medium` if it needs judgment | Big sweeps only: old sessions, worktrees, branches. Do a sweep of a few tool calls yourself or in a subagent |
+
+There is no drafting type: the Bartender that owns the work drafts its messages. For Skill and Cleanup work, `<TICKET>` is a short task name with no space (for example `bouncer-types`), unless a tracker ticket exists. A Skill Bartender usually works in another repo than the Bouncer, so over Remote Control the Bouncer reuses an idle Skill Bartender with a message, or queues the work.
+
 ## Hard rules
 - **The Bouncer is a session the user opens.** With Remote Control on, a session that another session started cannot start sessions: "this session was started by another session or forked from one, so it can't start sessions that way" (seen 2026-11-25). If this session is a side session or a fork, stop and tell the user to open a new session and start Bouncer mode there.
 - **Never detach a Bartender.** A detached session sends no turn-end notes, and its reports do not reach the Bouncer.
@@ -49,11 +60,12 @@ The steps that need no judgment are scripts in `scripts/` next to this file (`${
 - Titles (the Bouncer is the only one that renames, with `set_session_title`). Make each title with `${CLAUDE_SKILL_DIR}/scripts/bouncer-title <args>`, never by hand (the one exception is an unknown status, below). Status codes: `${user_config.status_codes}`. The script reads the option from Claude Code's settings itself; `BOUNCER_STATUS_CODES="<pairs>"` before the command overrides it. With no option set, it uses the default codes:
   - `[<status>] 🍸 <TICKET> <repo>`, for example `[Dev] 🍸 ABC-123 my-repo`: `bouncer-title "<tracker status>" <TICKET> <repo>`
   - `[Idle] 🍸 <repo>`: `bouncer-title --idle <repo>`
+  - Add `--type Skill` or `--type Cleanup` for those types (🔧, 🧹); Ticket is the default. A title with no type flag reads as Ticket.
 - A call to action (CTA) is not a status. It is a `!` prefix, put before the status and removed when the user answers:
   - Bartender: `![Dev] 🍸 <TICKET> <repo>`: add `--cta`
   - Bouncer (`self`): `!<n> 🚪 Bouncer`, where `<n>` is the number of questions that wait on the user; plain `🚪 Bouncer` at 0 (`bouncer-title --bouncer <n>`). The user looks only at the Bouncer, so this is the CTA the user sees.
-- `<status>` is the short code of the ticket's status in the tracker. `bouncer-title` maps each status name to its code with the `status_codes` plugin option (`Name=Code` pairs, `;` between them). Exit 2: an unknown status; do not ask. Use the status name itself as the code (`[<Status name>] 🍸 <TICKET> <repo>`, the one title made by hand), and tell the user in one line to add it to the option.
-- The mode (Code, Spike, Mechanical) picks the model only. It is not in the title.
+- `<status>` is the short code of the ticket's status in the tracker. `bouncer-title` maps each status name to its code with the `status_codes` plugin option (`Name=Code` pairs, `;` between them). Exit 2: an unknown status; do not ask. Use the status name itself as the code (`[<Status name>] <emoji> <TICKET> <repo>`, the one title made by hand), and tell the user in one line to add it to the option.
+- The mode (Code, Spike, Mechanical) picks the model of a Ticket Bartender only. It is not in the title; the type is (the emoji).
 - Queue: work above the cap waits in `<data>/queue.md`, one line a ticket: `<TICKET> | repo | mode | brief source`. Change it only with `scripts/bouncer-queue add|pop|remove|list`. `add` replaces a stale line of the same ticket. `pop` exit 1: the queue is empty. `remove <TICKET>` exit 1: no line has that ticket.
 - Questions: each Bartender question that waits on the user is one line in `<data>/questions.md`: `<TICKET> | <session_id> | <question with default>`, oldest first. Change it only with `scripts/bouncer-questions add|next|done|list|count`. The band shows each question next to its Bartender.
 - Grants: the user's one yes for a ticket's closing chain is one line in `<data>/grants.md`: `<TICKET> | <actions> | <the user's words>`. Change it only with `scripts/bouncer-grants add|has|get|done|list`. Only the Bouncer writes it.
@@ -69,24 +81,18 @@ When the user asks what to work on, name only tickets that can be worked now. Ch
 Reply with the workable tickets, best first, then each excluded ticket with a one-line reason (`ABC-7: blocked by ABC-5`). When the user picks one, route it with no further question.
 
 ## Route a request
-1. Find the ticket, its status, the repo and the mode (`Code`, `Spike`, `Mechanical`). Ask the user only if the request names no ticket and no repo.
+1. Find the ticket, its status, the repo, the type (`Ticket`, `Skill`, `Cleanup`) and the mode (`Code`, `Spike`, `Mechanical`). Ask the user only if the request names no ticket and no repo.
 2. If the request itself names a product or priority choice, ask the user now, in one line with your default. Do not wait for a free Bartender. Route the ticket in the same turn.
 3. Closing chain grant: if the ticket will end in actions that need the user's yes, and the user's request did not already grant them, ask once now, in the same turn as the route, for one yes that covers the whole chain. Offer the usual chain for the mode as the pick: Code and Mechanical `push, pr, merge` (merge when checks pass), Spike `comment, close, link`. Actions: `push`, `pr`, `merge`, `comment`, `status`, `link`, `close`, `message`. On the yes, `bouncer-grants add "<TICKET> | <actions> | <the user's exact words>"`. A request that already says the chain ("fix it and merge", "close it with a comment") is the grant: record it with no question. A ticket with no outward action needs no grant. Route the ticket while the grant question waits.
-4. `list_sessions {"linked": true}`, then pipe `{"sessions": <rows>, "request": {"ticket", "repo"}, "caps": {"active": <cap>}}` to `scripts/bouncer-route`. Do what its `action` says:
-   - `assign`: an idle Bartender of the same repo. Reset it (next section).
+4. `list_sessions {"linked": true}`, then pipe `{"sessions": <rows>, "request": {"ticket", "repo", "type"}, "caps": {"active": <cap>}}` to `scripts/bouncer-route`. Do what its `action` says:
+   - `assign`: an idle Bartender of the same type and repo. Reset it (next section).
    - `start`: on the user's turn, `start_session` with `initiation: "user_asked"`, `context: "fresh"`, `use_worktree: true`, and the brief below. Give no `cwd` when the Bouncer runs in the repo's main checkout; for another repo give `cwd: <main checkout of the repo>`, and over Remote Control (which refuses another folder) queue it instead. On a Bartender's turn, `start` becomes `queue`.
    - `queue`: `bouncer-queue add`. Tell the user the `reason` in one line.
 
 ## Reset and assign
 1. The Bartender reported `DONE` and is idle.
 2. `clear_session` on it. Its worktree, model and permissions stay. If the app refuses the clear, reuse the Bartender as it is: the brief in step 5 starts with "Drop the context of <old ticket>; it is closed." Never ask the user. If no ticket waits for it (the queue is empty and no new request), stop here: set the `bouncer-title --idle <repo>` title.
-3. `set_session_model` and `set_session_effort` for the ticket. Defaults, unless the user's rules name other models:
-
-| Mode | Model | Effort |
-|---|---|---|
-| Code (bug fix, feature) | `opus` | `medium` |
-| Spike (root cause, research) | `opus` | `medium` |
-| Mechanical (rename, config, docs) | `sonnet` | `medium` |
+3. `set_session_model` and `set_session_effort` for the work: the type's default in "Bartender types", unless the user's rules name other models. For a Ticket: Code (bug fix, feature) and Spike (root cause, research) `opus` `medium`; Mechanical (rename, config, docs) `sonnet` `medium`.
 
 4. `set_session_title` with the `bouncer-title` output.
 5. `send_message` with the brief.
@@ -121,7 +127,8 @@ EVIDENCE: <record link, PR, or file:line>
 - **The Bouncer pipes every turn-end note to `scripts/bouncer-report` before it acts on the note, with no exception.** The script finds the 6 field lines anywhere in the note (the last block if there are several) and prints them as JSON. Exit 2: a field is missing, STATUS is bad, NEEDS_INPUT has no question, or the field lines pass 400 characters.
 - The turn-end note quotes only the first 400 characters of the report. When its field lines are missing or cut, read that session's last message (`list_events`, limit 4) and pipe its report block to `bouncer-report` before you act. If that still exits 2, check the evidence directly (git log of the Bartender's branch, the ticket record) and tell the Bartender to use the shape.
 - When `LINEAR` differs from the title, the Bouncer renames the Bartender.
-- `WORKING`: no action. Barbacks still run.
+- `WORKING`: no action and no text to the user. Barbacks still run.
+- The Bouncer writes to the user only for a result (DONE, a PR, a new ticket), a question or approval the user must answer, or a blocker the user must act on. A side-session note that needs none of these gets no reply text: no intermediate status updates.
 - `NEEDS_INPUT`: the Bouncer settles it with the Bartender first: it answers a go-ahead for a reversible step with "yes, do it", answers from rules, docs, the ticket or a sensible default, asks the Bartender for missing facts, and consults the advisor (if any) for any question that rules and defaults do not settle. A Bartender question about an action that needs the user's yes becomes the Bouncer's own: run it under the grant ("Closing chain"), or ask the user for the grant. It asks the user only for such an action with no grant or for a question that the advisor did not settle. For each Bartender question that goes to the user, the Bouncer does all of these, with no exception:
   1. `bouncer-questions add "<TICKET> | <session_id> | <question, pick and default>"`.
   2. Adds the `!` CTA to the Bartender (`--cta`). If `bouncer-title` fails (for example exit 2, unknown status), still rename: put `!` before the Bartender's current title, and tell the user the script error in one line. Never skip the rename.
@@ -162,7 +169,7 @@ Verified 2026-11-25 in `bypassPermissions` mode (no card for any step below):
 - The Bouncer renames a Bartender again with no card.
 - Two Bartenders ran in parallel, and each committed its own branch.
 
-Outside bypass mode, the app asks the user for a model more expensive than the Bouncer's own, an effort above the Bouncer's own, and each `clear_session` (auto mode may decide alone). So the Bouncer's effort must be at least the highest effort in the reset table, unless the Bouncer runs in bypass mode.
+Outside bypass mode, the app asks the user for a model more expensive than the Bouncer's own, an effort above the Bouncer's own, and each `clear_session` (auto mode may decide alone). So the Bouncer's effort must be at least the highest effort in "Bartender types", unless the Bouncer runs in bypass mode.
 
 Auto mode refuses an approval that one session relays to another ("Unsanctioned Communication", "Destructive or Unwanted Actions", seen 2026-11-26), so the Bouncer runs the closing chain itself. A hook such as rtk may rewrite Bash commands (`git push` runs as `rtk git push`); an allow rule must name the rewritten form.
 

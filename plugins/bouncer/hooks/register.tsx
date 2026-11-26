@@ -96,6 +96,7 @@ export const register: Register = (on, options) => {
               <Text color={b.cta ? 'warning' : undefined} dimColor={b.status === 'Idle'}>
                 {b.cta ? '!' : ''}[{b.status}]
               </Text>
+              <Text>{b.emoji}</Text>
               {b.ticket && (linear && LINEAR_KEY.test(b.ticket)
                 ? <Link href={`${linear}/issue/${b.ticket}`} label={b.ticket} />
                 : <Text>{b.ticket}</Text>)}

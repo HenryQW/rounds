@@ -2,15 +2,17 @@ import type { Pool } from '../types'
 
 export const EMPTY: Pool = { isOn: false, bartenders: {}, waiting: 0, queue: 0 }
 
-export type Bartender = { cta: boolean; status: string; ticket: string; repo: string }
+export type Bartender = { cta: boolean; status: string; type: string; emoji: string; ticket: string; repo: string }
 
-// `![Dev] 🍸 MIDI-1 repo` or `[Idle] 🍸 repo` (made by bouncer-title); a repo is a folder name with no space.
-const BARTENDER = /^(!)?\[([^\]]+)\] 🍸 (?:(\S+) )?(\S+)$/
+// `![Dev] 🍸 MIDI-1 repo` or `[Idle] 🔧 repo` (made by bouncer-title); a repo is a folder name with no space.
+// The emoji is the type: 🍸 Ticket, 🔧 Skill, 🧹 Cleanup.
+const TYPES: Record<string, string> = { '🍸': 'Ticket', '🔧': 'Skill', '🧹': 'Cleanup' }
+const BARTENDER = /^(!)?\[([^\]]+)\] (🍸|🔧|🧹) (?:(\S+) )?(\S+)$/u
 const BOUNCER = /^(?:!(\d+) )?🚪 Bouncer$/
 
 export const parseBartender = (title: string): Bartender | undefined => {
   const m = BARTENDER.exec(title)
-  return m ? { cta: m[1] === '!', status: m[2] ?? '', ticket: m[3] ?? '', repo: m[4] ?? '' } : undefined
+  return m ? { cta: m[1] === '!', status: m[2] ?? '', type: TYPES[m[3] ?? ''] ?? 'Ticket', emoji: m[3] ?? '🍸', ticket: m[4] ?? '', repo: m[5] ?? '' } : undefined
 }
 
 /** The pool after the Bouncer renamed a session; unchanged for any other title. */

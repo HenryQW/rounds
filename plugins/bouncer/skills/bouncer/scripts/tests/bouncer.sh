@@ -16,6 +16,11 @@ ok "title: bouncer count" "$(./bouncer-title --bouncer 2)" "!2 🚪 Bouncer"
 ./bouncer-title "Not A Status" ABC-1 r 2>/dev/null; ok "title: unknown status exits 2" $? 2
 ./bouncer-title "In Progress" ABC-1 2>/dev/null; ok "title: missing repo exits 2" $? 2
 ok "title: idle" "$(./bouncer-title --idle my-repo)" "[Idle] 🍸 my-repo"
+ok "title: idle skill type" "$(./bouncer-title --idle my-repo --type Skill)" "[Idle] 🔧 my-repo"
+ok "title: cleanup type with cta" "$(./bouncer-title --type Cleanup "In Progress" old-sessions my-repo --cta)" "![Dev] 🧹 old-sessions my-repo"
+ok "title: ticket type is the default" "$(./bouncer-title --type Ticket Todo ABC-1 r)" "[Todo] 🍸 ABC-1 r"
+./bouncer-title --type Draft Todo ABC-1 r 2>/dev/null; ok "title: unknown type exits 2" $? 2
+./bouncer-title Todo ABC-1 r --type 2>/dev/null; ok "title: --type without a value exits 2" $? 2
 ok "title: bartender (default codes)" "$(./bouncer-title "In Progress" ABC-1234 my-repo)" "[Dev] 🍸 ABC-1234 my-repo"
 ok "title: github closed (default codes)" "$(./bouncer-title Closed 12 my-repo)" "[Done] 🍸 12 my-repo"
 ok "title: empty option uses the default" "$(BOUNCER_STATUS_CODES=" " ./bouncer-title Todo T r)" "[Todo] 🍸 T r"
@@ -38,12 +43,17 @@ S='[{"sessionId":"s1","title":"[Dev] 🍸 ABC-1 a","isRunning":true},
     {"sessionId":"s4","title":"[Spec] 🍸 ABC-4 d"},
     {"sessionId":"s5","title":"[Idle] 🍸 e","isRunning":true},
     {"sessionId":"s6","title":"[Dev][ABC-7] Reply button"},
-    {"sessionId":"s7","title":"[Idle] 🍸 f","isArchived":true}]'
+    {"sessionId":"s7","title":"[Idle] 🍸 f","isArchived":true},
+    {"sessionId":"s8","title":"[Idle] 🔧 g"}]'
 ok "route: idle Bartender in repo is assigned" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"b\"}}" '.action+" "+.sessionId')" "assign s2"
 ok "route: idle title but running is busy" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"e\"}}" .action)" queue
 ok "route: busy repo under cap starts (one per ticket)" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"a\"}, \"caps\": {\"active\": 9}}" .action)" start
 ok "route: 4 active at cap 3 queues" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"z\"}}" .action)" queue
 ok "route: under cap starts" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"z\"}, \"caps\": {\"active\": 5}}" .action)" start
+ok "route: idle Skill Bartender gets Skill work" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"x\", \"repo\": \"g\", \"type\": \"Skill\"}}" '.action+" "+.sessionId')" "assign s8"
+ok "route: an idle Skill Bartender does not take a ticket" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"g\"}, \"caps\": {\"active\": 9}}" .action)" start
+ok "route: an idle Ticket Bartender does not take Cleanup work" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"x\", \"repo\": \"b\", \"type\": \"Cleanup\"}, \"caps\": {\"active\": 9}}" .action)" start
+echo '{"sessions": [], "request": {"ticket": "x", "repo": "a", "type": "Draft"}}' | ./bouncer-route >/dev/null; ok "route: unknown type exits 2" $? 2
 ok "route: archived Bartender is ignored" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"f\"}, \"caps\": {\"active\": 5}}" .action)" start
 
 # bouncer-data
