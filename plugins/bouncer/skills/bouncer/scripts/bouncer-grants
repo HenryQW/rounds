@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# bouncer-grants add "<TICKET> | <actions> | <the user's words>"   record the user's one yes for a ticket's closing chain (replaces that ticket's old grant)
+# bouncer-grants has <TICKET> <action>   exit 0 when the grant covers the action, 1 when it does not (or the ticket has no grant)
+# bouncer-grants get <TICKET>    print that ticket's grant line (exit 1 when it has none)
+# bouncer-grants done <TICKET>   remove the grant once the chain ends or stops (exit 1 when it has none)
+# bouncer-grants list            print all grants
+# <actions> is a comma list of: push, pr, merge, comment, status, link, close, message.
+# The list is grants.md in the plugin's data folder (bouncer-data). Only the Bouncer writes it, so a Bartender cannot widen its own grant.
+# Exit 2: bad usage, an unknown action, or a line without a ticket, actions and the user's words.
+set -euo pipefail
+trim() { local s=$1; s=${s#"${s%%[![:space:]]*}"}; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
+usage() { echo "usage: bouncer-grants add|has|get|done|list [line|ticket [action]]" >&2; exit 2; }
+known=" push pr merge comment status link close message "
+cmd=${1:-}
+[ -n "$cmd" ] || usage
+f="$("$(dirname "$0")/bouncer-data")/grants.md"
+touch "$f"
+line_of() { grep "^$1 |" "$f" || { echo "no grant for $1" >&2; return 1; }; }
+case $cmd in
+  add)
+    IFS='|' read -r t a w <<<"${2:-}"   # w keeps any further | of the user's words
+    t=$(trim "$t"); w=$(trim "${w:-}")
+    acts=""
+    IFS=',' read -ra parts <<<"${a:-}"
+    for p in "${parts[@]}"; do
+      p=$(trim "$p"); [ -n "$p" ] || continue
+      [[ $known == *" $p "* ]] || { echo "unknown action: $p (want:$known)" >&2; exit 2; }
+      acts="${acts:+$acts, }$p"
+    done
+    [ -n "$t" ] && [ -n "$acts" ] && [ -n "$w" ] || { echo "bad line: want TICKET | actions | the user's words" >&2; exit 2; }
+    tmp=$(mktemp); grep -v "^$t |" "$f" > "$tmp" || true
+    echo "$t | $acts | $w" >> "$tmp"; mv "$tmp" "$f" ;;
+  has)
+    t=$(trim "${2:-}"); act=$(trim "${3:-}"); [ -n "$t" ] && [ -n "$act" ] || usage
+    l=$(line_of "$t") || exit 1
+    IFS='|' read -r _ a _ <<<"$l"
+    [[ ",${a// /}," == *",$act,"* ]] ;;
+  get)
+    t=$(trim "${2:-}"); [ -n "$t" ] || usage
+    line_of "$t" ;;
+  done)
+    t=$(trim "${2:-}"); [ -n "$t" ] || usage
+    line_of "$t" >/dev/null || exit 1
+    tmp=$(mktemp); grep -v "^$t |" "$f" > "$tmp" || true; mv "$tmp" "$f" ;;
+  list) cat "$f" ;;
+  *) usage ;;
+esac

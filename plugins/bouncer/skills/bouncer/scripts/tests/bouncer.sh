@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fixture test for bouncer-data, bouncer-title, bouncer-route, bouncer-queue, bouncer-questions, bouncer-report and bartender-branch. Boundary cases first. No network.
+# Fixture test for bouncer-data, bouncer-title, bouncer-route, bouncer-queue, bouncer-questions, bouncer-grants, bouncer-report and bartender-branch. Boundary cases first. No network.
 # Run: bash scripts/tests/bouncer.sh (from the skill folder)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -92,6 +92,25 @@ ok "questions: a new question of the same ticket replaces the old" "$(./bouncer-
 ok "questions: count" "$(./bouncer-questions count)" 2
 ./bouncer-questions done ABC-2; ok "questions: done removes only that ticket" "$(./bouncer-questions list)" "ABC-1 | local_a | Post it or not?"
 ok "questions: the file is questions.md in the data folder" "$(cat "$tmp/q/questions.md")" "ABC-1 | local_a | Post it or not?"
+
+# bouncer-grants (in the data folder)
+./bouncer-grants has ABC-1 push 2>/dev/null; ok "grants: has with no grant exits 1" $? 1
+./bouncer-grants get ABC-1 2>/dev/null; ok "grants: get with no grant exits 1" $? 1
+./bouncer-grants done ABC-1 2>/dev/null; ok "grants: done with no grant exits 1" $? 1
+./bouncer-grants add "ABC-1 | push, deploy | yes" 2>/dev/null; ok "grants: unknown action exits 2" $? 2
+./bouncer-grants add "ABC-1 | , | yes" 2>/dev/null; ok "grants: no action exits 2" $? 2
+./bouncer-grants add "ABC-1 | push" 2>/dev/null; ok "grants: no words exits 2" $? 2
+./bouncer-grants has ABC-1 2>/dev/null; ok "grants: has without an action exits 2" $? 2
+./bouncer-grants nope 2>/dev/null; ok "grants: bad command exits 2" $? 2
+./bouncer-grants add "ABC-1 | comment | post it"
+./bouncer-grants add "ABC-2|push,pr ,merge|go | ship it"
+./bouncer-grants add "ABC-1 | close, link, comment | yes, close it"
+ok "grants: a new grant of the same ticket replaces the old" "$(./bouncer-grants list | tr '\n' ';')" "ABC-2 | push, pr, merge | go | ship it;ABC-1 | close, link, comment | yes, close it;"
+./bouncer-grants has ABC-2 merge; ok "grants: has a granted action" $? 0
+./bouncer-grants has ABC-2 comment; ok "grants: has an action outside the grant exits 1" $? 1
+./bouncer-grants has ABC-2 pu; ok "grants: has matches whole actions only" $? 1
+ok "grants: get" "$(./bouncer-grants get ABC-1)" "ABC-1 | close, link, comment | yes, close it"
+./bouncer-grants done ABC-2; ok "grants: done removes only that ticket" "$(cat "$tmp/q/grants.md")" "ABC-1 | close, link, comment | yes, close it"
 unset BOUNCER_DATA
 
 # bouncer-report
