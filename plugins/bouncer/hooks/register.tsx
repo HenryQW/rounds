@@ -23,7 +23,21 @@ const ledgerList = async ($: EngineInterface, records: string) => {
     { env: records ? { ...env, BOUNCER_RECORDS: records } : env }).catch(() => undefined)
   return ran?.exitCode === 0 ? queueLines(ran.stdout) : undefined
 }
+// One Bouncer: `bouncer` in the data folder holds the engine session id of the session that is the Bouncer.
+// A session claims it when it is free; another one takes it over only on the user's Take Over.
+const writeOwner = async ($: EngineInterface, id: string) => {
+  const data = (await $.process.hookEnv()).CLAUDE_PLUGIN_DATA
+  if (data) await $.fs.write(`${data}/bouncer`, id).catch(() => undefined)
+}
+const isOtherBouncer = async ($: EngineInterface) => {
+  const me = await $.session.id()
+  const owner = (await dataFile($, 'bouncer')).trim()
+  if (!owner) await writeOwner($, me)
+  return owner !== '' && owner !== me
+}
 const refreshData = async ($: EngineInterface, records = '') => {
+  const isOther = await isOtherBouncer($)
+  await update($, pool, p => (p.isOther === isOther ? p : { ...p, isOther }))
   const lines = queueLines(await dataFile($, 'queue.md'))
   const questions = questionsBySession(await dataFile($, 'questions.md'))
   const ledger = await ledgerList($, records)
@@ -100,6 +114,11 @@ export const register: Register = (on, options) => {
     if ((await read($, pool)).isOn) await refreshData($, records).catch(() => undefined)
     return next(e)
   })
+  // The Bouncer's session ends (or a /clear gives it a new id): free the Bouncer for the next session.
+  on('session.end', async ($, e, next) => {
+    if ((await read($, pool)).isOn && (await dataFile($, 'bouncer')).trim() === e.sessionId) await writeOwner($, '')
+    return next(e)
+  })
   // A band prompt's turn ended (main's, not a subagent's): the band may send the next one.
   on('turn.complete', async ($, e, next) => {
     if (!e.agentId) {
@@ -131,6 +150,24 @@ export const register: Register = (on, options) => {
       await update($, pool, q => ({ ...q, pending: true }))
       await $.prompt.submit({ text }).catch(() => update($, pool, q => ({ ...q, pending: false })))
     }
+    if (p.isOther) {
+      const take = async () => { await writeOwner($, await $.session.id()); await refreshData($, records) }
+      const row = (
+        <Box flexDirection="row" alignItems="center" gap={2} flexWrap="wrap" width={width}>
+          <Text bold>Bouncer</Text>
+          <Text dimColor>another session is the Bouncer</Text>
+          <Button key="takeover" dimColor onPress={take}>Take Over</Button>
+        </Box>
+      )
+      return below ? <Box flexDirection="column">{row}{below}</Box> : row
+    }
+    // Questions block in order: the band shows only the oldest (the head of questions.md); the next shows once it is answered.
+    const [headId, headQuestion] = Object.entries(p.questions ?? {})[0] ?? []
+    const headB = bartenders.find(b => b.id === headId)
+    const ctaB = bartenders.find(b => b.cta)
+    const waits = headQuestion !== undefined
+      ? { b: headB, name: headB ? headB.ticket || headB.repo : headId === 'self' ? 'Bouncer' : headId ?? '', question: headQuestion }
+      : ctaB && { b: ctaB, name: ctaB.ticket || ctaB.repo, question: 'waits on you' }
     const lines = p.queueOpen ? p.queueLines ?? [] : []
     const ledgerLines = p.ledgerOpen ? p.ledgerLines ?? [] : []
     // The chip is its own menu: the first option draws the chip and does nothing. Each other option names one
@@ -173,12 +210,12 @@ export const register: Register = (on, options) => {
           {p.queue > 0 && <Button key="queue" dimColor onPress={() => toggle('queueOpen')}>{`queue ${p.queue}`}</Button>}
           {(p.ledger ?? 0) > 0 && <Button key="ledger" dimColor onPress={() => toggle('ledgerOpen')}>{`ledger ${p.ledger}`}</Button>}
         </Box>
-        {bartenders.filter(b => b.cta).map(b => (
+        {waits && (
           <Box flexDirection="row" alignItems="center" gap={1}>
-            <Text color="warning">! {b.ticket || b.repo}: {p.questions?.[b.id] ?? 'waits on you'}</Text>
-            <Button key={`open:${b.id}`} onPress={() => open(b.id, b.ticket || b.repo)}>Open</Button>
+            <Text color="warning" wrap="truncate">! {waits.name}: {waits.question}</Text>
+            {waits.b && <Button key={`open:${waits.b.id}`} onPress={() => open(waits.b!.id, waits.name)}>Open</Button>}
           </Box>
-        ))}
+        )}
         {lines.map((line, i) => {
           const ticket = line.split('|')[0]?.trim() ?? ''
           return (

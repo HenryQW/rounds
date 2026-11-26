@@ -39,8 +39,10 @@ The band also lets you act:
 - The band sends one prompt at a time: none while a question waits on you or while the Bouncer works. Open still works then.
 - When the number of questions that wait on you goes up, you get a notification. The plugin sets the `!` and the count itself from `questions.md`, and each Bartender's status code from its turn-end report.
 - Click `ledger N` to list the open items in the records' `LEDGER` sections, one line each (`KEY · kind · next`).
-- A Bartender that waits on you (`!`) shows its question under the band, from `questions.md` in the plugin data folder. Open shows that Bartender's conversation in split view beside the Bouncer; if the app refuses, the band asks the Bouncer to open it. You still answer the Bouncer.
+- Questions block in order. The band shows only the oldest question (the head of `questions.md` in the plugin data folder) under the row; the next one shows after you answer it. Other Bartenders that wait keep their `!`. Open shows that Bartender's conversation in split view beside the Bouncer; if the app refuses, the band asks the Bouncer to open it. You still answer the Bouncer.
 - Click `queue N` to list the queued tickets, one line each (`KEY · repo · mode`). Pop and Remove send the Bouncer `queue: pop` or `queue: remove ABC-123`; the Bouncer runs `bouncer-queue`.
+
+- One Bouncer: the first Bouncer session claims `bouncer` in the plugin data folder and frees it when its session ends. The band of another Bouncer session shows only "another session is the Bouncer" and Take Over.
 
 ## Data
 The plugin keeps its state in the data folder that Claude Code gives it: `~/.claude/plugins/data/bouncer-rounds/` (`bouncer-inline` for a `--plugin-dir` checkout). `skills/bouncer/scripts/bouncer-data` prints the path.

@@ -21,6 +21,8 @@ export type Pool = {
   ledgerLines?: readonly string[]
   /** True while the band lists the ledger's open items. */
   ledgerOpen?: boolean
+  /** True while another session holds the Bouncer (`bouncer` in the plugin's data folder names it). */
+  isOther?: boolean
 }
 
 declare module 'claude-code' {

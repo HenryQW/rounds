@@ -97,8 +97,8 @@ ok "questions: count on empty is 0" "$(./bouncer-questions count)" 0
 ./bouncer-questions add "ABC-1 | local_a | Will Henry post it himself, or allow save_comment? Default: post"
 ./bouncer-questions add "ABC-2|local_b|Ship A | or B?"
 ./bouncer-questions add "ABC-1 | local_a | Post it or not?"
-ok "questions: next is the oldest open one" "$(./bouncer-questions next)" "ABC-2 | local_b | Ship A | or B?"
-ok "questions: a new question of the same ticket replaces the old" "$(./bouncer-questions list | tr '\n' ';')" "ABC-2 | local_b | Ship A | or B?;ABC-1 | local_a | Post it or not?;"
+ok "questions: a reworded head stays the head" "$(./bouncer-questions next)" "ABC-1 | local_a | Post it or not?"
+ok "questions: a new question of the same ticket replaces the old in its place" "$(./bouncer-questions list | tr '\n' ';')" "ABC-1 | local_a | Post it or not?;ABC-2 | local_b | Ship A | or B?;"
 ok "questions: count" "$(./bouncer-questions count)" 2
 ./bouncer-questions done ABC-2; ok "questions: done removes only that ticket" "$(./bouncer-questions list)" "ABC-1 | local_a | Post it or not?"
 ok "questions: the file is questions.md in the data folder" "$(cat "$tmp/q/questions.md")" "ABC-1 | local_a | Post it or not?"
