@@ -331,16 +331,18 @@ export const register: Register = (on, options) => {
     }
 
     if (!p.details) {
-      // Compact: one row, as ponytail's compact band. Each Bartender inline (dot and key, status chip, PR), a wider gap
-      // between Bartenders; on the right what waits on the user, the due count and the switch. It wraps only when narrow.
+      // Compact: one row, as ponytail's compact band. Each Bartender is one pill (dot and key, status code, PR; the code is
+      // plain text, so pills do not nest); on the right what waits on the user, the due count and the switch. It wraps only when narrow.
       const n = p.waiting
       const mine = (
-        <Box flexDirection="row" alignItems="center" flexWrap="wrap" gap={isTerminal ? 2 : 'lg'} width={width}>
+        <Box flexDirection="row" alignItems="center" flexWrap="wrap" gap={isTerminal ? 2 : 'sm'} width={width}>
           {all.length === 0 && strip}
           {all.map(c => (
-            <Box key={`row:${c.key}`} flexDirection="row" alignItems="center" gap={isTerminal ? 1 : 'sm'}>
+            <Box key={`row:${c.key}`} flexDirection="row" alignItems="center" gap={isTerminal ? 1 : 'sm'} {...(t
+              ? { borderStyle: 'round' as const, borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'sm' as const, paddingY: 0 }
+              : {})}>
               <Box key={`title:${c.key}`} flexShrink={isLinked(c) ? 0 : 1} minWidth={0}>{titleOf(c)}</Box>
-              {c.label && chipOf(c)}
+              {c.label && <Box key={`chip:${c.key}`} flexShrink={0}><Text color={t?.muted}>{c.label}</Text></Box>}
               {prOf(c).el}
             </Box>
           ))}
