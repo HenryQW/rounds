@@ -4,9 +4,9 @@ export const EMPTY: Pool = { isOn: false, bartenders: {}, waiting: 0, queue: 0 }
 
 export type Bartender = { cta: boolean; status: string; ticket: string; repo: string }
 
-// `![Dev] MIDI-1 - Bartender - repo` or `[Idle] Bartender - repo` (made by bouncer-title).
-const BARTENDER = /^(!)?\[([^\]]+)\] (?:(\S+) - )?Bartender - (.+)$/
-const BOUNCER = /^(?:!(\d+) )?Bouncer$/
+// `![Dev] 🍸 MIDI-1 repo` or `[Idle] 🍸 repo` (made by bouncer-title); a repo is a folder name with no space.
+const BARTENDER = /^(!)?\[([^\]]+)\] 🍸 (?:(\S+) )?(\S+)$/
+const BOUNCER = /^(?:!(\d+) )?🚪 Bouncer$/
 
 export const parseBartender = (title: string): Bartender | undefined => {
   const m = BARTENDER.exec(title)
@@ -26,4 +26,11 @@ export const archived = (pool: Pool, sessionId: string): Pool => {
   return { ...pool, bartenders: rest }
 }
 
-export const queueLength = (text: string) => text.split('\n').filter(l => l.trim() !== '').length
+export const queueLines = (text: string) => text.split('\n').filter(l => l.trim() !== '')
+
+/** `questions.md` lines (`<TICKET> | <session_id> | <question>`) as session id to question. */
+export const questionsBySession = (text: string): Record<string, string> =>
+  Object.fromEntries(queueLines(text).flatMap(l => {
+    const [, id, ...q] = l.split('|').map(s => s.trim())
+    return id && q.length ? [[id, q.join(' | ')]] : []
+  }))

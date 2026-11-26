@@ -1,6 +1,6 @@
 {
   "name": "bouncer",
-  "version": "0.4.0",
+  "version": "0.7.3",
   "description": "Bouncer mode for the Claude desktop app: one Bouncer session routes tickets to Bartender sessions, one ticket each, in their own worktrees.",
   "author": {
     "name": "Henry Wang",
@@ -22,6 +22,12 @@
       "title": "Status codes",
       "description": "Short codes for ticket statuses in Bartender titles, as Name=Code pairs with ; between them. Use the status names of your tracker.",
       "default": "Backlog=Bklog; Todo=Todo; In Progress=Dev; In Review=CR; Done=Done; Canceled=Cxl; Duplicate=Dup; Open=Open; Closed=Done"
+    },
+    "linear_workspace_url": {
+      "type": "string",
+      "title": "Linear workspace URL",
+      "description": "The Linear workspace that ticket keys in the band link to, as https://linear.app/<workspace>. A key opens <URL>/issue/<KEY>. Blank: keys are plain text.",
+      "default": ""
     }
   }
 }
