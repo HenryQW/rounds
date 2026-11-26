@@ -243,11 +243,9 @@ export const register: Register = (on, options) => {
     const actions = (c: Column) => [
       ...c.ids.flatMap(id => ACTIONS.map(([a, label]) =>
         ({ value: `${a} ${id}`, label: c.ids.length > 1 ? `${label} ${id.replace(/^local_/, '').slice(0, 8)}` : label }))),
-      ...(linear && LINEAR_KEY.test(c.ticket) ? [{ value: 'linear', label: 'Open in Linear' }] : []),
     ]
     const pick = async (c: Column, v: string) => {
       await update($, pool, q => ({ ...q, menu: undefined }))
-      if (v === 'linear') return void await $.process.run(['/usr/bin/open', `${linear}/issue/${c.ticket}`]).catch(() => undefined)
       const [a, id] = v.split(' ')
       if (a && id) await ask(`${c.ticket || id}: ${a}`)
     }
@@ -382,7 +380,7 @@ export const register: Register = (on, options) => {
       const line = sub(c)
       return (
         <Box key={`col:${c.key}`} flexDirection="column" minWidth={0} {...(t
-          ? { flexGrow: 1, flexShrink: 1, width: 0, minWidth: 24, borderStyle: 'round', borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'lg' as const, paddingY: 'md' as const }
+          ? { flexGrow: 1, flexShrink: 1, width: 0, minWidth: 24, gap: 'md' as const, borderStyle: 'round', borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'lg' as const, paddingY: 'lg' as const }
           : colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
           <Box flexDirection="row" alignItems="center" gap="sm">
             {/* A Link wraps instead of truncating: a linked key keeps its width. */}
@@ -392,14 +390,16 @@ export const register: Register = (on, options) => {
             {showTime && <Text size="footnote" color={t?.muted}>{time}</Text>}
             <Button key={c.key} plain dimColor label="⋯" onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))} />
           </Box>
-          {p.menu === c.key
-            // The menu takes row 2 as secondary buttons, a gap between them; the card grows to fit. The terminal keeps plain ones.
-            ? <Box flexDirection="row" gap="sm" flexWrap="wrap" paddingTop={isTerminal ? 0 : 'xs'}>
-                {actions(c).map(o => <Button key={`${c.key}:${o.value}`} {...(isTerminal ? { plain: true as const } : { variant: 'secondary' as const })} onPress={() => pick(c, o.value)}>
-                  {o.label}
-                </Button>)}
-              </Box>
-            : line && <Box key={`line:${c.key}`}><Text size="footnote" color={t?.muted} wrap="truncate-end">{line}</Text></Box>}
+          {line && <Box key={`line:${c.key}`}><Text size="footnote" color={t?.muted} wrap="truncate-end">{line}</Text></Box>}
+          {/* The menu is a row of its own under the next step: secondary buttons on one row; the card grows to fit.
+              The terminal keeps plain ones. */}
+          {p.menu === c.key && (
+            <Box key={`menu:${c.key}`} flexDirection="row" gap="sm" flexWrap="nowrap">
+              {actions(c).map(o => <Button key={`${c.key}:${o.value}`} {...(isTerminal ? { plain: true as const } : { variant: 'secondary' as const })} onPress={() => pick(c, o.value)}>
+                {o.label}
+              </Button>)}
+            </Box>
+          )}
         </Box>
       )
     }

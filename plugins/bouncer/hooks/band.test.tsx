@@ -95,24 +95,13 @@ test('the band shows Bartenders, the question count and the queue', async ($, on
   }
 })
 
-test('a ticket key opens in the Linear workspace of the option from its column menu', { options: { linear_workspace_url: 'https://linear.app/acme/' } }, async ($, on) => {
-  engine(on)
-  const runs: string[][] = []
-  on('process.run', (_: unknown, e: any) => { runs.push(e.argv); return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } })
-  await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
-  await title($, 'b', '[Dev] 🍸 12 web')
-  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
-  expect(await actions(ui, 'act:b')).toEqual(['Status', 'Stop', 'Reset'])
-  await act(ui, 'act:a', 'linear')
-  expect(runs).toEqual([['/usr/bin/open', 'https://linear.app/acme/issue/MIDI-1']])
-  await ui.unmount()
-})
-
-test('the column menu has no Linear item while the option is unset', async ($, on) => {
+test('the menu has only Status, Stop and Reset (the key is the Linear link), on one row under the next step', { options: { linear_workspace_url: 'https://linear.app/acme/' } }, async ($, on) => {
   engine(on)
   await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
   const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
   expect(await actions(ui, 'act:a')).toEqual(['Status', 'Stop', 'Reset'])
+  await ui.press({ key: 'act:a' })
+  expect((await ui.find({ key: 'menu:act:a' }))?.props?.flexWrap).toBe('nowrap')
   await ui.unmount()
 })
 
@@ -648,7 +637,7 @@ test('Details: one column an active Bartender, idle ones in one column, at most 
   await ui.unmount()
 })
 
-test('Details: the ask row shows only while a question waits; a report fills the sub-line; a menu takes its place', async ($, on) => {
+test('Details: the ask row shows only while a question waits; a report fills the sub-line, which stays while the menu is open', async ($, on) => {
   let questions = ''
   on('tool.call', () => ({ result: {} }))
   base(on, { details: true })
@@ -670,7 +659,7 @@ test('Details: the ask row shows only while a question waits; a report fills the
   expect(await cols(ui)).toEqual([['Dev', '🟢 MIDI-1', 'PR 31 open, CI green']])
 
   await ui.press({ key: 'act:local_a' })
-  expect(await ui.find({ type: 'Text', text: /PR 31/ })).toBe(undefined)
+  expect((await ui.find({ type: 'Text', text: /PR 31/ }))?.text).toBe('PR 31 open, CI green')
   expect((await ui.findAll({ type: 'Button' })).filter((b: any) => b.key?.startsWith('act:local_a:')).map((b: any) => b.text)).toEqual(['Status', 'Stop', 'Reset'])
   await ui.press({ key: 'act:local_a' })
   expect((await ui.find({ type: 'Text', text: /PR 31/ }))?.text).toBe('PR 31 open, CI green')
