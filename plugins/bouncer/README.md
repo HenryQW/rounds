@@ -24,6 +24,16 @@ Approvals, models for Barbacks and the place of decision records come from your 
 ## Band
 A Bouncer session shows a band above the prompt: each Bartender with its status code, ticket and repo, the number of questions that wait on you, and the queue length. A Bartender with `!` waits on you. The band appears once the session loads the `bouncer` skill or sets a Bouncer title, and only in that session. It learns the pool from the Bouncer's own `set_session_title` and `archive_session` calls, so a Bartender renamed elsewhere shows its old title until the Bouncer renames it again.
 
+## Data
+The plugin keeps its state in the data folder that Claude Code gives it: `~/.claude/plugins/data/bouncer-rounds/` (`bouncer-inline` for a `--plugin-dir` checkout). `skills/bouncer/scripts/bouncer-data` prints the path.
+
+| File | Holds |
+|---|---|
+| `queue.md` | Tickets above the Bartender cap, one line each |
+| `tickets/<TICKET>.md` | Ticket records, unless your rules name another place |
+
+The pool and the questions that wait on you are in the session titles, so they need no file. Every Bouncer session sees the same folder, whatever folder it runs in. Plugin updates keep the folder. `claude plugin uninstall bouncer@rounds` deletes it unless you add `--keep-data`.
+
 ## Known limits
 
 - The Bouncer must be a session that you open. With Remote Control on, a session that another session started cannot start Bartenders.

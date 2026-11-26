@@ -30,7 +30,8 @@ The steps that need no judgment are scripts in `scripts/` next to this file (`${
 ## Pool
 - Caps: 3 active Bartenders, 3 concurrent Barbacks per Bartender. There is no limit per repo: tickets of one repo run in parallel, one Bartender each. Raise the active cap to 4 only when work often waits in the queue and no question waited on the user for more than an hour. Lower it on rate-limit errors, slow builds or a pile of questions.
 - `<repo>` is the folder name of the repo's main checkout, for example `my-repo`. The Bartender `cwd` is that main checkout.
-- The ticket record is one file a ticket outside every repo, so a branch switch or a new worktree never loses it: the place the user's rules name, else `~/.claude/bouncer/tickets/<TICKET>.md`.
+- The ticket record is one file a ticket outside every repo, so a branch switch or a new worktree never loses it: the place the user's rules name, else `<data>/tickets/<TICKET>.md`.
+- `<data>` is the plugin's data folder: the one path that `${CLAUDE_SKILL_DIR}/scripts/bouncer-data` prints. Claude Code keeps it across plugin updates and removes it on uninstall unless `--keep-data` is given. Every Bouncer session sees the same folder, whatever folder it runs in.
 - The pool state is the session titles. `list_sessions {"linked": true}` is the only read the Bouncer needs to route.
 - Titles (the Bouncer is the only one that renames, with `set_session_title`). Make each title with `${CLAUDE_SKILL_DIR}/scripts/bouncer-title <args>`, never by hand. Status codes: `${user_config.status_codes}`. If that text is `Name=Code` pairs, the user set the option: put `BOUNCER_STATUS_CODES="<that text>"` before the command. Else the script uses the default codes:
   - `[<status>] <TICKET> - Bartender - <repo>`, for example `[Dev] ABC-123 - Bartender - my-repo`: `bouncer-title "<tracker status>" <TICKET> <repo>`
@@ -40,7 +41,7 @@ The steps that need no judgment are scripts in `scripts/` next to this file (`${
   - Bouncer (`self`): `!<n> Bouncer`, where `<n>` is the number of questions that wait on the user; plain `Bouncer` at 0 (`bouncer-title --bouncer <n>`). The user looks only at the Bouncer, so this is the CTA the user sees.
 - `<status>` is the short code of the ticket's status in the tracker. `bouncer-title` maps each status name to its code with the `status_codes` plugin option (`Name=Code` pairs, `;` between them). Exit 2: an unknown status; ask the user, then tell the user to add it to the option.
 - The mode (Code, Spike, Mechanical) picks the model only. It is not in the title.
-- Queue: work above the cap waits in `.context/bouncer-queue.md` in the Bouncer's folder, one line a ticket: `<TICKET> | repo | mode | brief source`. Change it only with `scripts/bouncer-queue add|pop|list .context/bouncer-queue.md`. `add` replaces a stale line of the same ticket. `pop` exit 1: the queue is empty.
+- Queue: work above the cap waits in `<data>/queue.md`, one line a ticket: `<TICKET> | repo | mode | brief source`. Change it only with `scripts/bouncer-queue add|pop|list`. `add` replaces a stale line of the same ticket. `pop` exit 1: the queue is empty.
 
 ## Route a request
 1. Find the ticket, its status, the repo and the mode (`Code`, `Spike`, `Mechanical`). Ask the user only if the request names no ticket and no repo.
@@ -119,4 +120,4 @@ Outside bypass mode, the app asks the user for a model more expensive than the B
 ## Token rules
 - One Barback costs about 68K tokens of startup context (measured 2026-11-25, Haiku, one tool call). Use a Barback for real work, never for a one-line check.
 - Messages between levels carry the report shape only. Detail goes to the ticket record.
-- The Bouncer clears itself (`clear_session "self"`) when its context passes 150K and no Bartender is working. The session titles hold the pool and `.context/bouncer-queue.md` holds the queue, so nothing is lost.
+- The Bouncer clears itself (`clear_session "self"`) when its context passes 150K and no Bartender is working. The session titles hold the pool and `<data>/queue.md` holds the queue, so nothing is lost.

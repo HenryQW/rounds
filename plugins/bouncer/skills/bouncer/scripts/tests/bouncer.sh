@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fixture test for bouncer-title, bouncer-route, bouncer-queue, bouncer-report and bartender-branch. Boundary cases first. No network.
+# Fixture test for bouncer-data, bouncer-title, bouncer-route, bouncer-queue, bouncer-report and bartender-branch. Boundary cases first. No network.
 # Run: bash scripts/tests/bouncer.sh (from the skill folder)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -41,20 +41,29 @@ ok "route: 4 active at cap 3 queues" "$(route "{\"sessions\": $S, \"request\": {
 ok "route: under cap starts" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"z\"}, \"caps\": {\"active\": 5}}" .action)" start
 ok "route: archived Bartender is ignored" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"f\"}, \"caps\": {\"active\": 5}}" .action)" start
 
-# bouncer-queue
-q="$tmp/q.md"
-./bouncer-queue pop "$q" >/dev/null 2>&1; ok "queue: pop on empty exits 1" $? 1
-./bouncer-queue add "$q" "ABC-1 | a | Fast | x" 2>/dev/null; ok "queue: bad mode exits 2" $? 2
-./bouncer-queue add "$q" "ABC-1 | a | Code" 2>/dev/null; ok "queue: 3 fields exits 2" $? 2
-./bouncer-queue add "$q" "ABC-1 | a | Code | x | y" 2>/dev/null; ok "queue: 5 fields exits 2" $? 2
-./bouncer-queue nope "$q" 2>/dev/null; ok "queue: bad command exits 2" $? 2
-./bouncer-queue add "$q" "ABC-1 | a | Code | Linear"
-./bouncer-queue add "$q" " ABC-2|b|Spike|notion "
-./bouncer-queue add "$q" "ABC-1 | a | Mechanical | doc"
-ok "queue: list keeps order, stale line replaced" "$(./bouncer-queue list "$q" | tr '\n' ';')" "ABC-2 | b | Spike | notion;ABC-1 | a | Mechanical | doc;"
-ok "queue: pop prints the first line" "$(./bouncer-queue pop "$q")" "ABC-2 | b | Spike | notion"
-ok "queue: pop removes it" "$(./bouncer-queue list "$q")" "ABC-1 | a | Mechanical | doc"
-./bouncer-queue add "$tmp/q2.md" "T | r | Spike | user's msg" 2>/dev/null; ok "queue: apostrophe is kept" "$(cat "$tmp/q2.md")" "T | r | Spike | user's msg"
+# bouncer-data
+fake="$tmp/home/.claude/plugins/cache/mkt/bouncer/9.9.9/skills/bouncer/scripts"; mkdir -p "$fake"; cp bouncer-data "$fake/"
+ok "data: a marketplace install uses <name>-<marketplace>" "$(env -u BOUNCER_DATA -u CLAUDE_PLUGIN_DATA CLAUDE_CONFIG_DIR="$tmp/cfg" "$fake/bouncer-data")" "$tmp/cfg/plugins/data/bouncer-mkt"
+ok "data: the folder and tickets/ are made" "$([ -d "$tmp/cfg/plugins/data/bouncer-mkt/tickets" ] && echo yes)" yes
+ok "data: CLAUDE_PLUGIN_DATA wins over the path" "$(env -u BOUNCER_DATA CLAUDE_PLUGIN_DATA="$tmp/pd" "$fake/bouncer-data")" "$tmp/pd"
+ok "data: a --plugin-dir checkout uses bouncer-inline" "$(env -u BOUNCER_DATA -u CLAUDE_PLUGIN_DATA CLAUDE_CONFIG_DIR="$tmp/cfg" ./bouncer-data)" "$tmp/cfg/plugins/data/bouncer-inline"
+
+# bouncer-queue (in the data folder)
+export BOUNCER_DATA="$tmp/data"
+./bouncer-queue pop >/dev/null 2>&1; ok "queue: pop on empty exits 1" $? 1
+./bouncer-queue add "ABC-1 | a | Fast | x" 2>/dev/null; ok "queue: bad mode exits 2" $? 2
+./bouncer-queue add "ABC-1 | a | Code" 2>/dev/null; ok "queue: 3 fields exits 2" $? 2
+./bouncer-queue add "ABC-1 | a | Code | x | y" 2>/dev/null; ok "queue: 5 fields exits 2" $? 2
+./bouncer-queue nope 2>/dev/null; ok "queue: bad command exits 2" $? 2
+./bouncer-queue add "ABC-1 | a | Code | Linear"
+./bouncer-queue add " ABC-2|b|Spike|notion "
+./bouncer-queue add "ABC-1 | a | Mechanical | doc"
+ok "queue: list keeps order, stale line replaced" "$(./bouncer-queue list | tr '\n' ';')" "ABC-2 | b | Spike | notion;ABC-1 | a | Mechanical | doc;"
+ok "queue: the file is queue.md in the data folder" "$(head -n 1 "$tmp/data/queue.md")" "ABC-2 | b | Spike | notion"
+ok "queue: pop prints the first line" "$(./bouncer-queue pop)" "ABC-2 | b | Spike | notion"
+ok "queue: pop removes it" "$(./bouncer-queue list)" "ABC-1 | a | Mechanical | doc"
+BOUNCER_DATA="$tmp/data2" ./bouncer-queue add "T | r | Spike | user's msg" 2>/dev/null; ok "queue: apostrophe is kept" "$(cat "$tmp/data2/queue.md")" "T | r | Spike | user's msg"
+unset BOUNCER_DATA
 
 # bouncer-report
 R='STATUS: DONE

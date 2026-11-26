@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# bouncer-data   print the plugin's data folder (made if missing): the queue and the default ticket records live there.
+# It is the folder Claude Code gives the plugin (~/.claude/plugins/data/<name>-<marketplace>/, kept across updates,
+# removed by `claude plugin uninstall` unless --keep-data). Order: $BOUNCER_DATA (tests), $CLAUDE_PLUGIN_DATA, else from this path.
+set -euo pipefail
+d=${BOUNCER_DATA:-${CLAUDE_PLUGIN_DATA:-}}
+if [ -z "$d" ]; then
+  root=$(cd "$(dirname "$0")/../../.." && pwd)            # <plugin root>/skills/bouncer/scripts
+  base="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins/data"
+  case $root in
+    */plugins/cache/*/*/*) v=${root%/*}; n=${v##*/}; m=${v%/*}; m=${m##*/}; d="$base/$n-$m" ;;   # .../cache/<marketplace>/<name>/<version>
+    *) d="$base/bouncer-inline" ;;                                                                # --plugin-dir
+  esac
+fi
+mkdir -p "$d/tickets"
+printf '%s\n' "$d"
