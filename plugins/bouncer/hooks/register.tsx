@@ -108,7 +108,8 @@ const onNote = async ($: EngineInterface, text: string) => {
   try { report = JSON.parse(ran.stdout) as Report } catch { return /* not a report */ }
   // Keep the STATUS for the band's dot and the sub-line for its column, on the session whose title has the report's ticket.
   const id = Object.entries((await read($, pool)).bartenders).find(([, t]) => report.ticket && parseBartender(t)?.ticket === report.ticket)?.[0]
-  if (id) await update($, pool, p => ({ ...p, reports: { ...p.reports, [id]: report.status }, notes: { ...p.notes, [id]: reportLine(report) }, reportTexts: { ...p.reportTexts, [id]: text } }))
+  // A turn-end note means its turn ended: the dot leaves 🟡 now, not at the Bouncer's next list_sessions read.
+  if (id) await update($, pool, p => ({ ...p, reports: { ...p.reports, [id]: report.status }, notes: { ...p.notes, [id]: reportLine(report) }, reportTexts: { ...p.reportTexts, [id]: text }, running: { ...p.running, [id]: false } }))
   await syncTitles($, report)
 }
 

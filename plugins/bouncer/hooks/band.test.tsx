@@ -661,7 +661,7 @@ test('Details: the ask row shows only while a question waits; a report fills the
   expect(await ui.find({ type: 'Text', text: /^🔴 / })).toBe(undefined)
 
   await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: DONE\nTICKET: MIDI-1' } as any)
-  expect(await cols(ui)).toEqual([['Dev', '🟡 MIDI-1', 'PR 31 open, CI green']])
+  expect(await cols(ui)).toEqual([['Dev', '🟢 MIDI-1', 'PR 31 open, CI green']])
 
   await ui.press({ key: 'act:local_a' })
   expect(await ui.find({ type: 'Text', text: /PR 31/ })).toBe(undefined)
@@ -763,4 +763,25 @@ test('a Bartender title parses in the new format and the old one; a sync keeps t
   const pool = { ...EMPTY, bartenders: { a: '🍸 [MIDI-1] [Dev] Fix it', b: '[Dev] 🍸 MIDI-2 rounds', c: '🧹 [Idle] rounds' } }
   const report = { status: 'DONE', ticket: 'MIDI-1', linear: 'QA', result: null, question: null }
   expect(synced(pool, 'MIDI-2 | b | Merge?\n', report)).toEqual([['a', '🍸 [MIDI-1] [QA] Fix it'], ['b', '![Dev] 🍸 MIDI-2 rounds'], ['self', '!1 🚪 Bouncer']])
+})
+
+test('a Bartender turn-end note turns its dot from yellow to green at once', async ($, on) => {
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({ result: JSON.stringify([
+    { sessionId: 'local_a', title: '🍸 [MIDI-1] [Dev] Fix it', isRunning: true, cwd: '/w' },
+  ]) }))
+  on('tool.call', () => ({ result: {} }))
+  on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
+  on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  on('session.receive', (_: unknown, e: any) => ({ text: e.text }))
+  base(on)
+  on('fs.read', () => { throw new Error('missing') })
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
+  on('process.run', (_: unknown, e: any) => ({ value: { exitCode: String(e.argv[0]).endsWith('bouncer-report') ? 0 : 1,
+    stdout: '{"status":"DONE","ticket":"MIDI-1","linear":null,"result":"shipped","question":null}', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  await $.tool.call({ tool: 'Skill', skill: 'bouncer' } as any)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect(chip(await ui.find({ key: 'title:act:local_a' }))).toBe('🟡 MIDI-1')
+  await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: DONE\nTICKET: MIDI-1\nRESULT: shipped' } as any)
+  expect(chip(await ui.find({ key: 'title:act:local_a' }))).toBe('🟢 MIDI-1')
+  await ui.unmount()
 })
