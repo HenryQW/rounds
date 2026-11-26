@@ -27,10 +27,27 @@ Approvals, models for Barbacks and the place of decision records come from your 
 - Never detach a Bartender: its reports then do not reach the Bouncer.
 - Outside `bypassPermissions` mode, the app asks you before each Bartender reset (`clear_session`) and before a model or effort above the Bouncer's own.
 
-## Test
+## Develop and test
 
-```
-bash plugins/bouncer/skills/bouncer/scripts/tests/bouncer.sh
-```
-
-The test needs `python3`, `jq` and `git`. It uses no network.
+1. Add your checkout as a local marketplace and install from it. Claude Code then reads the plugin from your folder, so edits apply with no copy and no version change:
+   ```
+   claude plugin marketplace add <path to your Rounds checkout>
+   claude plugin install bouncer@rounds
+   ```
+2. After each change, run the fixture test and the validator from the checkout. The test needs `python3`, `jq` and `git`. It uses no network.
+   ```
+   bash plugins/bouncer/skills/bouncer/scripts/tests/bouncer.sh
+   claude plugin validate plugins/bouncer
+   ```
+3. Open a new session to try a change to `SKILL.md`. A running session keeps the skill text that it loaded first. A script change applies at once.
+4. For a full run, open the Bouncer session yourself and point it at a test repo, so that the Bartender branches go there. Start it with `/bouncer:bouncer`, so that no other skill with Bouncer text answers instead.
+5. To test the option, set it, then open a new session:
+   ```
+   echo '{"status_codes":"Todo=Todo; Doing=Dev"}' | claude plugin configure bouncer@rounds --values-stdin
+   ```
+   While the option is unset, Claude Code shows `${user_config.status_codes}` as plain text in the skill, so `bouncer-title` reads the default from `.claude-plugin/plugin.json`.
+6. To remove the local install:
+   ```
+   claude plugin uninstall bouncer@rounds
+   claude plugin marketplace remove rounds
+   ```
