@@ -1,5 +1,16 @@
 import Foundation
 
+/// The folder that Settings > Organizations lists for a session folder: its project, or nil for a folder that is gone
+/// or temporary. A rule needs an existing folder, so a gone folder cannot get one; a temporary one would soon be gone.
+public func organizationProject(for cwd: String) -> String? {
+    let path = URL(fileURLWithPath: cwd).standardizedFileURL.path
+    let temporary = ["/tmp", "/private/tmp", "/var/folders", "/private/var/folders"]
+    guard !temporary.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) else { return nil }
+    var isDirectory: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory), isDirectory.boolValue else { return nil }
+    return projectRoot(for: path)
+}
+
 /// The folder a session belongs to for grouping: the main checkout of its git repository (worktrees and
 /// subfolders join their repository), else the session folder itself.
 public func projectRoot(for cwd: String) -> String {

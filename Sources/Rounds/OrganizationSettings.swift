@@ -209,7 +209,8 @@ struct OrganizationSettingsView: View {
             return nil
         }
         // A worktree or a subfolder shows as its project: a rule on the main checkout covers its worktrees.
-        let known = model.organizationDirectories.map(projectRoot) + state.addedDirectories
+        // Gone and temporary folders do not show.
+        let known = model.organizationDirectories.compactMap(organizationProject) + state.addedDirectories
         return Array(Set(known + stored)).sorted()
     }
 
