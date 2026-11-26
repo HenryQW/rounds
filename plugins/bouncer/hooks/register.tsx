@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { EMPTY, archived, columns, dots, ledgerSummary, parseBartender, queueLines, queueSummary, questionsBySession, renamed, reportLine, synced } from './pool'
+import { EMPTY, archived, columns, dots, ledgerSummary, parseBartender, queueLines, queueSummary, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
 import type { Column, Report } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
@@ -42,9 +42,24 @@ const isOtherBouncer = async ($: EngineInterface) => {
   if (!owner) await writeOwner($, me)
   return owner !== '' && owner !== me
 }
+// The Bouncer's linked sessions: the Bartenders' current titles, whether each runs a turn, and its PR.
+// They also fill the pool after a reload, before the Bouncer renames anything.
+const refreshSessions = async ($: EngineInterface) => {
+  const ran = await $.tool.call({ tool: 'mcp__ccd_session_mgmt__list_sessions', linked: true, limit: 100 } as any).catch(() => undefined)
+  if (!ran || ran.deny !== undefined || ran.isError === true) return
+  const rows = sessionRows(ran.text ?? JSON.stringify(ran.result ?? ''))?.filter(r => parseBartender(r.title))
+  if (!rows) return
+  await update($, pool, p => ({
+    ...p,
+    bartenders: Object.fromEntries(rows.map(r => [r.id, r.title])),
+    running: Object.fromEntries(rows.map(r => [r.id, r.isRunning])),
+    prs: Object.fromEntries(rows.flatMap(r => (r.pr ? [[r.id, r.pr]] : []))),
+  }))
+}
 const refreshData = async ($: EngineInterface, records = '') => {
   const isOther = await isOtherBouncer($)
   await update($, pool, p => (p.isOther === isOther ? p : { ...p, isOther }))
+  if (!isOther) await refreshSessions($).catch(() => undefined)
   const lines = queueLines(await dataFile($, 'queue.md'))
   const questions = questionsBySession(await dataFile($, 'questions.md'))
   const ledger = await ledgerList($, records)
@@ -170,8 +185,8 @@ export const register: Register = (on, options) => {
       const row = (
         <Box flexDirection="row" alignItems="center" gap={2} flexWrap="wrap" width={width}>
           <Text bold>Bouncer</Text>
-          <Text dimColor>{`another session is the Bouncer of ${ownRepo}`}</Text>
-          <Button key="takeover" dimColor onPress={take}>Take Over</Button>
+          <Text>{`another session is the Bouncer of ${ownRepo}`}</Text>
+          <Button key="takeover" plain onPress={take}>Take Over</Button>
         </Box>
       )
       return below ? <Box flexDirection="column">{row}{below}</Box> : row
@@ -185,7 +200,7 @@ export const register: Register = (on, options) => {
       : ctaB && { b: ctaB, name: ctaB.ticket || ctaB.repo, question: 'waits on you' }
     const lines = p.queueOpen ? p.queueLines ?? [] : []
     const ledgerLines = p.ledgerOpen ? p.ledgerLines ?? [] : []
-    const all = columns(p.bartenders, p.reports)
+    const all = columns(p.bartenders, p.reports, p.running)
     // Compact (the default) is one line; Details adds the ask row and the columns. Kept across sessions.
     const flip = async () => {
       const details = !(await read($, pool)).details
@@ -217,8 +232,14 @@ export const register: Register = (on, options) => {
       if (!ran || ran.deny !== undefined || ran.isError === true) await ask(`${name}: open`)
     }
     const strip = bartenders.length === 0
-      ? <Text dimColor>no Bartenders yet</Text>
-      : <Text key="dots">{dots(p.bartenders, p.reports).join('')}</Text>
+      ? <Text>no Bartenders yet</Text>
+      : <Text key="dots">{dots(p.bartenders, p.reports, p.running).join('')}</Text>
+    // The sub-line: the last report's RESULT or wait reason; before any report, what the session shows (a turn, its PR).
+    const sub = (c: Column) => {
+      const id = c.ids.length === 1 ? c.ids[0]! : undefined
+      if (!id) return c.ids.length > 1 ? 'free for work' : ''
+      return p.notes?.[id] || (p.running?.[id] ? 'working' : p.prs?.[id] ?? (p.running?.[id] === false ? 'waiting' : ''))
+    }
     const detailsButton = <Button key="details" plain label={p.details ? 'Compact' : 'Details'} onPress={flip} />
 
     if (!p.details) {
@@ -230,7 +251,7 @@ export const register: Register = (on, options) => {
           {n > 0 && (waits?.b
             ? <Button key="waits" plain onPress={() => open(waits.b!.id, waits.name)}><Text color="error">{`${n} waits on you`}</Text></Button>
             : <Text key="waits" color="error">{`${n} waits on you`}</Text>)}
-          {all.filter(c => c.ticket).length > 0 && <Text dimColor wrap="truncate">{all.filter(c => c.ticket).map(c => c.ticket).join(' ')}</Text>}
+          {all.filter(c => c.ticket).length > 0 && <Text wrap="truncate">{all.filter(c => c.ticket).map(c => c.ticket).join(' ')}</Text>}
           <Box flexGrow={1} />
           {detailsButton}
         </Box>
@@ -239,32 +260,33 @@ export const register: Register = (on, options) => {
     }
 
     // Details: ponytail's layout. A header row, a hairline, then equal columns split by vertical hairlines.
+    // Text that says something uses the normal colour; only the lines are dim. Steps from the surface: `sm` between rows, `xs` inside.
     // shortcut: the hidden columns are only counted (`+N`); a fifth active Bartender has no menu until one ends.
     const shown = all.slice(0, 4)
     const more = all.length - shown.length
-    // Text glyphs make broken lines in the desktop's proportional font; an SVG draws real ones (as ponytail does).
-    const HAIR = 'stroke="#87867f" stroke-opacity=".35"'
     let rule = <Text dimColor wrap="truncate-end">{'─'.repeat(e.props.bodyColumns)}</Text>
     let bar = (i: number) => <Box key={`bar:${i}`} flexDirection="column">{['a', 'b', 'c'].map(k => <Text key={k} dimColor>│</Text>)}</Box>
     if (e.surface === 'desktop') {
+      // Text glyphs make broken lines in the desktop's proportional font; an SVG draws real ones, with ponytail's line colours.
       const { Svg } = $.ui.resolve(e)
-      rule = <Svg source={`<svg xmlns="http://www.w3.org/2000/svg" width="4000" height="1"><line ${HAIR} x1="0" y1="0.5" x2="4000" y2="0.5"/></svg>`} alt="" height={1} />
-      bar = i => <Svg key={`bar:${i}`} source={`<svg xmlns="http://www.w3.org/2000/svg" width="1" height="48"><line ${HAIR} x1="0.5" y1="0" x2="0.5" y2="48"/></svg>`} alt="" width={1} height={48} />
+      const line = (w: number, h: number, xy: string) => `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><style>.d{stroke:#1f1e1d;stroke-opacity:.12}@media (prefers-color-scheme:dark){.d{stroke:#fff;stroke-opacity:.14}}</style><line class="d" ${xy}/></svg>`
+      rule = <Svg source={line(4000, 1, 'x1="0" y1="0.5" x2="4000" y2="0.5"')} alt="divider" height={1} />
+      bar = i => <Svg key={`bar:${i}`} source={line(1, 64, 'x1="0.5" y1="0" x2="0.5" y2="64"')} alt="divider" width={1} height={64} />
     }
     const colWidth = width === undefined ? undefined : Math.max(10, Math.floor(width / Math.max(1, shown.length)) - 3)
     const mine = (
-      <Box flexDirection="column" width={width} gap={e.surface === 'desktop' ? 1 : 0}>
-        <Box flexDirection="row" alignItems="center" gap={1}>
+      <Box flexDirection="column" width={width} gap={e.surface === 'terminal' ? 0 : 'sm'} paddingY={e.surface === 'terminal' ? 0 : 'xs'}>
+        <Box flexDirection="row" alignItems="center" gap={e.surface === 'terminal' ? 1 : 'sm'}>
           {strip}
           <Text bold>Bouncer</Text>
-          <Text dimColor>{ownRepo}</Text>
+          <Text>{ownRepo}</Text>
           <Box flexGrow={1} />
           {p.queue > 0 && <Button key="queue" plain label={`Queue ${p.queue}`} onPress={() => toggle('queueOpen')} />}
           {(p.ledger ?? 0) > 0 && <Button key="ledger" plain label={`Due ${p.ledger}`} onPress={() => toggle('ledgerOpen')} />}
           {detailsButton}
         </Box>
         {waits && (
-          <Box backgroundColor="diffRemovedDimmed" paddingX="xs">
+          <Box backgroundColor="diffRemovedDimmed" paddingX="sm" paddingY="xs">
             {waits.b
               ? <Button key={`open:${waits.b.id}`} plain onPress={() => open(waits.b!.id, waits.name)}>
                   <Text wrap="truncate">{`🔴 ${waits.name}: ${waits.question}`}</Text>
@@ -274,37 +296,37 @@ export const register: Register = (on, options) => {
         )}
         {shown.length > 0 && rule}
         {shown.length > 0 && (
-          <Box flexDirection="row" gap={2}>
+          <Box flexDirection="row" gap={e.surface === 'terminal' ? 2 : 'md'}>
             {shown.flatMap((c, i) => [
               ...(i > 0 ? [bar(i)] : []),
               // Off the terminal the columns share the row; a width in cells would leave most of it empty and cut the text.
-              <Box key={`col:${c.key}`} flexDirection="column" minWidth={0} {...(colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
-                {/* Ponytail's desktop sizes: a 12px label and sub-line, a 16px semibold value. */}
-                <Text dimColor size="footnote" wrap="truncate-end">{c.label}</Text>
+              <Box key={`col:${c.key}`} flexDirection="column" minWidth={0} gap={e.surface === 'terminal' ? 0 : 'xs'} {...(colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
+                {/* The mockup's sizes: a 12px label and sub-line, a 20px semibold value. */}
+                <Text size="footnote" wrap="truncate-end">{c.label}</Text>
                 <Button key={c.key} plain onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))}>
-                  <Text size="heading" weight="semibold">{c.value}</Text>
+                  <Text size="title" weight="semibold">{c.value}</Text>
                 </Button>
                 {p.menu === c.key
                   ? <Box flexDirection="row" gap={1} flexWrap="wrap">
-                      {actions(c).map(o => <Button key={`${c.key}:${o.value}`} plain dimColor onPress={() => pick(c, o.value)}>{o.label}</Button>)}
+                      {actions(c).map(o => <Button key={`${c.key}:${o.value}`} plain onPress={() => pick(c, o.value)}>{o.label}</Button>)}
                     </Box>
-                  : <Text dimColor size="footnote" wrap="truncate-end">{c.ids.length === 1 ? p.notes?.[c.ids[0]!] ?? '' : ''}</Text>}
+                  : <Text size="footnote" wrap="truncate-end">{sub(c)}</Text>}
               </Box>,
             ])}
-            {more > 0 && <Text key="more" dimColor>{`+${more}`}</Text>}
+            {more > 0 && <Text key="more">{`+${more}`}</Text>}
           </Box>
         )}
         {lines.map((line, i) => {
           const ticket = line.split('|')[0]?.trim() ?? ''
           return (
             <Box flexDirection="row" alignItems="center" gap={1}>
-              <Box flexShrink={1} minWidth={0}><Text dimColor wrap="truncate">{queueSummary(line)}</Text></Box>
-              {i === 0 && <Button key="queue:pop" plain dimColor onPress={() => ask('queue: pop')}>Pop</Button>}
-              <Button key={`queue:remove:${ticket}`} plain dimColor onPress={() => ask(`queue: remove ${ticket}`)}>Remove</Button>
+              <Box flexShrink={1} minWidth={0}><Text wrap="truncate">{queueSummary(line)}</Text></Box>
+              {i === 0 && <Button key="queue:pop" plain onPress={() => ask('queue: pop')}>Pop</Button>}
+              <Button key={`queue:remove:${ticket}`} plain onPress={() => ask(`queue: remove ${ticket}`)}>Remove</Button>
             </Box>
           )
         })}
-        {ledgerLines.map(line => <Text dimColor wrap="truncate">{ledgerSummary(line)}</Text>)}
+        {ledgerLines.map(line => <Text wrap="truncate">{ledgerSummary(line)}</Text>)}
       </Box>
     )
     return below ? <Box flexDirection="column">{mine}{below}</Box> : mine

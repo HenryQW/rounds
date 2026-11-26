@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { EMPTY, dot, parseBartender, questionsBySession, renamed, reportLine } from './pool'
+import { EMPTY, dot, parseBartender, questionsBySession, renamed, reportLine, sessionRows } from './pool'
 
 const BAND = { plugin: 'bouncer', component: 'AbovePrompt', props: { hasSurvey: false, bodyColumns: 120 } } as const
 
@@ -439,6 +439,39 @@ test('dots: red needs the user, yellow works or waits on others, green is idle',
   expect(d('[Dev] 🍸 A-1 r', 'WORKING')).toBe('🟡')
   expect(d('[Idle] 🍸 r')).toBe('🟢')
   expect(d('[Idle] 🍸 r', 'BLOCKED')).toBe('🟢')
+  const s = (title: string, report: string | undefined, isRunning: boolean) => dot(parseBartender(title)!, report, isRunning)
+  expect(s('[InQA] 🍸 A-1 r', undefined, false)).toBe('🟢')
+  expect(s('[Dev] 🍸 A-1 r', 'DONE', false)).toBe('🟢')
+  expect(s('[Dev] 🍸 A-1 r', undefined, true)).toBe('🟡')
+  expect(s('[Dev] 🍸 A-1 r', 'BLOCKED', false)).toBe('🔴')
+  expect(s('![Dev] 🍸 A-1 r', undefined, false)).toBe('🔴')
+})
+
+test('linked sessions parse from list_sessions JSON, bare or in text blocks', () => {
+  const rows = '[{"sessionId":"local_a","title":"[InQA] 🍸 A-1 r","isRunning":false,"prNumber":12,"prState":"OPEN"},{"sessionId":"local_b","title":"x","isRunning":true}]'
+  const want = [{ id: 'local_a', title: '[InQA] 🍸 A-1 r', isRunning: false, pr: 'PR 12 open' }, { id: 'local_b', title: 'x', isRunning: true }]
+  expect(sessionRows(rows)).toEqual(want)
+  expect(sessionRows(JSON.stringify([{ type: 'text', text: rows }]))).toEqual(want)
+  expect(sessionRows(JSON.stringify({ content: [{ type: 'text', text: rows }] }))).toEqual(want)
+  expect(sessionRows('{}')).toBe(undefined)
+  expect(sessionRows('not json')).toBe(undefined)
+})
+
+test('the band fills from the linked sessions: titles, green when no turn runs, the PR as the sub-line', async ($, on) => {
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({ result: JSON.stringify([
+    { sessionId: 'local_a', title: '[InQA] 🍸 MIDI-1 rounds', isRunning: false, prNumber: 12, prState: 'OPEN' },
+    { sessionId: 'local_b', title: '[Dev] 🔧 band rounds', isRunning: true },
+    { sessionId: 'local_c', title: 'Not a Bartender', isRunning: false },
+  ]) }))
+  engine(on, { details: true })
+  on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  await title($, 'self', '🚪 Bouncer')
+  await title($, 'local_old', '[Dev] 🍸 MIDI-9 rounds')
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢]+$/u }))?.text).toBe('🟡🟢')
+  expect(await cols(ui)).toEqual([['skill · Dev', '🟡 band', 'working'], ['ticket · InQA', '🟢 MIDI-1', 'PR 12 open']])
+  await ui.unmount()
 })
 
 test('a turn-end report sets its Bartender dot, and the strip is sorted red first', async ($, on) => {
@@ -576,7 +609,7 @@ test('Details: one column an active Bartender, idle ones in one column, at most 
   await title($, 'b', '[Dev] 🔧 band rounds')
   await title($, 'c', '[Idle] 🍸 rounds')
   await title($, 'd', '[Idle] 🧹 rounds')
-  expect(await cols(ui)).toEqual([['ticket · QA', '🟡 MIDI-1', ''], ['skill · Dev', '🟡 band', ''], ['idle', '🟢 2 idle', '']])
+  expect(await cols(ui)).toEqual([['ticket · QA', '🟡 MIDI-1', ''], ['skill · Dev', '🟡 band', ''], ['idle', '🟢 2 idle', 'free for work']])
   // Two vertical hairlines of three lines each.
   expect((await ui.findAll({ type: 'Text', text: /^│$/ })).length).toBe(6)
   expect(await ui.find({ type: 'Text', text: /^\+\d/ })).toBe(undefined)

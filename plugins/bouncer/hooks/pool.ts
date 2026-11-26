@@ -42,29 +42,30 @@ export type Column = { key: string; dot: string; label: string; value: string; t
 // Traffic light, in band order: needs the user, works (or waits on others), idle and free for work.
 const DOTS = ['🔴', '🟡', '🟢']
 
-/** A Bartender's dot from its title and its last report STATUS (the mapping is in SKILL.md, "Band"). */
-export const dot = (b: Bartender, report?: string) =>
+/** A Bartender's dot from its title, its last report STATUS and whether its session runs a turn (the mapping is in SKILL.md, "Band"). */
+export const dot = (b: Bartender, report?: string, isRunning?: boolean) =>
   b.cta ? '🔴'
   : b.status === 'Idle' ? '🟢'
   : report === 'NEEDS_INPUT' || report === 'BLOCKED' ? '🔴'
+  : isRunning === false ? '🟢'
   : '🟡'
 
 const byDot = <T extends { dot: string }>(a: T, b: T) => DOTS.indexOf(a.dot) - DOTS.indexOf(b.dot)
 
 /** Each Bartender's dot, in band order. */
-export const dots = (bartenders: Readonly<Record<string, string>>, reports: Readonly<Record<string, string>> = {}) =>
-  Object.entries(bartenders).flatMap(([id, t]) => { const b = parseBartender(t); return b ? [{ dot: dot(b, reports[id]) }] : [] })
+export const dots = (bartenders: Readonly<Record<string, string>>, reports: Readonly<Record<string, string>> = {}, running: Readonly<Record<string, boolean>> = {}) =>
+  Object.entries(bartenders).flatMap(([id, t]) => { const b = parseBartender(t); return b ? [{ dot: dot(b, reports[id], running[id]) }] : [] })
     .sort(byDot).map(d => d.dot)
 
 /** Active Bartenders one column each, red first (`ticket · Dev` over `🟡 MIDI-1`); all idle ones in one `N idle` column, last. */
-export const columns = (bartenders: Readonly<Record<string, string>>, reports: Readonly<Record<string, string>> = {}): Column[] => {
+export const columns = (bartenders: Readonly<Record<string, string>>, reports: Readonly<Record<string, string>> = {}, running: Readonly<Record<string, boolean>> = {}): Column[] => {
   const active: Column[] = []
   const idle: string[] = []
   for (const [id, title] of Object.entries(bartenders)) {
     const b = parseBartender(title)
     if (!b) continue
     if (b.status === 'Idle' && !b.cta) { idle.push(id); continue }
-    const d = dot(b, reports[id])
+    const d = dot(b, reports[id], running[id])
     // A task with no ticket shows its repo as the value.
     active.push({ key: `act:${id}`, dot: d, label: `${b.type.toLowerCase()} · ${b.status}`, value: `${d} ${b.ticket || b.repo}`, ticket: b.ticket, ids: [id] })
   }
@@ -75,6 +76,23 @@ export const columns = (bartenders: Readonly<Record<string, string>>, reports: R
 /** A report's sub-line: the wait reason (its QUESTION) when the Bartender waits on the user, else its RESULT. */
 export const reportLine = (r: Report) =>
   ((r.status === 'NEEDS_INPUT' || r.status === 'BLOCKED') && r.question ? r.question : r.result) ?? ''
+
+/**
+ * The Bouncer's linked sessions from `list_sessions {linked: true}` (a JSON array, maybe in MCP text blocks):
+ * id, title, whether a turn runs and its PR (`PR 12 open`). Undefined when the text is not such a list.
+ */
+export const sessionRows = (raw: string): Array<{ id: string; title: string; isRunning: boolean; pr?: string }> | undefined => {
+  const parse = (t: string): unknown => { try { return JSON.parse(t) } catch { return undefined } }
+  let v = parse(raw)
+  // A tool result that is a string arrives JSON-encoded once more.
+  if (typeof v === 'string') v = parse(v)
+  const blocks = (x: unknown) => Array.isArray(x) && x.length > 0 && x.every(b => (b as { type?: unknown })?.type === 'text')
+  if (v && typeof v === 'object' && !Array.isArray(v) && blocks((v as { content?: unknown }).content)) v = (v as { content: unknown }).content
+  if (blocks(v)) v = parse((v as Array<{ text: string }>).map(b => b.text).join(''))
+  if (!Array.isArray(v)) return undefined
+  return v.flatMap(r => typeof r?.sessionId === 'string' && typeof r?.title === 'string' ? [{ id: r.sessionId as string, title: r.title as string, isRunning: r.isRunning === true,
+      ...(typeof r.prNumber === 'number' ? { pr: `PR ${r.prNumber}${typeof r.prState === 'string' ? ` ${r.prState.toLowerCase()}` : ''}` } : {}) }] : [])
+}
 
 /** A queue line (`KEY | repo | mode | note`) as `KEY · repo · mode`. */
 export const queueSummary = (line: string) => line.split('|').slice(0, 3).map(s => s.trim()).filter(Boolean).join(' · ')

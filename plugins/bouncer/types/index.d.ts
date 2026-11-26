@@ -25,6 +25,10 @@ export type Pool = {
   isOther?: boolean
   /** Bartender session id to the STATUS of its last turn-end report (`bouncer-report`). */
   reports?: Readonly<Record<string, string>>
+  /** Bartender session id to whether its session runs a turn now (`list_sessions` `isRunning`). */
+  running?: Readonly<Record<string, boolean>>
+  /** Bartender session id to its PR as `PR <n> <state>`, from `list_sessions`. */
+  prs?: Readonly<Record<string, string>>
   /** Bartender session id to the sub-line of its last report: the wait reason, else the RESULT. */
   notes?: Readonly<Record<string, string>>
   /** True when the band shows the columns (Details); false is Compact. Kept across sessions in `$.store` `details`. */
