@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { dot, parseBartender } from './pool'
+import { EMPTY, dot, parseBartender, questionsBySession, renamed } from './pool'
 
 const BAND = { plugin: 'bouncer', component: 'AbovePrompt', props: { hasSurvey: false, bodyColumns: 120 } } as const
 
@@ -519,4 +519,16 @@ test('a Bouncer of another repo does not block this one, and a repo title turns 
   expect(reads.filter(r => r.startsWith('/data/web/'))).toEqual([])
   expect(writes).toEqual(['/data/rounds/bouncer'])
   await ui.unmount()
+})
+
+test('two Bouncer questions keep the oldest as the head', () => {
+  const q = questionsBySession('A-1 | self | Approve A?\nC-1 | self | Approve C?\nB-1 | local_b | Why?\n')
+  expect(Object.entries(q)).toEqual([['self', 'Approve A?'], ['local_b', 'Why?']])
+})
+
+test('a Bartender loses its last report when it goes idle or takes another ticket', () => {
+  const p = { ...EMPTY, bartenders: { s: '[Dev] 🍸 A-1 rounds' }, reports: { s: 'BLOCKED' } }
+  expect(renamed(p, 's', '[Review] 🍸 A-1 rounds').reports).toEqual({ s: 'BLOCKED' })
+  expect(renamed(p, 's', '[Dev] 🍸 B-2 rounds').reports).toEqual({})
+  expect(renamed(p, 's', '[Idle] 🍸 rounds').reports).toEqual({})
 })

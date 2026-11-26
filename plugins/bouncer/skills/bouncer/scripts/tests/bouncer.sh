@@ -120,6 +120,10 @@ ok "questions: a new question of the same ticket replaces the old in its place" 
 ok "questions: count" "$(./bouncer-questions count)" 2
 ./bouncer-questions done ABC-2; ok "questions: done removes only that ticket" "$(./bouncer-questions list)" "ABC-1 | local_a | Post it or not?"
 ok "questions: the file is questions.md in the repo folder" "$(cat "$tmp/q/r/questions.md")" "ABC-1 | local_a | Post it or not?"
+./bouncer-questions add "cleanup-old | local_c | Keep A?"; ./bouncer-questions add "cleanup.old | local_d | Keep B?"
+ok "questions: a key matches literally, not as a regex" "$(./bouncer-questions count)" 3
+./bouncer-questions done cleanup.old; ok "questions: done matches the key literally" "$(./bouncer-questions list | tr '\n' ';')" "ABC-1 | local_a | Post it or not?;cleanup-old | local_c | Keep A?;"
+./bouncer-questions done cleanup-old
 
 # bouncer-grants (in the data folder)
 ./bouncer-grants has ABC-1 push 2>/dev/null; ok "grants: has with no grant exits 1" $? 1

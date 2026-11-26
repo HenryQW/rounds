@@ -13,13 +13,15 @@ cmd=${1:-}
 [ -n "$cmd" ] || usage
 f="$("$(dirname "$0")/bouncer-data" --repo)/questions.md"
 touch "$f"
+# Match the ticket literally: Skill and Cleanup task names may hold regex characters.
+has() { T="$1 |" awk 'index($0, ENVIRON["T"]) == 1 { f = 1 } END { exit !f }' "$f"; }
 case $cmd in
   add)
     IFS='|' read -r t s q <<<"${2:-}"   # q keeps any further | of the question
     t=$(trim "$t"); s=$(trim "${s:-}"); q=$(trim "${q:-}")
     [ -n "$t" ] && [ -n "$s" ] && [ -n "$q" ] || { echo "bad line: want TICKET | session_id | question" >&2; exit 2; }
     # A ticket's new question keeps the old one's place: questions block in order, so a reworded head stays the head.
-    if grep -q "^$t |" "$f"; then
+    if has "$t"; then
       tmp=$(mktemp); T="$t |" N="$t | $s | $q" awk 'index($0, ENVIRON["T"]) == 1 { print ENVIRON["N"]; next } { print }' "$f" > "$tmp"; mv "$tmp" "$f"
     else echo "$t | $s | $q" >> "$f"; fi ;;
   next)
@@ -27,8 +29,8 @@ case $cmd in
     head -n 1 "$f" ;;
   done)
     t=$(trim "${2:-}"); [ -n "$t" ] || usage
-    grep -q "^$t |" "$f" || { echo "no open question for $t" >&2; exit 1; }
-    tmp=$(mktemp); grep -v "^$t |" "$f" > "$tmp" || true; mv "$tmp" "$f" ;;
+    has "$t" || { echo "no open question for $t" >&2; exit 1; }
+    tmp=$(mktemp); T="$t |" awk 'index($0, ENVIRON["T"]) != 1' "$f" > "$tmp"; mv "$tmp" "$f" ;;
   list) cat "$f" ;;
   count) grep -c . "$f" || true ;;
   *) usage ;;

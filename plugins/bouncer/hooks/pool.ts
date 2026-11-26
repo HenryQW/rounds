@@ -20,8 +20,13 @@ export const parseBartender = (title: string): Bartender | undefined => {
 export const renamed = (pool: Pool, sessionId: string, title: string): Pool => {
   const own = BOUNCER.exec(title)
   if (sessionId === 'self' && own) return { ...pool, isOn: true, waiting: Number(own[1] ?? 0) }
-  if (!parseBartender(title)) return pool
-  return { ...pool, isOn: true, bartenders: { ...pool.bartenders, [sessionId]: title } }
+  const b = parseBartender(title)
+  if (!b) return pool
+  // A last report belongs to the old task: drop it when the session goes idle or takes another ticket.
+  const old = parseBartender(pool.bartenders[sessionId] ?? '')
+  const { [sessionId]: _, ...rest } = pool.reports ?? {}
+  const reports = b.status === 'Idle' || old?.ticket !== b.ticket ? rest : pool.reports
+  return { ...pool, isOn: true, bartenders: { ...pool.bartenders, [sessionId]: title }, reports }
 }
 
 export const archived = (pool: Pool, sessionId: string): Pool => {
@@ -77,12 +82,16 @@ export const ledgerSummary = (line: string) => {
 
 export const queueLines = (text: string) => text.split('\n').filter(l => l.trim() !== '')
 
-/** `questions.md` lines (`<TICKET> | <session_id> | <question>`) as session id to question. */
-export const questionsBySession = (text: string): Record<string, string> =>
-  Object.fromEntries(queueLines(text).flatMap(l => {
+/** `questions.md` lines (`<TICKET> | <session_id> | <question>`) as session id to its oldest question, in file order. */
+export const questionsBySession = (text: string): Record<string, string> => {
+  const out: Record<string, string> = {}
+  for (const l of queueLines(text)) {
     const [, id, ...q] = l.split('|').map(s => s.trim())
-    return id && q.length ? [[id, q.join(' | ')]] : []
-  }))
+    // The first line of a session wins: `self` holds one line a ticket, and the band shows the head.
+    if (id && q.length && !(id in out)) out[id] = q.join(' | ')
+  }
+  return out
+}
 
 /** A Bartender's report fields that set titles (bouncer-report's JSON). */
 export type Report = { status: string; ticket: string; linear: string | null }
