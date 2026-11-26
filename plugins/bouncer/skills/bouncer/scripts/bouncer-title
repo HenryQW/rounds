@@ -2,16 +2,19 @@
 """bouncer-title <status> <ticket> <repo> [--cta]   ->  [<code>] <ticket> - Bartender - <repo>  (! prefix with --cta)
 bouncer-title --idle <repo>                        ->  [Idle] Bartender - <repo>
 bouncer-title --bouncer <n>                        ->  !<n> Bouncer, or Bouncer at 0
-Status codes come from BOUNCER_STATUS_CODES ("Name=Code; Name=Code", the plugin option status_codes).
-Exit 2: bad input, no codes or an unknown status."""
-import os, sys
+Status codes come from BOUNCER_STATUS_CODES ("Name=Code; Name=Code", the plugin option status_codes),
+else from the option default in the plugin manifest.
+Exit 2: bad input, a bad code pair or an unknown status."""
+import json, os, sys
 
 def die(msg):
     print(msg, file=sys.stderr); sys.exit(2)
 
 def codes():
     raw = os.environ.get("BOUNCER_STATUS_CODES", "").strip()
-    if not raw: die("BOUNCER_STATUS_CODES is empty: set the status_codes plugin option")
+    if not raw:   # the option is unset: use its default from the plugin manifest
+        manifest = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../../.claude-plugin/plugin.json")
+        raw = json.load(open(manifest))["userConfig"]["status_codes"]["default"]
     out = {}
     for pair in filter(None, (p.strip() for p in raw.split(";"))):
         name, eq, code = (s.strip() for s in pair.partition("="))

@@ -32,7 +32,7 @@ The steps that need no judgment are scripts in `scripts/` next to this file (`${
 - `<repo>` is the folder name of the repo's main checkout, for example `my-repo`. The Bartender `cwd` is that main checkout.
 - The ticket record is one file a ticket outside every repo, so a branch switch or a new worktree never loses it: the place the user's rules name, else `~/.claude/bouncer/tickets/<TICKET>.md`.
 - The pool state is the session titles. `list_sessions {"linked": true}` is the only read the Bouncer needs to route.
-- Titles (the Bouncer is the only one that renames, with `set_session_title`). Make each title with `bouncer-title`, never by hand. Run it as `BOUNCER_STATUS_CODES="${user_config.status_codes}" ${CLAUDE_SKILL_DIR}/scripts/bouncer-title <args>`:
+- Titles (the Bouncer is the only one that renames, with `set_session_title`). Make each title with `${CLAUDE_SKILL_DIR}/scripts/bouncer-title <args>`, never by hand. Status codes: `${user_config.status_codes}`. If that text is `Name=Code` pairs, the user set the option: put `BOUNCER_STATUS_CODES="<that text>"` before the command. Else the script uses the default codes:
   - `[<status>] <TICKET> - Bartender - <repo>`, for example `[Dev] ABC-123 - Bartender - my-repo`: `bouncer-title "<tracker status>" <TICKET> <repo>`
   - `[Idle] Bartender - <repo>`: `bouncer-title --idle <repo>`
 - A call to action (CTA) is not a status. It is a `!` prefix, put before the status and removed when the user answers:
