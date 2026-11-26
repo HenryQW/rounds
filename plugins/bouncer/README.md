@@ -42,24 +42,24 @@ The band also lets you act:
 - Questions block in order. The red pill shows only the oldest question (the head of `questions.md` in the plugin data folder); click it to open that Bartender. The next one shows after you answer it. Other Bartenders that wait keep their 🔴 dot. The click shows that Bartender's conversation in split view beside the Bouncer; if the app refuses, the band asks the Bouncer to open it. You still answer the Bouncer.
 - Click `📥 N queued` to list the queued tickets, one line each (`KEY · repo · mode`). Pop and Remove send the Bouncer `queue: pop` or `queue: remove ABC-123`; the Bouncer runs `bouncer-queue`.
 
-- One Bouncer: the first Bouncer session claims `bouncer` in the plugin data folder and frees it when its session ends. The band of another Bouncer session shows only "another session is the Bouncer" and Take Over.
+- One Bouncer a repo: a Bouncer runs in a repo's main checkout and routes only that repo; Bouncers of other repos run beside it. Its title is `🚪 Bouncer <repo>`. The first Bouncer of a repo claims `<repo>/bouncer` in the plugin data folder and frees it when its session ends. The band of a second Bouncer of the same repo shows only "another session is the Bouncer of <repo>" and Take Over.
 
 ## Data
 The plugin keeps its state in the data folder that Claude Code gives it: `~/.claude/plugins/data/bouncer-rounds/` (`bouncer-inline` for a `--plugin-dir` checkout). `skills/bouncer/scripts/bouncer-data` prints the path.
 
 | File | Holds |
 |---|---|
-| `queue.md` | Tickets above the Bartender cap, one line each |
-| `questions.md` | Bartender questions that wait on you, one line each |
+| `<repo>/queue.md` | One Bouncer's tickets above the Bartender cap, one line each |
+| `<repo>/questions.md` | One Bouncer's questions that wait on you, one line each, oldest first |
 | `grants.md` | Your one yes for each ticket's closing chain, one line each |
 | `decision-table.md` | Rows that the Bouncer adds to its decision table when you answer a question that no row covered |
 | `tickets/<TICKET>.md` | Ticket records, unless the `records_dir` option names another folder. Each record's `LEDGER` section holds its work to revisit (an open PR, a held message, a follow-up, a staging check); `bouncer-ledger due` lists what is due |
 
-The pool is in the session titles, so it needs no file. Every Bouncer session sees the same folder, whatever folder it runs in. Plugin updates keep the folder. `claude plugin uninstall bouncer@rounds` deletes it unless you add `--keep-data`.
+The pool is in the session titles, so it needs no file. Every Bouncer sees the same folder; the queue and the questions are per repo, in `<repo>/`. The first run of 0.10.4 moves an older `queue.md` and `questions.md` into the first Bouncer's repo folder, once. Plugin updates keep the folder. `claude plugin uninstall bouncer@rounds` deletes it unless you add `--keep-data`.
 
 ## Known limits
 
-- The Bouncer must be a session that you open, in the main checkout of the repo it routes. Do not move it with `change_directory`: hook paths stay on the old folder and Bash breaks. `bouncer-preflight` checks the folder, the hook paths, the plugin version and the `clear_session` allow rule. With Remote Control on, a session that another session started cannot start Bartenders, and `start_session` refuses another folder, so tickets of another repo wait in the queue.
+- The Bouncer must be a session that you open, in the main checkout of the repo it routes. Do not move it with `change_directory`: hook paths stay on the old folder and Bash breaks. `bouncer-preflight` checks the folder, the hook paths, the plugin version and the `clear_session` allow rule. With Remote Control on, a session that another session started cannot start Bartenders. A request for another repo goes to that repo's Bouncer.
 - Never detach a Bartender: its reports then do not reach the Bouncer.
 - Outside `bypassPermissions` mode, the app asks you before each Bartender reset (`clear_session`) and before a model or effort above the Bouncer's own.
 

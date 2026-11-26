@@ -8,7 +8,8 @@ export type Bartender = { cta: boolean; status: string; type: string; emoji: str
 // The emoji is the type: 🍸 Ticket, 🔧 Skill, 🧹 Cleanup.
 const TYPES: Record<string, string> = { '🍸': 'Ticket', '🔧': 'Skill', '🧹': 'Cleanup' }
 const BARTENDER = /^(!)?\[([^\]]+)\] (🍸|🔧|🧹) (?:(\S+) )?(\S+)$/u
-const BOUNCER = /^(?:!(\d+) )?🚪 Bouncer$/
+// `!2 🚪 Bouncer rounds`; a title from before 0.10.4 has no repo.
+const BOUNCER = /^(?:!(\d+) )?🚪 Bouncer(?: \S+)?$/
 
 export const parseBartender = (title: string): Bartender | undefined => {
   const m = BARTENDER.exec(title)
@@ -86,14 +87,14 @@ export const questionsBySession = (text: string): Record<string, string> =>
 /** A Bartender's report fields that set titles (bouncer-report's JSON). */
 export type Report = { status: string; ticket: string; linear: string | null }
 
-export const bouncerTitle = (n: number) => (n ? `!${n} 🚪 Bouncer` : '🚪 Bouncer')
+export const bouncerTitle = (n: number, repo: string) => `${n ? `!${n} ` : ''}🚪 Bouncer${repo ? ` ${repo}` : ''}`
 
 /**
  * The renames that make the titles match the open questions and the latest report: a Bartender has the `!` CTA
  * exactly when `questions.md` has a line for its session, its status code is the report's LINEAR, and the
  * Bouncer's count is the number of question lines (its own questions use the session id `self`).
  */
-export const synced = (pool: Pool, questionsText: string, report?: Report): Array<[string, string]> => {
+export const synced = (pool: Pool, questionsText: string, report?: Report, repo = ''): Array<[string, string]> => {
   const waiting = questionsBySession(questionsText)
   const out: Array<[string, string]> = []
   for (const [id, title] of Object.entries(pool.bartenders)) {
@@ -104,6 +105,6 @@ export const synced = (pool: Pool, questionsText: string, report?: Report): Arra
     if (next !== title) out.push([id, next])
   }
   const n = queueLines(questionsText).length
-  if (n !== pool.waiting) out.push(['self', bouncerTitle(n)])
+  if (n !== pool.waiting) out.push(['self', bouncerTitle(n, repo)])
   return out
 }

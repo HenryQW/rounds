@@ -3,13 +3,13 @@
 # bouncer-queue pop    print the first line and remove it (exit 1 when the queue is empty)
 # bouncer-queue remove <TICKET>   remove the line of that ticket (exit 1 when no line has it)
 # bouncer-queue list   print the queue
-# The queue is queue.md in the plugin's data folder (bouncer-data), so every Bouncer session sees it, whatever its folder.
+# The queue is queue.md in this Bouncer's repo folder of the plugin's data (bouncer-data --repo); BOUNCER_REPO=<repo> picks another repo's.
 # Exit 2: bad usage or a line that is not 4 fields with a mode Code, Spike or Mechanical.
 set -euo pipefail
 trim() { local s=$1; s=${s#"${s%%[![:space:]]*}"}; printf '%s' "${s%"${s##*[![:space:]]}"}"; }   # not xargs: it fails on quotes
 cmd=${1:-}
 [ -n "$cmd" ] || { echo "usage: bouncer-queue add|pop|remove|list [line|ticket]" >&2; exit 2; }
-f="$("$(dirname "$0")/bouncer-data")/queue.md"
+f="$("$(dirname "$0")/bouncer-data" --repo)/queue.md"
 touch "$f"
 case $cmd in
   add)

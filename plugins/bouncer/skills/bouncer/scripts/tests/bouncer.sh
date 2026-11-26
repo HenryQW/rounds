@@ -10,9 +10,10 @@ ok() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1: got [$2] wan
 # bouncer-title: with BOUNCER_STATUS_CODES and no stored option unset it uses the status_codes default in plugin.json
 unset BOUNCER_STATUS_CODES
 export CLAUDE_CONFIG_DIR="$tmp/config"
-ok "title: bouncer at 0" "$(./bouncer-title --bouncer 0)" "🚪 Bouncer"
-ok "title: bouncer count" "$(./bouncer-title --bouncer 2)" "!2 🚪 Bouncer"
-./bouncer-title --bouncer -1 2>/dev/null; ok "title: negative count exits 2" $? 2
+ok "title: bouncer at 0" "$(./bouncer-title --bouncer 0 rounds)" "🚪 Bouncer rounds"
+ok "title: bouncer count" "$(./bouncer-title --bouncer 2 rounds)" "!2 🚪 Bouncer rounds"
+./bouncer-title --bouncer -1 rounds 2>/dev/null; ok "title: negative count exits 2" $? 2
+./bouncer-title --bouncer 1 2>/dev/null; ok "title: bouncer without a repo exits 2" $? 2
 ./bouncer-title "Not A Status" ABC-1 r 2>/dev/null; ok "title: unknown status exits 2" $? 2
 ./bouncer-title "In Progress" ABC-1 2>/dev/null; ok "title: missing repo exits 2" $? 2
 ok "title: idle" "$(./bouncer-title --idle my-repo)" "[Idle] 🍸 my-repo"
@@ -65,6 +66,23 @@ dev="$tmp/checkout/plugins/bouncer/skills/bouncer/scripts"; mkdir -p "$dev"; cp 
 ok "data: a --plugin-dir checkout uses bouncer-inline" "$(env -u BOUNCER_DATA -u CLAUDE_PLUGIN_DATA CLAUDE_CONFIG_DIR="$tmp/cfg" "$dev/bouncer-data")" "$tmp/cfg/plugins/data/bouncer-inline"
 
 # bouncer-queue (in the data folder)
+# bouncer-data --repo: one folder a Bouncer repo
+git init -q "$tmp/main-repo" && git -C "$tmp/main-repo" commit -q --allow-empty -m i && git -C "$tmp/main-repo" worktree add -q "$tmp/wt" 2>/dev/null
+ok "data: --repo is the main checkout's name" "$(cd "$tmp/main-repo" && BOUNCER_DATA="$tmp/rd" "$OLDPWD/bouncer-data" --repo)" "$tmp/rd/main-repo"
+ok "data: --repo from a worktree is the main checkout's name" "$(cd "$tmp/wt" && BOUNCER_DATA="$tmp/rd" "$OLDPWD/bouncer-data" --repo)" "$tmp/rd/main-repo"
+ok "data: BOUNCER_REPO wins" "$(BOUNCER_DATA="$tmp/rd" BOUNCER_REPO=web ./bouncer-data --repo)" "$tmp/rd/web"
+(cd / && env -u BOUNCER_REPO BOUNCER_DATA="$tmp/rd" "$OLDPWD/bouncer-data" --repo >/dev/null 2>&1); ok "data: --repo outside a repo exits 2" $? 2
+BOUNCER_DATA="$tmp/rd" BOUNCER_REPO=../x ./bouncer-data --repo >/dev/null 2>&1; ok "data: a bad repo name exits 2" $? 2
+mkdir -p "$tmp/old"; echo "OLD-1 | r | Code | x" > "$tmp/old/queue.md"; echo "OLD-1 | local_a | q?" > "$tmp/old/questions.md"
+BOUNCER_DATA="$tmp/old" BOUNCER_REPO=r ./bouncer-queue list >/dev/null
+ok "data: an old queue.md moves into the repo folder" "$(cat "$tmp/old/r/queue.md"; [ -e "$tmp/old/queue.md" ] || echo gone)" "OLD-1 | r | Code | x
+gone"
+ok "data: an old questions.md moves too" "$(cat "$tmp/old/r/questions.md")" "OLD-1 | local_a | q?"
+echo "NEW | r | Code | y" > "$tmp/old/queue.md"; BOUNCER_DATA="$tmp/old" BOUNCER_REPO=r ./bouncer-queue list >/dev/null
+ok "data: the move runs once" "$(cat "$tmp/old/r/queue.md")" "OLD-1 | r | Code | x"
+ok "data: another repo has its own queue" "$(BOUNCER_DATA="$tmp/old" BOUNCER_REPO=web ./bouncer-queue list)" ""
+
+export BOUNCER_REPO=r
 export BOUNCER_DATA="$tmp/data"
 ./bouncer-queue pop >/dev/null 2>&1; ok "queue: pop on empty exits 1" $? 1
 ./bouncer-queue add "ABC-1 | a | Fast | x" 2>/dev/null; ok "queue: bad mode exits 2" $? 2
@@ -75,7 +93,7 @@ export BOUNCER_DATA="$tmp/data"
 ./bouncer-queue add " ABC-2|b|Spike|notion "
 ./bouncer-queue add "ABC-1 | a | Mechanical | doc"
 ok "queue: list keeps order, stale line replaced" "$(./bouncer-queue list | tr '\n' ';')" "ABC-2 | b | Spike | notion;ABC-1 | a | Mechanical | doc;"
-ok "queue: the file is queue.md in the data folder" "$(head -n 1 "$tmp/data/queue.md")" "ABC-2 | b | Spike | notion"
+ok "queue: the file is queue.md in the repo folder" "$(head -n 1 "$tmp/data/r/queue.md")" "ABC-2 | b | Spike | notion"
 ok "queue: pop prints the first line" "$(./bouncer-queue pop)" "ABC-2 | b | Spike | notion"
 ok "queue: pop removes it" "$(./bouncer-queue list)" "ABC-1 | a | Mechanical | doc"
 ./bouncer-queue remove 2>/dev/null; ok "queue: remove without a ticket exits 2" $? 2
@@ -83,7 +101,7 @@ ok "queue: pop removes it" "$(./bouncer-queue list)" "ABC-1 | a | Mechanical | d
 ./bouncer-queue add "ABC-3 | c | Code | x"
 ./bouncer-queue remove ABC-1; ok "queue: remove drops only that line" "$(./bouncer-queue list)" "ABC-3 | c | Code | x"
 ./bouncer-queue remove ABC-3
-BOUNCER_DATA="$tmp/data2" ./bouncer-queue add "T | r | Spike | user's msg" 2>/dev/null; ok "queue: apostrophe is kept" "$(cat "$tmp/data2/queue.md")" "T | r | Spike | user's msg"
+BOUNCER_DATA="$tmp/data2" ./bouncer-queue add "T | r | Spike | user's msg" 2>/dev/null; ok "queue: apostrophe is kept" "$(cat "$tmp/data2/r/queue.md")" "T | r | Spike | user's msg"
 
 # bouncer-questions (in the data folder)
 export BOUNCER_DATA="$tmp/q"
@@ -101,7 +119,7 @@ ok "questions: a reworded head stays the head" "$(./bouncer-questions next)" "AB
 ok "questions: a new question of the same ticket replaces the old in its place" "$(./bouncer-questions list | tr '\n' ';')" "ABC-1 | local_a | Post it or not?;ABC-2 | local_b | Ship A | or B?;"
 ok "questions: count" "$(./bouncer-questions count)" 2
 ./bouncer-questions done ABC-2; ok "questions: done removes only that ticket" "$(./bouncer-questions list)" "ABC-1 | local_a | Post it or not?"
-ok "questions: the file is questions.md in the data folder" "$(cat "$tmp/q/questions.md")" "ABC-1 | local_a | Post it or not?"
+ok "questions: the file is questions.md in the repo folder" "$(cat "$tmp/q/r/questions.md")" "ABC-1 | local_a | Post it or not?"
 
 # bouncer-grants (in the data folder)
 ./bouncer-grants has ABC-1 push 2>/dev/null; ok "grants: has with no grant exits 1" $? 1
@@ -154,7 +172,7 @@ lg stale --turn K-1 2>/dev/null; ok "ledger: stale --turn without a time exits 2
 unset BOUNCER_TODAY BOUNCER_RECORDS
 mkdir -p "$tmp/optcfg"; echo "{\"pluginConfigs\": {\"bouncer@rounds\": {\"options\": {\"records_dir\": \"$tmp/rec\"}}}}" > "$tmp/optcfg/settings.json"
 ok "ledger: the records_dir option names the folder" "$(CLAUDE_CONFIG_DIR="$tmp/optcfg" ./bouncer-ledger list | /usr/bin/grep -c "$tmp/rec/")" 4
-unset BOUNCER_DATA
+unset BOUNCER_DATA BOUNCER_REPO
 
 # bouncer-report
 R='STATUS: DONE

@@ -4,14 +4,14 @@
 # bouncer-questions done <TICKET>   remove that ticket's question once the user answered (exit 1 when it has none)
 # bouncer-questions list     print the open questions, oldest first
 # bouncer-questions count    print the number of open questions
-# The list is questions.md in the plugin's data folder (bouncer-data); the band reads it to show each question.
+# The list is questions.md in this Bouncer's repo folder of the plugin's data (bouncer-data --repo); the band reads it to show each question.
 # Exit 2: bad usage or a line without a ticket, a session id and a question.
 set -euo pipefail
 trim() { local s=$1; s=${s#"${s%%[![:space:]]*}"}; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
 usage() { echo "usage: bouncer-questions add|next|done|list|count [line|ticket]" >&2; exit 2; }
 cmd=${1:-}
 [ -n "$cmd" ] || usage
-f="$("$(dirname "$0")/bouncer-data")/questions.md"
+f="$("$(dirname "$0")/bouncer-data" --repo)/questions.md"
 touch "$f"
 case $cmd in
   add)

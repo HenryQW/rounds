@@ -11,9 +11,16 @@ const ACTIONS = [['status', 'Status'], ['stop', 'Stop'], ['reset', 'Reset']] as 
 const LINEAR_KEY = /^[A-Z][A-Z0-9]*-\d+$/
 
 // The queue, the open questions and the ledger in the plugin's data folder, the one bouncer-data prints (CLAUDE_PLUGIN_DATA).
-const dataFile = async ($: EngineInterface, name: string) => {
+// One Bouncer a repo: its repo is the folder name of its folder (the main checkout), and its queue, questions and
+// owner file live in <data>/<repo>/ (bouncer-data --repo). Another repo's Bouncer has its own.
+const repoOf = async ($: EngineInterface) => (await $.session.cwd()).split('/').pop() ?? ''
+const repoDir = async ($: EngineInterface) => {
   const data = (await $.process.hookEnv()).CLAUDE_PLUGIN_DATA
-  return String(data ? await $.fs.read(`${data}/${name}`).catch(() => '') : '')
+  return data ? `${data}/${await repoOf($)}` : undefined
+}
+const dataFile = async ($: EngineInterface, name: string) => {
+  const dir = await repoDir($)
+  return String(dir ? await $.fs.read(`${dir}/${name}`).catch(() => '') : '')
 }
 // Open ledger items live in the ticket records; bouncer-ledger list prints one line each.
 const ledgerList = async ($: EngineInterface, records: string) => {
@@ -23,11 +30,11 @@ const ledgerList = async ($: EngineInterface, records: string) => {
     { env: records ? { ...env, BOUNCER_RECORDS: records } : env }).catch(() => undefined)
   return ran?.exitCode === 0 ? queueLines(ran.stdout) : undefined
 }
-// One Bouncer: `bouncer` in the data folder holds the engine session id of the session that is the Bouncer.
+// One Bouncer a repo: `bouncer` in <data>/<repo>/ holds the engine session id of that repo's Bouncer.
 // A session claims it when it is free; another one takes it over only on the user's Take Over.
 const writeOwner = async ($: EngineInterface, id: string) => {
-  const data = (await $.process.hookEnv()).CLAUDE_PLUGIN_DATA
-  if (data) await $.fs.write(`${data}/bouncer`, id).catch(() => undefined)
+  const dir = await repoDir($)
+  if (dir) await $.fs.write(`${dir}/bouncer`, id).catch(() => undefined)
 }
 const isOtherBouncer = async ($: EngineInterface) => {
   const me = await $.session.id()
@@ -49,7 +56,7 @@ const refreshData = async ($: EngineInterface, records = '') => {
 
 // Make the titles match the open questions and, given a report, its status code; set_session_title is the Bouncer's own call.
 const syncTitles = async ($: EngineInterface, report?: Report) => {
-  for (const [session_id, title] of synced(await read($, pool), await dataFile($, 'questions.md'), report)) {
+  for (const [session_id, title] of synced(await read($, pool), await dataFile($, 'questions.md'), report, await repoOf($))) {
     const ran = await $.tool.call({ tool: 'mcp__ccd_session_mgmt__set_session_title', session_id, title } as any).catch(() => undefined)
     if (ran && ran.deny === undefined && ran.isError !== true) await update($, pool, p => renamed(p, session_id, title))
   }
@@ -157,12 +164,13 @@ export const register: Register = (on, options) => {
       await update($, pool, q => ({ ...q, pending: true }))
       await $.prompt.submit({ text }).catch(() => update($, pool, q => ({ ...q, pending: false })))
     }
+    const ownRepo = await repoOf($)
     if (p.isOther) {
       const take = async () => { await writeOwner($, await $.session.id()); await refreshData($, records) }
       const row = (
         <Box flexDirection="row" alignItems="center" gap={2} flexWrap="wrap" width={width}>
           <Text bold>Bouncer</Text>
-          <Text dimColor>another session is the Bouncer</Text>
+          <Text dimColor>{`another session is the Bouncer of ${ownRepo}`}</Text>
           <Button key="takeover" dimColor onPress={take}>Take Over</Button>
         </Box>
       )
@@ -177,7 +185,6 @@ export const register: Register = (on, options) => {
       : ctaB && { b: ctaB, name: ctaB.ticket || ctaB.repo, question: 'waits on you' }
     const lines = p.queueOpen ? p.queueLines ?? [] : []
     const ledgerLines = p.ledgerOpen ? p.ledgerLines ?? [] : []
-    const ownRepo = (await $.session.cwd()).split('/').pop() ?? ''
     const all = chips(p.bartenders, p.reports, ownRepo)
     const opened = p.details ? all.find(c => c.key === p.menu) : undefined
     // Compact (the default) shows the dots, the ask pill and the counts; Details adds the chips. Kept across sessions.
