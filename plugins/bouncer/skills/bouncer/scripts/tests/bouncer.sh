@@ -46,7 +46,8 @@ fake="$tmp/home/.claude/plugins/cache/mkt/bouncer/9.9.9/skills/bouncer/scripts";
 ok "data: a marketplace install uses <name>-<marketplace>" "$(env -u BOUNCER_DATA -u CLAUDE_PLUGIN_DATA CLAUDE_CONFIG_DIR="$tmp/cfg" "$fake/bouncer-data")" "$tmp/cfg/plugins/data/bouncer-mkt"
 ok "data: the folder and tickets/ are made" "$([ -d "$tmp/cfg/plugins/data/bouncer-mkt/tickets" ] && echo yes)" yes
 ok "data: CLAUDE_PLUGIN_DATA wins over the path" "$(env -u BOUNCER_DATA CLAUDE_PLUGIN_DATA="$tmp/pd" "$fake/bouncer-data")" "$tmp/pd"
-ok "data: a --plugin-dir checkout uses bouncer-inline" "$(env -u BOUNCER_DATA -u CLAUDE_PLUGIN_DATA CLAUDE_CONFIG_DIR="$tmp/cfg" ./bouncer-data)" "$tmp/cfg/plugins/data/bouncer-inline"
+dev="$tmp/checkout/plugins/bouncer/skills/bouncer/scripts"; mkdir -p "$dev"; cp bouncer-data "$dev/"   # not ./: the installed copy runs from plugins/cache
+ok "data: a --plugin-dir checkout uses bouncer-inline" "$(env -u BOUNCER_DATA -u CLAUDE_PLUGIN_DATA CLAUDE_CONFIG_DIR="$tmp/cfg" "$dev/bouncer-data")" "$tmp/cfg/plugins/data/bouncer-inline"
 
 # bouncer-queue (in the data folder)
 export BOUNCER_DATA="$tmp/data"
