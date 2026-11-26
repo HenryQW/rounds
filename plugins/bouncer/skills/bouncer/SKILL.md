@@ -87,20 +87,20 @@ When the user asks what to work on, name only tickets that can be worked now. Ch
 Reply with the workable tickets, best first, then each excluded ticket with a one-line reason (`ABC-7: blocked by ABC-5`). When the user picks one, route it with no further question.
 
 ## Decision table
-The one source for where a task goes, its model and effort, and who decides. The user's rules may name other models or agents; they win.
+The one source for where a task goes, its model and effort, and who decides. A Bartender's model is a full model id for `set_session_model`, which refuses an alias such as `opus` (`Unknown model "opus"`, seen 2026-11-26). Take the id from `get_session`'s `model` field or from the list in that error, never an alias; the ids here are the current ones. A subagent's model (Agent `model`) stays an alias. The user's rules may name other models or agents; they win.
 
 | Task | Goes to | Model, effort | Decides | Ask the user only for |
 |---|---|---|---|---|
-| Bug fix or feature on a ticket | 🍸 Ticket Bartender | `opus` `medium` | Bartender (advisor for open technical calls) | approvals |
-| Root cause or research spike | 🍸 Ticket Bartender | `opus` `medium` | Bartender | approvals |
-| Mechanical ticket (rename, config, docs) | 🍸 Ticket Bartender | `sonnet` `medium` | Bartender | approvals |
+| Bug fix or feature on a ticket | 🍸 Ticket Bartender | `claude-opus-5-5` `medium` | Bartender (advisor for open technical calls) | approvals |
+| Root cause or research spike | 🍸 Ticket Bartender | `claude-opus-5-5` `medium` | Bartender | approvals |
+| Mechanical ticket (rename, config, docs) | 🍸 Ticket Bartender | `claude-sonnet-5-5` `medium` | Bartender | approvals |
 | PR pair (for example dev and staging), tests, CI fix | Owning Bartender | its own | Bartender | nothing (the merge only, under the grant) |
 | New ticket for an out-of-scope finding | Owning Bartender | its own | Bartender, then report the key | nothing |
 | Tracker, PR or Slack comment, any message others read | Owning Bartender drafts; the Bouncer posts | its own | user | the yes (the grant), with the exact text |
 | Overlap check, PR or ticket status, CI failure attribution | Read-only verifier subagent of the Bouncer (for example the user's `h-verifier`), else an idle Bartender | `sonnet` `medium` | Bouncer | nothing |
 | Log, trace or large fetch | Fetch subagent (for example the user's `h-digest`) | `sonnet` `medium` | Bouncer or Bartender | nothing |
-| Skill, plugin, rule or workflow change | 🔧 Skill Bartender | `opus` `medium` to design, `sonnet` `medium` to edit | Skill Bartender; push and PR by the Bouncer | the merge |
-| Session, worktree or branch sweep | 🧹 Cleanup Bartender (a few calls: the Bouncer) | `haiku` `low` (`sonnet` `medium` if it needs judgment) | Bouncer | deleting what this run did not make |
+| Skill, plugin, rule or workflow change | 🔧 Skill Bartender | `claude-opus-5-5` `medium` to design, `claude-sonnet-5-5` `medium` to edit | Skill Bartender; push and PR by the Bouncer | the merge |
+| Session, worktree or branch sweep | 🧹 Cleanup Bartender (a few calls: the Bouncer) | `claude-haiku-5-5` `low` (`claude-sonnet-5-5` `medium` if it needs judgment) | Bouncer | deleting what this run did not make |
 | Blocked on a dirty tree, refused tool, busy Bartender | Bouncer: new or reused Bartender, or queue | n/a | Bouncer | nothing |
 | Product or priority choice | Advisor first | n/a | advisor | only what the advisor leaves open |
 
@@ -118,7 +118,7 @@ Before any question to the user, find the row. If the row says "nothing", decide
 ## Reset and assign
 1. The Bartender reported `DONE` and is idle.
 2. `clear_session` on it. Its worktree, model and permissions stay. If the app refuses the clear, reuse the Bartender as it is: the brief in step 5 starts with "Drop the context of <old ticket>; it is closed." Never ask the user. If no ticket waits for it (the queue is empty and no new request), stop here: set the `bouncer-title --idle <repo>` title.
-3. `set_session_model` and `set_session_effort` for the work, from its row in the "Decision table".
+3. `set_session_model` (a full model id, such as `claude-opus-5-5`, never an alias) and `set_session_effort` for the work, from its row in the "Decision table".
 
 4. `set_session_title` with the `bouncer-title` output.
 5. `send_message` with the brief.
@@ -214,6 +214,8 @@ Verified 2026-11-25 in `bypassPermissions` mode (no card for any step below):
 - Two Bartenders ran in parallel, and each committed its own branch.
 
 Outside bypass mode, the app asks the user for a model more expensive than the Bouncer's own, an effort above the Bouncer's own, and each `clear_session` (auto mode may decide alone). So the Bouncer's effort must be at least the highest effort in the "Decision table", unless the Bouncer runs in bypass mode.
+
+The Bouncer picks each Bartender's model and effort itself, from the "Decision table", and never asks the user. Only allow rules for `mcp__ccd_session_mgmt__set_session_model` and `mcp__ccd_session_mgmt__set_session_effort` skip the app's prompt; the user adds them in their own settings. The Bouncer never adds or changes them.
 
 Auto mode refuses an approval that one session relays to another ("Unsanctioned Communication", "Destructive or Unwanted Actions", seen 2026-11-26), so the Bouncer runs the closing chain itself. A hook such as rtk may rewrite Bash commands (`git push` runs as `rtk git push`); an allow rule must name the rewritten form.
 
