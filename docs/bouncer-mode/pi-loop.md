@@ -2,19 +2,19 @@
 
 An experimental Bouncer that runs in a Pi terminal session in a Herdr pane, beside the Claude desktop Bouncer. It claims GitHub issues that the owner marks, starts a Bartender for each claim, and records the result on the issue. See the [decision log](decisions.md), entries of 2026-11-26.
 
-The loop has two parts: a **ledger** (the GitHub issue) and a **wake** (a turn that the Bouncer gives itself). The other parts exist already: `herdr_handoff` starts a Bartender in a new worktree, and `background_command` wakes an idle Pi session when a command ends.
+The loop has two parts: a **ledger** (the GitHub issue) and a **wake** (a turn that the Bouncer gives itself). Scripts do each step that a rule can decide. The model gets a turn only for an item that needs judgment.
 
 ```mermaid
 flowchart LR
   Owner["Owner adds bouncer:open"] --> Issue[("GitHub issue")]
   subgraph Pane["Bouncer: Pi in a Herdr pane"]
-    Wake --> Reconcile --> Claim --> Dispatch
+    Timer["Timer, each 60 s<br/>(extension)"] --> Tick["bouncer-tick<br/>(script)"]
+    Tick -->|new items only| Model["Model turn"]
   end
-  Issue --> Reconcile
-  Agents["herdr agent list<br/>git worktree list"] --> Reconcile
-  Dispatch -->|herdr_handoff| Bartender["Bartender in its own worktree<br/>commits locally"]
-  Bartender -->|turn ends, state changes| Wake
-  Claim -->|labels, status comment| Issue
+  Issue --> Tick
+  Tick -->|bouncer-dispatch| Bartender["Bartender in its own worktree<br/>commits locally"]
+  Bartender -->|turn-end report| Tick
+  Tick -->|labels, status comment| Issue
 ```
 
 The Bouncer **pulls**. Nothing pushes into it.
@@ -25,44 +25,70 @@ The Bouncer **pulls**. Nothing pushes into it.
 |---|---|---|
 | 1 | The issue and the live state are the authority. A wake carries no data that can be lost. | A lost or repeated wake is then harmless. The retired `pi-subagent` package could not keep a report queue correct across session changes. |
 | 2 | The Bouncer is the only GitHub writer. A Bartender commits locally and writes nothing that other people read. | One writer gives one gate. |
-| 3 | Identity is in names, not in a store. Branch `bouncer/<issue>-<slug>`, agent `bt-<repo>-<issue>`. | `herdr_handoff` refuses a branch that exists, so a second dispatch of one issue fails by itself. |
+| 3 | Identity is in names, not in a store. Branch `bouncer/<issue>-<slug>`, agent `bt-<repo>-<issue>`. | Herdr refuses a branch that exists, so a second dispatch of one issue fails by itself. |
 | 4 | No daemon. Herdr keeps the Bouncer pane open. | Pi starts a turn only from user input or from an extension in the same process. |
 | 5 | Nothing is deleted automatically. The Bouncer lists a finished worktree; the owner removes it. | Automatic cleanup is where ework destroyed work. |
+| 6 | A script does each step that a rule can decide. The model gets an item only when a script marks it as unsure. | A skill instruction can be skipped or done differently on each run. A script does the same thing each time and has a test. |
 
 The Bouncer claims work only while its Pi process runs. A Pi crash, `herdr server stop` or a restart of the Mac stops claims until the owner starts the Bouncer again. Rounds shows no row for a Pi session with no process (spec 2.7), so this stop is silent.
 
+## Who does each step
+
+| Step | Done by | Where |
+|---|---|---|
+| Find the state and the next action of each issue | Script | `bouncer-reconcile` |
+| Fetch `origin/main` and give the worktree that exact sha | Script | `bouncer-dispatch` |
+| Claim: swap `bouncer:open` for `bouncer:claimed` | Script | `bouncer-dispatch` |
+| Start a Bartender: worktree, Pi, brief from a fixed template | Script | `bouncer-dispatch` |
+| Read a turn-end report, check its commit, write the status comment | Script | `bouncer-record` |
+| Run the steps above in order inside the cap, and print the items left | Script | `bouncer-tick` |
+| Run `bouncer-tick` each 60 s, and wake the model only for new items | Extension | `pi-herdr-tools` module |
+| Block `git push`, `gh` and `herdr_handoff` in a Bartender; confirm a push or a pull request in the Bouncer | Extension | `pi-herdr-tools` module |
+| Answer a Bartender's question, or judge a report that a script cannot read | Model | skill |
+| Talk to the owner | Model | skill |
+| Push, open a pull request | Owner confirms the exact command | gate |
+| Remove a finished worktree | Owner | `/done` |
+
+The scripts are in the `henry` skill, each with a fixture test. Their config is `~/.config/bouncer/config.json`: the owner, the cap, the write level of each organization and the repositories to watch. It moves to the extension config home (pi-harness ADR 018) when the extension lands.
+
+## The turn-end report
+
+The brief tells the Bartender to end each turn with this block, as the last lines of its reply. `bouncer-record` reads it from the Bartender's Pi session file.
+
+```text
+BOUNCER-REPORT
+status: done | question | blocked | failed
+commit: <full sha of HEAD, or none>
+summary: <one line>
+question: <one line, or none>
+```
+
+`done` counts only when `commit` is the worktree `HEAD` and that commit is ahead of the base. A missing block, a bad field or a commit that does not match goes to the model as unsure.
+
 ## GitHub writes for each organization
 
-Each organization has a write level. The Bouncer makes these writes with no yes each time. Push and pull requests always ask, in the Bouncer, with the exact command.
+Each organization has a write level. The scripts make these writes with no yes each time. Push and pull requests always ask, in the Bouncer, with the exact command.
 
 | Organization | Writes with no yes |
 |---|---|
 | `HenryQW` | Labels, and one status comment for each issue, edited in place |
 | `SleekFlow` | Labels |
-| Any other | None. The Bouncer does not watch a repository whose organization has no level. |
+| Any other | None. The scripts do not watch a repository whose organization has no level. |
 
-The owner creates the labels in each repository. The Bouncer only adds and removes them.
+The owner creates the labels in each repository. The scripts only add and remove them.
 
 | Label | Set by | Meaning |
 |---|---|---|
 | `bouncer:open` | Owner | The Bouncer can claim this issue. |
-| `bouncer:claimed` | Bouncer | One Bartender has this issue. A claim removes `bouncer:open`. Only the owner adds it again. |
-
-## The wake, cheapest first
-
-1. The owner types one word. This is always available.
-2. A `bouncer-wait` script under `background_command` ends when the reconcile output changes. Its completion arrives as a `followUp` message with `triggerTurn`.
-3. A timer that starts in `session_start`, in the Bouncer extension (see Safety). Use it only if step 2 is too coarse.
-
-A wake fires only on a difference, one wake at a time, with a 60 second minimum. The Bouncer's own label write must not wake it again.
+| `bouncer:claimed` | Script | One Bartender has this issue. A claim removes `bouncer:open`. Only the owner adds it again. |
 
 ## Reconcile
 
-The `bouncer-reconcile` script reads the issues, `herdr agent list`, `git worktree list` and the local `bouncer/*` branches. It gives one state and one action for each issue. It writes nothing. The script is in the `henry` skill, with a fixture test; its config is `~/.config/bouncer/config.json` and holds the owner, the cap, the write level of each organization and the repositories to watch.
+`bouncer-reconcile` reads the issues, `herdr agent list`, `git worktree list` and the local `bouncer/*` branches. It gives one state and one action for each issue. It writes nothing.
 
 | State | Action |
 |---|---|
-| `open` | `claim`, inside the cap and only when local `main` equals the remote `main`; else `hold` with the reason |
+| `open` | `claim`, inside the cap and only when `origin/main` resolves; else `hold` with the reason |
 | `open-untrusted` (author is not the owner) | `skip` |
 | `live` | from the Bartender status: `none` when it works, `read-report` when its turn ended, `answer` when it waits for input |
 | `orphan` (claimed, a worktree or branch, no live agent) | `report`; never dispatch again |
@@ -70,23 +96,34 @@ The `bouncer-reconcile` script reads the issues, `herdr agent list`, `git worktr
 | `unclaimed-worktree` | `report` |
 | `closed-worktree` | `list-for-removal` |
 
-`herdr_handoff` bases the new worktree on local `main` and does not fetch. So a stale `main` gives a stale Bartender, and a repository with no `main` branch cannot use the loop.
+## Dispatch
+
+`bouncer-dispatch <Owner/repo> <issue>` acts only when reconcile gives the issue `claim` or `dispatch`. It does each step and checks it before the next:
+
+1. `git fetch origin main` and read the sha of `FETCH_HEAD`. It never uses `--prune` and never writes a local branch, so a stale local `main` and the owner's own branches stay as they are.
+2. Read the issue. It stops when the author is not the owner. The brief gets the issue text and the owner's comments only.
+3. Claim, for the action `claim`.
+4. `herdr worktree create` from that exact sha, `herdr agent start` with Pi, the brief in the worktree's Git folder (`git rev-parse --git-path bouncer-brief.md`), then `herdr agent prompt`.
+
+A failure after the claim stops the script and names what it kept. It never tries again and never deletes. The next reconcile shows the issue as an orphan for the owner. `--dry-run` does the reads and prints the writes.
 
 ## Safety
 
-- Claim only an issue that the owner wrote. The brief holds the issue body and the owner's comments only, because anyone can write on a public repository.
+- Claim only an issue that the owner wrote. Anyone can write on a public repository.
 - Cap: 2 Bartenders in total, 1 for each repository.
-- A `tool_call` handler blocks `herdr_handoff`, `git push` and `gh` in a Bartender session, so a Bartender cannot start workers or write to GitHub. This stops a mistake, not a hostile model. The decision "Authority and approval enforcement" stays not met.
-- The gate is the only new Pi extension code. It is an internal module of `@henryqw/pi-herdr-tools` in `HenryQW/pi-harness`, not a new package. ADR 021 of that repository puts each Herdr workflow in that one package, and the package already owns `herdr_handoff` and loads in every Pi session in Herdr, Bartenders included. Its config moves to the extension config home (pi-harness ADR 018) in slice 4, and `bouncer-reconcile` reads it there.
+- The gate stops a mistake, not a hostile model. The decision "Authority and approval enforcement" stays not met.
+- The extension is an internal module of `@henryqw/pi-herdr-tools` in `HenryQW/pi-harness`, not a new package. ADR 021 of that repository puts each Herdr workflow in that one package. The package loads in every Pi session in Herdr, Bartenders included, so the gate reaches them.
 - One Bouncer on one Mac. Two Bouncers on one GitHub account can claim the same issue.
 
 ## Slices
 
 | # | Slice | Proof |
 |---|---|---|
-| 1 | `bouncer-reconcile`, a read-only script | A fixture test covers each state. A live run gives the real issues their correct states. |
-| 2 | The skill, with a manual wake | In a private test repository, one issue gets a worktree at the remote `main`. A second wake starts nothing. An issue from another author is not claimed. |
-| 3 | The self wake through `background_command` | A Bartender turn end gives exactly one Bouncer turn. One idle hour gives zero turns. A restart starts no second worker. |
-| 4 | The gate and the status comment | The cap holds. A push in a Bartender is blocked. A repeated wake leaves one comment. |
+| 1 | `bouncer-reconcile` (done) | A fixture test covers each state. A live run gives the real issues their correct states. |
+| 2 | `bouncer-dispatch` | A fixture test with real Git: the new checkout sits at the fetched sha although local `main` is behind, a second run starts nothing, an issue from another author is not claimed, a failed start keeps an orphan. Live, in a private test repository: one issue gets a worktree at the remote `main`. |
+| 3 | `bouncer-record` | A fixture test for each report case. Live: a repeated run leaves one comment, and `SleekFlow` gets no comment. |
+| 4 | `bouncer-tick` | A fixture test: it runs the actions in cap order, prints only the items left, and a second idle run does nothing. |
+| 5 | The extension: timer, wake and gate | A Bartender turn end gives exactly one Bouncer turn. One idle hour gives zero turns. A push in a Bartender is blocked. A push in the Bouncer shows a confirm with the exact command. |
+| 6 | The skill, for the model items only | A question from a Bartender reaches the owner, and the answer reaches the Bartender. |
 
 Not in version one: a Bartender-side report writer, a relay into the Bouncer, report ids in the session, a claim lease, automatic cleanup, automatic resume of an orphan, a daemon, a second Bouncer, Barbacks, and Bartender rows as subagents in Rounds.
