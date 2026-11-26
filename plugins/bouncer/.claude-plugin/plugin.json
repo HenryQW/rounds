@@ -21,7 +21,7 @@
       "type": "string",
       "title": "Status codes",
       "description": "Short codes for ticket statuses in Bartender titles, as Name=Code pairs with ; between them. Use the status names of your tracker.",
-      "default": "Backlog=Bklog; Todo=Todo; In Progress=Dev; In Review=CR; Done=Done; Canceled=Cxl; Duplicate=Dup; Open=Open; Closed=Done"
+      "default": "Backlog=Bklog; Todo=Todo; In Progress=Dev; In Review=CR; In QA=QA; Done=Done; Canceled=Cxl; Duplicate=Dup; Open=Open; Closed=Done"
     },
     "records_dir": {
       "type": "string",

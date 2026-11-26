@@ -338,10 +338,10 @@ export const register: Register = (on, options) => {
             <Button key={c.key} plain dimColor label="⋯" onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))} />
           </Box>
           {p.menu === c.key
-            // The menu takes row 2: quiet footnote buttons, so the card keeps its height.
-            ? <Box flexDirection="row" gap="sm" flexWrap="wrap">
-                {actions(c).map(o => <Button key={`${c.key}:${o.value}`} plain dimColor onPress={() => pick(c, o.value)}>
-                  <Text size="footnote" color={o.value === 'linear' ? t?.accent : t?.muted}>{o.label}</Text>
+            // The menu takes row 2 as secondary buttons, a gap between them; the card grows to fit. The terminal keeps plain ones.
+            ? <Box flexDirection="row" gap="sm" flexWrap="wrap" paddingTop={isTerminal ? 0 : 'xs'}>
+                {actions(c).map(o => <Button key={`${c.key}:${o.value}`} {...(isTerminal ? { plain: true as const } : { variant: 'secondary' as const })} onPress={() => pick(c, o.value)}>
+                  {o.label}
                 </Button>)}
               </Box>
             : line && <Box key={`line:${c.key}`}><Text size="footnote" color={t?.muted} wrap="truncate-end">{line}</Text></Box>}

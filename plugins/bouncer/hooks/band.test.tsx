@@ -440,7 +440,7 @@ test('dots: red needs the user, yellow works or waits on others, green is idle',
   expect(d('[Idle] 🍸 r')).toBe('🟢')
   expect(d('[Idle] 🍸 r', 'BLOCKED')).toBe('🟢')
   const s = (title: string, report: string | undefined, isRunning: boolean) => dot(parseBartender(title)!, report, isRunning)
-  expect(s('[InQA] 🍸 A-1 r', undefined, false)).toBe('🟢')
+  expect(s('[QA] 🍸 A-1 r', undefined, false)).toBe('🟢')
   expect(s('[Dev] 🍸 A-1 r', 'DONE', false)).toBe('🟢')
   expect(s('[Dev] 🍸 A-1 r', undefined, true)).toBe('🟡')
   expect(s('[Dev] 🍸 A-1 r', 'BLOCKED', false)).toBe('🔴')
@@ -448,8 +448,8 @@ test('dots: red needs the user, yellow works or waits on others, green is idle',
 })
 
 test('linked sessions parse from list_sessions JSON, bare or in text blocks', () => {
-  const rows = '[{"sessionId":"local_a","title":"[InQA] 🍸 A-1 r","isRunning":false,"prNumber":12,"prState":"OPEN"},{"sessionId":"local_b","title":"x","isRunning":true}]'
-  const want = [{ id: 'local_a', title: '[InQA] 🍸 A-1 r', isRunning: false, pr: { number: 12, state: 'open' } }, { id: 'local_b', title: 'x', isRunning: true }]
+  const rows = '[{"sessionId":"local_a","title":"[QA] 🍸 A-1 r","isRunning":false,"prNumber":12,"prState":"OPEN"},{"sessionId":"local_b","title":"x","isRunning":true}]'
+  const want = [{ id: 'local_a', title: '[QA] 🍸 A-1 r', isRunning: false, pr: { number: 12, state: 'open' } }, { id: 'local_b', title: 'x', isRunning: true }]
   expect(sessionRows(rows)).toEqual(want)
   expect(sessionRows(JSON.stringify([{ type: 'text', text: rows }]))).toEqual(want)
   expect(sessionRows(JSON.stringify({ content: [{ type: 'text', text: rows }] }))).toEqual(want)
@@ -459,7 +459,7 @@ test('linked sessions parse from list_sessions JSON, bare or in text blocks', ()
 
 test('the band fills from the linked sessions: titles, green when no turn runs, no filler in row 2', async ($, on) => {
   on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({ result: JSON.stringify([
-    { sessionId: 'local_a', title: '[InQA] 🍸 MIDI-1 rounds', isRunning: false, prNumber: 12, prState: 'OPEN' },
+    { sessionId: 'local_a', title: '[QA] 🍸 MIDI-1 rounds', isRunning: false, prNumber: 12, prState: 'OPEN' },
     { sessionId: 'local_b', title: '[Dev] 🔧 band rounds', isRunning: true },
     { sessionId: 'local_c', title: 'Not a Bartender', isRunning: false },
   ]) }))
@@ -470,7 +470,7 @@ test('the band fills from the linked sessions: titles, green when no turn runs, 
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢]( [🔴🟡🟢])*$/u }))?.text).toBe('🟡 🟢')
-  expect(await cols(ui)).toEqual([['Dev', '🟡 band', undefined], ['InQA', '🟢 MIDI-1', undefined]])
+  expect(await cols(ui)).toEqual([['Dev', '🟡 band', undefined], ['QA', '🟢 MIDI-1', undefined]])
   await ui.unmount()
 })
 
