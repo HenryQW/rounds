@@ -41,3 +41,34 @@ test('the band shows Bartenders, the question count and the queue', async ($, on
     await ui.unmount()
   }
 })
+
+test('a Bartender shows in the band when the Bouncer starts it', async ($, on) => {
+  on('tool.call', { tool: 'mcp__ccd_session__start_session' }, (_: unknown, e: { title: string }) => ({
+    result: `Started session "${e.title}" (session_id: local_${e.title.length}, name: x)`,
+  }))
+  engine(on)
+  const start = (title: string, initiation = 'user_asked') =>
+    $.tool.call({ tool: 'mcp__ccd_session__start_session', title, initiation, prompt: 'p' } as any)
+  await $.tool.call({ tool: 'mcp__ccd_session_mgmt__set_session_title', session_id: 'self', title: 'Bouncer' } as any)
+  await start('[Dev] MIDI-1616 - Bartender - aspire')
+  await start('Fix the band')
+  await start('[Todo] MIDI-7 - Bartender - web', 'offer')
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect((await ui.find({ type: 'Text', text: /MIDI-1616/ }))?.text).toBe('[Dev] MIDI-1616 aspire')
+  expect(await ui.find({ type: 'Text', text: /Fix the band|MIDI-7/ })).toBe(undefined)
+  await ui.unmount()
+})
+
+test('a start_session call with a non-Bartender title leaves the pool unchanged', async ($, on) => {
+  on('tool.call', { tool: 'mcp__ccd_session__start_session' }, () => ({
+    result: 'Started session "Fix the band" (session_id: local_abc, name: x)',
+  }))
+  engine(on)
+  await $.tool.call({ tool: 'mcp__ccd_session_mgmt__set_session_title', session_id: 'self', title: 'Bouncer' } as any)
+  await $.tool.call({ tool: 'mcp__ccd_session__start_session', title: 'Fix the band', initiation: 'user_asked' } as any)
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect((await ui.find({ type: 'Text', text: /Bartenders/ }))?.text).toBe('no Bartenders yet')
+  await ui.unmount()
+})

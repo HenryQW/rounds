@@ -24,6 +24,12 @@ export const register: Register = on => {
     } else if (tool.endsWith('__set_session_title')) {
       const { session_id, title } = e as { session_id?: unknown; title?: unknown }
       await update($, pool, p => renamed(p, String(session_id), String(title)))
+    } else if (tool.endsWith('__start_session')) {
+      // An offer or a proposal_id start has no title here; renamed() ignores a non-Bartender title.
+      const { title, initiation } = e as { title?: unknown; initiation?: unknown }
+      // The result reads `Started session "<title>" (session_id: local_..., name: ...)`.
+      const id = /session_id: (local_[\w-]+)/.exec(ran.text ?? JSON.stringify(ran.result ?? ''))?.[1]
+      if (id && initiation !== 'offer' && typeof title === 'string') await update($, pool, p => renamed(p, id, title))
     } else if (tool.endsWith('__archive_session')) {
       await update($, pool, p => archived(p, String((e as { session_id?: unknown }).session_id)))
     } else if (tool === 'Bash' && String((e as { command?: unknown }).command).includes('bouncer-queue')) {
