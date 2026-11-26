@@ -54,7 +54,7 @@ Path: `~/Library/Application Support/Claude/claude-code-sessions/*/*/local_*.jso
 
 Required keys: `sessionId`, `cwd`, `title`, `isArchived`, `lastActivityAt`. All other keys are optional. A session has no `cliSessionId` until Claude desktop starts its Claude Code session (one that ended first never has it; seen 2026-11-16): it has no hook state and no transcript.
 
-Bouncer mode titles (decided 2026-11-25): Bouncer mode runs as the `henry` skill in Claude desktop. The Bouncer is a session that the user opens. It starts each Bartender as a side session and is the only session that renames them. Rounds reads only the titles:
+Bouncer mode titles (decided 2026-11-25): Bouncer mode runs as the `bouncer` plugin (`plugins/bouncer`, decided 2026-11-26) in Claude desktop. The Bouncer is a session that the user opens. It starts each Bartender as a side session and is the only session that renames them. Rounds reads only the titles:
 
 - Bartender: a side session titled `[<status>] <TICKET> - Bartender - <repo>` or `[Idle] Bartender - <repo>`, with an optional `!` (a call to action) before it. It is a subagent of its Bouncer (3.2): the user never opens it.
 - Bouncer: `!<n> Bouncer` while `n` questions wait on the user, else `Bouncer`. A count above 0 is a question (rule 9).

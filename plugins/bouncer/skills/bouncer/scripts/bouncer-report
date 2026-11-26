@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+"""bouncer-report < <Bartender turn-end text>
+Finds the 6 field lines anywhere in the text: STATUS (WORKING|NEEDS_INPUT|DONE|BLOCKED), TICKET, LINEAR, RESULT,
+QUESTION, EVIDENCE, one line each, in any order. Other lines are ignored. A field that comes again starts a new block,
+so the last block wins. The field lines must be at most 400 characters in all (the turn-end note quotes only 400).
+Out: {"status", "ticket", "linear", "result", "question", "evidence"} ("none" becomes null). Exit 2: bad report,
+with {"error": [...]} so the Bouncer checks the evidence instead."""
+import json, re, sys
+
+KEYS = ["STATUS", "TICKET", "LINEAR", "RESULT", "QUESTION", "EVIDENCE"]
+errs, got, lines = [], {}, []
+for line in sys.stdin.read().splitlines():
+    m = re.match(r"^\s*([A-Z_]+):\s*(.*?)\s*$", line)
+    if m and m.group(1) in KEYS:
+        if m.group(1) in got: got, lines = {}, []   # a new block starts
+        got[m.group(1)] = m.group(2); lines.append(line.strip())
+size = len("\n".join(lines))
+if size > 400:
+    errs.append(f"field lines {size} chars, limit 400")
+errs += [f"missing {k}" for k in KEYS if not got.get(k)]
+if got.get("STATUS") and got["STATUS"] not in ("WORKING", "NEEDS_INPUT", "DONE", "BLOCKED"):
+    errs.append(f"bad STATUS: {got['STATUS']}")
+if got.get("STATUS") == "NEEDS_INPUT" and got.get("QUESTION", "none").lower() == "none":
+    errs.append("NEEDS_INPUT without a QUESTION")
+if errs:
+    print(json.dumps({"error": errs})); sys.exit(2)
+print(json.dumps({k.lower(): (None if got[k].lower() == "none" else got[k]) for k in KEYS}))

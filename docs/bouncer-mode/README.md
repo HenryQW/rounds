@@ -1,6 +1,6 @@
 # Bouncer mode
 
-Bouncer mode runs as the `henry` skill in Claude desktop. Claude desktop stores sessions and task state. Rounds reads only the session titles. See [specification section 2.1](../spec.md#21-desktop-session-files-read-only).
+Bouncer mode runs as the `bouncer` Claude Code plugin ([`plugins/bouncer`](../../plugins/bouncer/README.md)) in Claude desktop. Claude desktop stores sessions and task state. Rounds reads only the session titles. See [specification section 2.1](../spec.md#21-desktop-session-files-read-only).
 
 The [archive](archive/README.md) holds the Rounds-hosted design. The [decision log](decisions.md) records the owner’s decisions.
 

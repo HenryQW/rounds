@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# bouncer-queue add <file> "<TICKET> | <repo> | <mode> | <brief source>"   add, or replace the line of the same ticket
+# bouncer-queue pop <file>    print the first line and remove it (exit 1 when the queue is empty)
+# bouncer-queue list <file>   print the queue
+# Exit 2: bad usage or a line that is not 4 fields with a mode Code, Spike or Mechanical.
+set -euo pipefail
+trim() { local s=$1; s=${s#"${s%%[![:space:]]*}"}; printf '%s' "${s%"${s##*[![:space:]]}"}"; }   # not xargs: it fails on quotes
+cmd=${1:-}; f=${2:-}
+[ -n "$cmd" ] && [ -n "$f" ] || { echo "usage: bouncer-queue add|pop|list <file> [line]" >&2; exit 2; }
+touch "$f"
+case $cmd in
+  add)
+    line=${3:-}
+    IFS='|' read -r t r m b x <<<"$line"
+    t=$(trim "$t"); r=$(trim "$r"); m=$(trim "$m"); b=$(trim "${b:-}")
+    [ -n "$t" ] && [ -n "$r" ] && [ -n "$b" ] && [ -z "${x:-}" ] || { echo "bad line: want TICKET | repo | mode | brief source" >&2; exit 2; }
+    case $m in Code|Spike|Mechanical) ;; *) echo "bad mode: $m (Code, Spike, Mechanical)" >&2; exit 2;; esac
+    tmp=$(mktemp); grep -v "^$t |" "$f" > "$tmp" || true   # a stale line of the same ticket is replaced
+    echo "$t | $r | $m | $b" >> "$tmp"; mv "$tmp" "$f" ;;
+  pop)
+    [ -s "$f" ] || { echo "queue empty" >&2; exit 1; }
+    head -n 1 "$f"; tmp=$(mktemp); tail -n +2 "$f" > "$tmp"; mv "$tmp" "$f" ;;
+  list) cat "$f" ;;
+  *) echo "usage: bouncer-queue add|pop|list <file> [line]" >&2; exit 2 ;;
+esac

@@ -1,0 +1,18 @@
+{
+  "name": "bouncer",
+  "version": "0.1.0",
+  "description": "Bouncer mode for the Claude desktop app: one Bouncer session routes tickets to Bartender sessions, one ticket each, in their own worktrees.",
+  "author": { "name": "Henry Wang", "url": "https://github.com/HenryQW" },
+  "homepage": "https://github.com/HenryQW/rounds/tree/main/plugins/bouncer",
+  "repository": "https://github.com/HenryQW/rounds",
+  "license": "MIT",
+  "keywords": ["bouncer", "claude-desktop", "sessions", "orchestration"],
+  "userConfig": {
+    "status_codes": {
+      "type": "string",
+      "title": "Status codes",
+      "description": "Short codes for ticket statuses in Bartender titles, as Name=Code pairs with ; between them. Use the status names of your tracker.",
+      "default": "Backlog=Bklog; Todo=Todo; In Progress=Dev; In Review=CR; Done=Done; Canceled=Cxl; Duplicate=Dup; Open=Open; Closed=Done"
+    }
+  }
+}

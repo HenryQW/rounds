@@ -100,7 +100,7 @@ Each tile is a filter for one group. A click shows only that group; a click on t
 
 ## Bouncer mode roles
 
-Bouncer mode runs as the `henry` skill in Claude desktop. Rounds reads the session titles.
+Bouncer mode runs as the `bouncer` Claude Code plugin in Claude desktop. Rounds reads the session titles.
 
 | Role | What it does |
 | --- | --- |

@@ -12,6 +12,7 @@ Rounds: a native macOS 27 background app that shows the live state of AI coding 
 | Release notes, one section per version (website/docs/release.md) | `CHANGELOG.md` |
 | Resumable state (git-ignored) | `.context/progress.md` |
 | Bouncer mode in Claude desktop and the design archive | `docs/bouncer-mode/README.md` |
+| Bouncer plugin (skill, scripts, test) | `plugins/bouncer/README.md` |
 
 Code: `Sources/RoundsCore` (models, parsers, classifier, hook settings; no UI), `Sources/Rounds` (app), `Sources/rounds-hook` (hook helper that Claude Code and Codex run). Tests: `Tests/RoundsCoreTests`.
 
