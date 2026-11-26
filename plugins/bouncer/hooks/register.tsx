@@ -1,8 +1,8 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { EMPTY, archived, chips, dots, ledgerSummary, parseBartender, queueLines, queueSummary, questionsBySession, renamed, synced } from './pool'
-import type { Chip, Report } from './pool'
+import { EMPTY, archived, columns, dots, ledgerSummary, parseBartender, queueLines, queueSummary, questionsBySession, renamed, reportLine, synced } from './pool'
+import type { Column, Report } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
 const ACTIONS = [['status', 'Status'], ['stop', 'Stop'], ['reset', 'Reset']] as const
@@ -72,9 +72,9 @@ const onNote = async ($: EngineInterface, text: string) => {
   if (!ran || ran.exitCode !== 0) return
   let report: Report
   try { report = JSON.parse(ran.stdout) as Report } catch { return /* not a report */ }
-  // Keep the STATUS for the band's dot, on the session whose title has the report's ticket.
+  // Keep the STATUS for the band's dot and the sub-line for its column, on the session whose title has the report's ticket.
   const id = Object.entries((await read($, pool)).bartenders).find(([, t]) => report.ticket && parseBartender(t)?.ticket === report.ticket)?.[0]
-  if (id) await update($, pool, p => ({ ...p, reports: { ...p.reports, [id]: report.status } }))
+  if (id) await update($, pool, p => ({ ...p, reports: { ...p.reports, [id]: report.status }, notes: { ...p.notes, [id]: reportLine(report) } }))
   await syncTitles($, report)
 }
 
@@ -185,22 +185,21 @@ export const register: Register = (on, options) => {
       : ctaB && { b: ctaB, name: ctaB.ticket || ctaB.repo, question: 'waits on you' }
     const lines = p.queueOpen ? p.queueLines ?? [] : []
     const ledgerLines = p.ledgerOpen ? p.ledgerLines ?? [] : []
-    const all = chips(p.bartenders, p.reports, ownRepo)
-    const opened = p.details ? all.find(c => c.key === p.menu) : undefined
-    // Compact (the default) shows the dots, the ask pill and the counts; Details adds the chips. Kept across sessions.
+    const all = columns(p.bartenders, p.reports)
+    // Compact (the default) is one line; Details adds the ask row and the columns. Kept across sessions.
     const flip = async () => {
       const details = !(await read($, pool)).details
       await update($, pool, q => ({ ...q, details }))
       await $.store.set('details', details).catch(() => undefined)
     }
-    // A chip opens its action row. Each action names one session (a ticket key, else its session id),
-    // so an action on the grouped idle chip is never ambiguous.
-    const actions = (c: Chip) => [
+    // A column's actions name one session each (a ticket key, else its session id),
+    // so an action on the grouped idle column is never ambiguous.
+    const actions = (c: Column) => [
       ...c.ids.flatMap(id => ACTIONS.map(([a, label]) =>
         ({ value: `${a} ${id}`, label: c.ids.length > 1 ? `${label} ${id.replace(/^local_/, '').slice(0, 8)}` : label }))),
       ...(linear && LINEAR_KEY.test(c.ticket) ? [{ value: 'linear', label: 'Open in Linear' }] : []),
     ]
-    const pick = async (c: Chip, v: string) => {
+    const pick = async (c: Column, v: string) => {
       await update($, pool, q => ({ ...q, menu: undefined }))
       if (v === 'linear') return void await $.process.run(['/usr/bin/open', `${linear}/issue/${c.ticket}`]).catch(() => undefined)
       const [a, id] = v.split(' ')
@@ -217,39 +216,81 @@ export const register: Register = (on, options) => {
         .catch(() => undefined)
       if (!ran || ran.deny !== undefined || ran.isError === true) await ask(`${name}: open`)
     }
+    const strip = bartenders.length === 0
+      ? <Text dimColor>no Bartenders yet</Text>
+      : <Text key="dots">{dots(p.bartenders, p.reports).join('')}</Text>
+    const detailsButton = <Button key="details" plain label={p.details ? 'Compact' : 'Details'} onPress={flip} />
 
-    // One row: dot strip, the head question, chips, then the counts on the right. Steps: `lg` between chips, `xs` inside.
-    const mine = (
-      <Box flexDirection="column" width={width}>
-        <Box flexDirection="row" alignItems="center" columnGap="lg" rowGap="xs" flexWrap="wrap">
-          {bartenders.length === 0
-            ? <Text dimColor>no Bartenders yet</Text>
-            : <Text key="dots">{dots(p.bartenders, p.reports).join('')}</Text>}
-          {waits && (
-            <Box backgroundColor="diffRemovedDimmed" paddingX="xs" flexShrink={1} minWidth={0}>
-              {waits.b
-                ? <Button key={`open:${waits.b.id}`} plain onPress={() => open(waits.b!.id, waits.name)}>
-                    <Text wrap="truncate">{`🔴 ${waits.name}: ${waits.question} →`}</Text>
-                  </Button>
-                : <Text wrap="truncate">{`🔴 ${waits.name}: ${waits.question}`}</Text>}
-            </Box>
-          )}
-          {p.details && waits && <Text dimColor>│</Text>}
-          {p.details && all.map(c => (
-            <Button key={c.key} plain dimColor={c.key === 'idle'} onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))}>
-              <Text bold={c.key !== 'idle'}>{c.head}</Text>
-              {c.tail && <Text dimColor>{` ${c.tail}`}</Text>}
-            </Button>
-          ))}
+    if (!p.details) {
+      // Compact: one line, laid out as ponytail's compact band (gap 2, a spacer, the switch on the right).
+      const n = p.waiting
+      const mine = (
+        <Box flexDirection="row" alignItems="center" gap={2} width={width}>
+          {strip}
+          {n > 0 && (waits?.b
+            ? <Button key="waits" plain onPress={() => open(waits.b!.id, waits.name)}><Text color="error">{`${n} waits on you`}</Text></Button>
+            : <Text key="waits" color="error">{`${n} waits on you`}</Text>)}
+          {all.filter(c => c.ticket).length > 0 && <Text dimColor wrap="truncate">{all.filter(c => c.ticket).map(c => c.ticket).join(' ')}</Text>}
           <Box flexGrow={1} />
-          {p.queue > 0 && <Button key="queue" plain dimColor onPress={() => toggle('queueOpen')}>{`📥 ${p.queue} queued`}</Button>}
-          {(p.ledger ?? 0) > 0 && <Button key="ledger" plain dimColor onPress={() => toggle('ledgerOpen')}>{`⏰ ${p.ledger} open`}</Button>}
-          {bartenders.length > 0 && <Button key="details" plain dimColor label={p.details ? 'Compact' : 'Details'} onPress={flip} />}
+          {detailsButton}
         </Box>
-        {opened && (
-          <Box flexDirection="row" alignItems="center" gap="xs" flexWrap="wrap">
-            <Text dimColor>{opened.head}</Text>
-            {actions(opened).map(o => <Button key={`${opened.key}:${o.value}`} plain dimColor onPress={() => pick(opened, o.value)}>{o.label}</Button>)}
+      )
+      return below ? <Box flexDirection="column">{mine}{below}</Box> : mine
+    }
+
+    // Details: ponytail's layout. A header row, a hairline, then equal columns split by vertical hairlines.
+    // shortcut: the hidden columns are only counted (`+N`); a fifth active Bartender has no menu until one ends.
+    const shown = all.slice(0, 4)
+    const more = all.length - shown.length
+    // Text glyphs make broken lines in the desktop's proportional font; an SVG draws real ones (as ponytail does).
+    const HAIR = 'stroke="#87867f" stroke-opacity=".35"'
+    let rule = <Text dimColor wrap="truncate-end">{'─'.repeat(e.props.bodyColumns)}</Text>
+    let bar = (i: number) => <Box key={`bar:${i}`} flexDirection="column">{['a', 'b', 'c'].map(k => <Text key={k} dimColor>│</Text>)}</Box>
+    if (e.surface === 'desktop') {
+      const { Svg } = $.ui.resolve(e)
+      rule = <Svg source={`<svg xmlns="http://www.w3.org/2000/svg" width="4000" height="1"><line ${HAIR} x1="0" y1="0.5" x2="4000" y2="0.5"/></svg>`} alt="" height={1} />
+      bar = i => <Svg key={`bar:${i}`} source={`<svg xmlns="http://www.w3.org/2000/svg" width="1" height="48"><line ${HAIR} x1="0.5" y1="0" x2="0.5" y2="48"/></svg>`} alt="" width={1} height={48} />
+    }
+    const colWidth = width === undefined ? undefined : Math.max(10, Math.floor(width / Math.max(1, shown.length)) - 3)
+    const mine = (
+      <Box flexDirection="column" width={width} gap={e.surface === 'desktop' ? 1 : 0}>
+        <Box flexDirection="row" alignItems="center" gap={1}>
+          {strip}
+          <Text bold>Bouncer</Text>
+          <Text dimColor>{ownRepo}</Text>
+          <Box flexGrow={1} />
+          {p.queue > 0 && <Button key="queue" plain label={`Queue ${p.queue}`} onPress={() => toggle('queueOpen')} />}
+          {(p.ledger ?? 0) > 0 && <Button key="ledger" plain label={`Due ${p.ledger}`} onPress={() => toggle('ledgerOpen')} />}
+          {detailsButton}
+        </Box>
+        {waits && (
+          <Box backgroundColor="diffRemovedDimmed" paddingX="xs">
+            {waits.b
+              ? <Button key={`open:${waits.b.id}`} plain onPress={() => open(waits.b!.id, waits.name)}>
+                  <Text wrap="truncate">{`🔴 ${waits.name}: ${waits.question}`}</Text>
+                </Button>
+              : <Text wrap="truncate">{`🔴 ${waits.name}: ${waits.question}`}</Text>}
+          </Box>
+        )}
+        {shown.length > 0 && rule}
+        {shown.length > 0 && (
+          <Box flexDirection="row" gap={2}>
+            {shown.flatMap((c, i) => [
+              ...(i > 0 ? [bar(i)] : []),
+              // Off the terminal the columns share the row; a width in cells would leave most of it empty and cut the text.
+              <Box key={`col:${c.key}`} flexDirection="column" minWidth={0} {...(colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
+                <Text dimColor wrap="truncate-end">{c.label}</Text>
+                <Button key={c.key} plain onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))}>
+                  <Text bold>{c.value}</Text>
+                </Button>
+                {p.menu === c.key
+                  ? <Box flexDirection="row" gap={1} flexWrap="wrap">
+                      {actions(c).map(o => <Button key={`${c.key}:${o.value}`} plain dimColor onPress={() => pick(c, o.value)}>{o.label}</Button>)}
+                    </Box>
+                  : <Text dimColor wrap="truncate-end">{c.ids.length === 1 ? p.notes?.[c.ids[0]!] ?? '' : ''}</Text>}
+              </Box>,
+            ])}
+            {more > 0 && <Text key="more" dimColor>{`+${more}`}</Text>}
           </Box>
         )}
         {lines.map((line, i) => {

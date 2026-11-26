@@ -24,9 +24,11 @@ export const renamed = (pool: Pool, sessionId: string, title: string): Pool => {
   if (!b) return pool
   // A last report belongs to the old task: drop it when the session goes idle or takes another ticket.
   const old = parseBartender(pool.bartenders[sessionId] ?? '')
-  const { [sessionId]: _, ...rest } = pool.reports ?? {}
-  const reports = b.status === 'Idle' || old?.ticket !== b.ticket ? rest : pool.reports
-  return { ...pool, isOn: true, bartenders: { ...pool.bartenders, [sessionId]: title }, reports }
+  const isNew = b.status === 'Idle' || old?.ticket !== b.ticket
+  const { [sessionId]: _, ...reports } = pool.reports ?? {}
+  const { [sessionId]: __, ...notes } = pool.notes ?? {}
+  return { ...pool, isOn: true, bartenders: { ...pool.bartenders, [sessionId]: title },
+    reports: isNew ? reports : pool.reports, notes: isNew ? notes : pool.notes }
 }
 
 export const archived = (pool: Pool, sessionId: string): Pool => {
@@ -34,8 +36,8 @@ export const archived = (pool: Pool, sessionId: string): Pool => {
   return { ...pool, bartenders: rest }
 }
 
-/** One band chip: an active Bartender, or all idle Bartenders. `head` is drawn bold, `tail` grey. */
-export type Chip = { key: string; dot: string; head: string; tail: string; ticket: string; ids: string[] }
+/** One band column: an active Bartender, or all idle Bartenders. `label` grey, `value` bold, the sub-line comes from its last report. */
+export type Column = { key: string; dot: string; label: string; value: string; ticket: string; ids: string[] }
 
 // Traffic light, in band order: needs the user, works (or waits on others), idle and free for work.
 const DOTS = ['🔴', '🟡', '🟢']
@@ -54,22 +56,25 @@ export const dots = (bartenders: Readonly<Record<string, string>>, reports: Read
   Object.entries(bartenders).flatMap(([id, t]) => { const b = parseBartender(t); return b ? [{ dot: dot(b, reports[id]) }] : [] })
     .sort(byDot).map(d => d.dot)
 
-/** Active Bartenders one chip each, red first (`🔴 🍸 MIDI-1`, grey `aspire · Dev`); all idle ones in one `🟢 N idle` chip, last. */
-export const chips = (bartenders: Readonly<Record<string, string>>, reports: Readonly<Record<string, string>> = {}, ownRepo = ''): Chip[] => {
-  const active: Chip[] = []
+/** Active Bartenders one column each, red first (`ticket · Dev` over `🟡 MIDI-1`); all idle ones in one `N idle` column, last. */
+export const columns = (bartenders: Readonly<Record<string, string>>, reports: Readonly<Record<string, string>> = {}): Column[] => {
+  const active: Column[] = []
   const idle: string[] = []
   for (const [id, title] of Object.entries(bartenders)) {
     const b = parseBartender(title)
     if (!b) continue
-    const d = dot(b, reports[id])
     if (b.status === 'Idle' && !b.cta) { idle.push(id); continue }
-    // A task with no ticket shows its repo as the name; the grey part then holds only the status code.
-    const repo = b.ticket && b.repo !== ownRepo ? b.repo : ''
-    active.push({ key: `act:${id}`, dot: d, head: `${d} ${b.emoji} ${b.ticket || b.repo}`, tail: [repo, b.status].filter(Boolean).join(' · '), ticket: b.ticket, ids: [id] })
+    const d = dot(b, reports[id])
+    // A task with no ticket shows its repo as the value.
+    active.push({ key: `act:${id}`, dot: d, label: `${b.type.toLowerCase()} · ${b.status}`, value: `${d} ${b.ticket || b.repo}`, ticket: b.ticket, ids: [id] })
   }
   active.sort(byDot)
-  return idle.length ? [...active, { key: 'idle', dot: '🟢', head: `🟢 ${idle.length} idle`, tail: '', ticket: '', ids: idle }] : active
+  return idle.length ? [...active, { key: 'idle', dot: '🟢', label: 'idle', value: `🟢 ${idle.length} idle`, ticket: '', ids: idle }] : active
 }
+
+/** A report's sub-line: the wait reason (its QUESTION) when the Bartender waits on the user, else its RESULT. */
+export const reportLine = (r: Report) =>
+  ((r.status === 'NEEDS_INPUT' || r.status === 'BLOCKED') && r.question ? r.question : r.result) ?? ''
 
 /** A queue line (`KEY | repo | mode | note`) as `KEY · repo · mode`. */
 export const queueSummary = (line: string) => line.split('|').slice(0, 3).map(s => s.trim()).filter(Boolean).join(' · ')
@@ -93,8 +98,8 @@ export const questionsBySession = (text: string): Record<string, string> => {
   return out
 }
 
-/** A Bartender's report fields that set titles (bouncer-report's JSON). */
-export type Report = { status: string; ticket: string; linear: string | null }
+/** A Bartender's report fields that the band uses (bouncer-report's JSON). */
+export type Report = { status: string; ticket: string; linear: string | null; result?: string | null; question?: string | null }
 
 export const bouncerTitle = (n: number, repo: string) => `${n ? `!${n} ` : ''}🚪 Bouncer${repo ? ` ${repo}` : ''}`
 

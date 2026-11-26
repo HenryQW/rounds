@@ -25,9 +25,11 @@ export type Pool = {
   isOther?: boolean
   /** Bartender session id to the STATUS of its last turn-end report (`bouncer-report`). */
   reports?: Readonly<Record<string, string>>
-  /** True when the band shows the chips (Details); false is Compact. Kept across sessions in `$.store` `details`. */
+  /** Bartender session id to the sub-line of its last report: the wait reason, else the RESULT. */
+  notes?: Readonly<Record<string, string>>
+  /** True when the band shows the columns (Details); false is Compact. Kept across sessions in `$.store` `details`. */
   details?: boolean
-  /** The chip whose action row is open (its key). */
+  /** The column whose actions show in place of its sub-line (its key). */
   menu?: string
 }
 

@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { EMPTY, dot, parseBartender, questionsBySession, renamed } from './pool'
+import { EMPTY, dot, parseBartender, questionsBySession, renamed, reportLine } from './pool'
 
 const BAND = { plugin: 'bouncer', component: 'AbovePrompt', props: { hasSurvey: false, bodyColumns: 120 } } as const
 
@@ -13,7 +13,7 @@ const base = (on: any, store: Record<string, unknown> = {}) => {
   on('store.set', (_: unknown, e: any) => { store[e.key] = e.value; return { value: undefined } })
 }
 
-// Mount the band in Details (the chips); Compact is the default.
+// Mount the band in Details (the columns); Compact is the default.
 const details = async (ui: any) => {
   if ((await ui.find({ key: 'details' }))?.text === 'Details') await ui.press({ key: 'details' })
   return ui
@@ -45,11 +45,11 @@ const record = (on: any) => {
 // The Bouncer's turn that a band prompt started ends.
 const endTurn = ($: any) => $.turn.complete({ answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
 
-// The text a chip draws.
+// The text a column's value draws.
 const chip = (el: any) => el?.text
-// A pick in a chip's action row: the chip opens the row, the action closes it.
+// A pick in a column's actions: the value opens them, the action closes them.
 const act = async (ui: any, key: string, value: string) => { await ui.press({ key }); await ui.press({ key: `${key}:${value}` }) }
-// The labels of a chip's action row.
+// The labels of a column's actions.
 const actions = async (ui: any, key: string) => {
   await ui.press({ key })
   const labels = (await ui.findAll({ type: 'Button' })).filter((b: any) => b.key?.startsWith(`${key}:`)).map((b: any) => b.text)
@@ -82,14 +82,14 @@ test('the band shows Bartenders, the question count and the queue', async ($, on
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await details(await $.ui.mount({ ...BAND, surface } as any))
     expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢⚪]+$/u }))?.text).toBe('🔴🟡')
-    expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 🍸 MIDI-1 aspire · Dev')
-    expect(chip(await ui.find({ key: 'act:b' }))).toBe('🔴 🍸 MIDI-2 web · CR')
-    expect((await ui.find({ key: 'queue' }))?.text).toBe('📥 2 queued')
+    expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 MIDI-1')
+    expect(chip(await ui.find({ key: 'act:b' }))).toBe('🔴 MIDI-2')
+    expect((await ui.find({ key: 'queue' }))?.text).toBe('Queue 2')
     await ui.unmount()
   }
 })
 
-test('a ticket key opens in the Linear workspace of the option from its chip menu', { options: { linear_workspace_url: 'https://linear.app/acme/' } }, async ($, on) => {
+test('a ticket key opens in the Linear workspace of the option from its column menu', { options: { linear_workspace_url: 'https://linear.app/acme/' } }, async ($, on) => {
   engine(on)
   const runs: string[][] = []
   on('process.run', (_: unknown, e: any) => { runs.push(e.argv); return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } })
@@ -102,7 +102,7 @@ test('a ticket key opens in the Linear workspace of the option from its chip men
   await ui.unmount()
 })
 
-test('the chip menu has no Linear item while the option is unset', async ($, on) => {
+test('the column menu has no Linear item while the option is unset', async ($, on) => {
   engine(on)
   await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
   const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
@@ -170,7 +170,7 @@ test('a Bartender shows in the band when the Bouncer starts it', async ($, on) =
 
   const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
   const shown = (await ui.findAll({ type: 'Button' })).filter((b: any) => /^(act:|idle$)/.test(b.key ?? '')).map(chip)
-  expect(shown).toEqual(['🟡 🍸 MIDI-1616 aspire · Dev', '🟡 🔧 bouncer-types Dev', '🟢 1 idle'])
+  expect(shown).toEqual(['🟡 MIDI-1616', '🟡 bouncer-types', '🟢 1 idle'])
   await ui.unmount()
 })
 
@@ -205,10 +205,10 @@ test('only the head question shows; it opens its Bartender, or asks the Bouncer 
   await title($, 'self', '🚪 Bouncer')
 
   const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
-  expect((await ui.find({ type: 'Text', text: /MIDI-1616:/ }))?.text).toBe('🔴 MIDI-1616: Post the draft yourself? Default: yes →')
+  expect((await ui.find({ type: 'Text', text: /MIDI-1616:/ }))?.text).toBe('🔴 MIDI-1616: Post the draft yourself? Default: yes')
   // Questions block in order: MIDI-3 waits (its `!` shows) but its line stays hidden until the head is answered.
   expect(await ui.find({ type: 'Text', text: /MIDI-3:/ })).toBe(undefined)
-  expect(chip(await ui.find({ key: 'act:local_c' }))).toBe('🔴 🍸 MIDI-3 web · Dev')
+  expect(chip(await ui.find({ key: 'act:local_c' }))).toBe('🔴 MIDI-3')
   expect((await ui.findAll({ type: 'Button' })).map((b: any) => b.key).filter((k: any) => k?.startsWith('open:'))).toEqual(['open:local_a'])
 
   // The plugin opens the Bartender in split view itself; when the app refuses, it asks the Bouncer.
@@ -334,14 +334,14 @@ test('the band shows the open ledger count', { options: { records_dir: '~/.ticke
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-ledger done K-1 u' } as any)
   expect(envs).toEqual([['/plugin/skills/bouncer/scripts/bouncer-ledger list', '~/.tickets']])
   const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
-  expect((await ui.find({ key: 'ledger' }))?.text).toBe('⏰ 2 open')
+  expect((await ui.find({ key: 'ledger' }))?.text).toBe('Due 2')
   expect(await ui.find({ type: 'Text', text: /K-1/ })).toBe(undefined)
   await ui.press({ key: 'ledger' })
   expect((await ui.findAll({ type: 'Text', text: /^K-/ })).map((t: any) => t.text)).toEqual(['K-1 · pr · merge it', 'K-2 · verify · check prod'])
   await ui.unmount()
 })
 
-test('all idle Bartenders share one grey chip, whose actions name each session', async ($, on) => {
+test('all idle Bartenders share one column, whose actions name each session', async ($, on) => {
   engine(on)
   const { prompts } = record(on)
   await title($, 'local_aaaaaaaa1', '[Idle] 🍸 aspire')
@@ -386,13 +386,13 @@ test('a queue emptied elsewhere leaves the band after the next turn or session s
   await title($, 'self', '🚪 Bouncer')
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-queue list' } as any)
   const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
-  expect((await ui.find({ key: 'queue' }))?.text).toBe('📥 1 queued')
+  expect((await ui.find({ key: 'queue' }))?.text).toBe('Queue 1')
   queue = ''
   await endTurn($)
   expect(await ui.find({ key: 'queue' })).toBe(undefined)
   queue = 'A-1 | r | Code | x\nA-2 | r | Code | y\n'
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
-  expect((await ui.find({ key: 'queue' }))?.text).toBe('📥 2 queued')
+  expect((await ui.find({ key: 'queue' }))?.text).toBe('Queue 2')
   await ui.unmount()
 })
 
@@ -420,7 +420,7 @@ test('one Bouncer a repo: a second session of the same repo shows Take Over, and
   expect(writes).toEqual(['me'])
   expect(await ui.find({ type: 'Text', text: /another session/ })).toBe(undefined)
   await details(ui)
-  expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 🍸 MIDI-1 aspire · Dev')
+  expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 MIDI-1')
   await ui.unmount()
 
   // Its session ends: the Bouncer is free for the next one.
@@ -456,31 +456,38 @@ test('a turn-end report sets its Bartender dot, and the strip is sorted red firs
   await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: BLOCKED\nTICKET: A-2' } as any)
   const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
   expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢⚪]+$/u }))?.text).toBe('🔴🟡🟡🟢')
-  expect(chip(await ui.find({ key: 'act:c' }))).toBe('🔴 🍸 A-2 aspire · Dev')
+  expect(chip(await ui.find({ key: 'act:c' }))).toBe('🔴 A-2')
   await ui.unmount()
 })
 
-test('Compact is the default and hides the chips; Details shows them and is kept in the store', async ($, on) => {
+test('Compact is one line: dots, the waiting count, the active keys and Details; Details is kept in the store', async ($, on) => {
   const store: Record<string, unknown> = {}
   engine(on, store)
-  await title($, 'self', '🚪 Bouncer')
+  await title($, 'self', '!1 🚪 Bouncer')
   await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
+  await title($, 'c', '[CR] 🍸 MIDI-3 aspire')
   await title($, 'b', '[Idle] 🍸 aspire')
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-queue list' } as any)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
-  expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢]+$/u }))?.text).toBe('🟡🟢')
-  expect((await ui.find({ key: 'queue' }))?.text).toBe('📥 2 queued')
+  expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢]+$/u }))?.text).toBe('🟡🟡🟢')
+  expect((await ui.find({ type: 'Text', text: /waits on you/ }))?.text).toBe('1 waits on you')
+  expect((await ui.find({ type: 'Text', text: /^MIDI-/ }))?.text).toBe('MIDI-1 MIDI-3')
+  expect(await ui.find({ key: 'queue' })).toBe(undefined)
+  expect(await ui.find({ type: 'Text', text: /Post the draft/ })).toBe(undefined)
   expect(await ui.find({ key: 'act:a' })).toBe(undefined)
   expect(await ui.find({ key: 'idle' })).toBe(undefined)
   expect((await ui.find({ key: 'details' }))?.text).toBe('Details')
 
   await ui.press({ key: 'details' })
-  expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 🍸 MIDI-1 aspire · Dev')
+  expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 MIDI-1')
   expect((await ui.find({ key: 'details' }))?.text).toBe('Compact')
   expect(store.details).toBe(true)
   await ui.press({ key: 'details' })
   expect(await ui.find({ key: 'act:a' })).toBe(undefined)
   expect(store.details).toBe(false)
+
+  await title($, 'self', '🚪 Bouncer')
+  expect(await ui.find({ type: 'Text', text: /waits on you/ })).toBe(undefined)
   await ui.unmount()
 })
 
@@ -491,7 +498,7 @@ test('a new session starts in the stored mode', async ($, on) => {
   await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
-  expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 🍸 MIDI-1 aspire · Dev')
+  expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 MIDI-1')
   await ui.unmount()
 })
 
@@ -513,9 +520,9 @@ test('a Bouncer of another repo does not block this one, and a repo title turns 
   })
   await title($, 'self', '!1 🚪 Bouncer rounds')
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-queue list' } as any)
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
   expect(await ui.find({ type: 'Text', text: /another session/ })).toBe(undefined)
-  expect((await ui.find({ key: 'queue' }))?.text).toBe('📥 1 queued')
+  expect((await ui.find({ key: 'queue' }))?.text).toBe('Queue 1')
   expect(reads.filter(r => r.startsWith('/data/web/'))).toEqual([])
   expect(writes).toEqual(['/data/rounds/bouncer'])
   await ui.unmount()
@@ -531,4 +538,86 @@ test('a Bartender loses its last report when it goes idle or takes another ticke
   expect(renamed(p, 's', '[Review] 🍸 A-1 rounds').reports).toEqual({ s: 'BLOCKED' })
   expect(renamed(p, 's', '[Dev] 🍸 B-2 rounds').reports).toEqual({})
   expect(renamed(p, 's', '[Idle] 🍸 rounds').reports).toEqual({})
+  const n = { ...p, notes: { s: 'PR 31 open' } }
+  expect(renamed(n, 's', '[Review] 🍸 A-1 rounds').notes).toEqual({ s: 'PR 31 open' })
+  expect(renamed(n, 's', '[Idle] 🍸 rounds').notes).toEqual({})
+})
+
+test('a report line is the wait reason while the Bartender waits on the user, else the result', () => {
+  const r = (status: string) => reportLine({ status, ticket: 'A-1', linear: null, result: 'PR 31 green', question: 'Merge it?' })
+  expect(r('NEEDS_INPUT')).toBe('Merge it?')
+  expect(r('BLOCKED')).toBe('Merge it?')
+  expect(r('DONE')).toBe('PR 31 green')
+  expect(reportLine({ status: 'BLOCKED', ticket: 'A-1', linear: null, result: 'waits on CI', question: null })).toBe('waits on CI')
+  expect(reportLine({ status: 'WORKING', ticket: 'A-1', linear: null })).toBe('')
+})
+
+// Each column as [label, value, sub-line], in band order.
+const cols = async (ui: any) => {
+  const texts = (await ui.findAll({ type: 'Text' })).map((t: any) => t.text)
+  return (await ui.findAll({ type: 'Button' })).filter((b: any) => /^(act:|idle$)/.test(b.key ?? '')).map((b: any) => {
+    const i = texts.indexOf(b.text)
+    return [texts[i - 1], b.text, texts[i + 1]]
+  })
+}
+
+test('Details: one column an active Bartender, idle ones in one column, at most 4 then +N', async ($, on) => {
+  engine(on, { details: true })
+  on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  await $.session.start({ cwd: '/w', surface: 'terminal', isInteractive: true } as any)
+  await title($, 'self', '🚪 Bouncer')
+  await title($, 'a', '[QA] 🍸 MIDI-1 rounds')
+  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' } as any)
+  expect(await cols(ui)).toEqual([['ticket · QA', '🟡 MIDI-1', '']])
+  expect(await ui.find({ type: 'Text', text: /^│$/ })).toBe(undefined)
+  expect((await ui.find({ type: 'Text', text: /^Bouncer$/ }))?.text).toBe('Bouncer')
+  expect((await ui.find({ type: 'Text', text: /^rounds$/ }))?.text).toBe('rounds')
+
+  await title($, 'b', '[Dev] 🔧 band rounds')
+  await title($, 'c', '[Idle] 🍸 rounds')
+  await title($, 'd', '[Idle] 🧹 rounds')
+  expect(await cols(ui)).toEqual([['ticket · QA', '🟡 MIDI-1', ''], ['skill · Dev', '🟡 band', ''], ['idle', '🟢 2 idle', '']])
+  // Two vertical hairlines of three lines each.
+  expect((await ui.findAll({ type: 'Text', text: /^│$/ })).length).toBe(6)
+  expect(await ui.find({ type: 'Text', text: /^\+\d/ })).toBe(undefined)
+
+  await title($, 'e', '![Dev] 🍸 MIDI-5 rounds')
+  await title($, 'f', '[CR] 🍸 MIDI-6 rounds')
+  expect((await cols(ui)).map((c: any) => c[1])).toEqual(['🔴 MIDI-5', '🟡 MIDI-1', '🟡 band', '🟡 MIDI-6'])
+  expect((await ui.find({ type: 'Text', text: /^\+\d/ }))?.text).toBe('+1')
+  await ui.unmount()
+})
+
+test('Details: the ask row shows only while a question waits; a report fills the sub-line; a menu takes its place', async ($, on) => {
+  let questions = ''
+  on('tool.call', () => ({ result: {} }))
+  base(on, { details: true })
+  on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
+  on('fs.read', (_: unknown, e: { path?: string }) => {
+    if (e.path === '/data/rounds/questions.md') return { value: questions }
+    throw new Error('missing')
+  })
+  on('session.receive', (_: unknown, e: any) => ({ text: e.text }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '{"status":"DONE","ticket":"MIDI-1","linear":null,"result":"PR 31 open, CI green","question":null}', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
+  await title($, 'self', '🚪 Bouncer')
+  await title($, 'local_a', '[Dev] 🍸 MIDI-1 rounds')
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect(await ui.find({ type: 'Text', text: /^🔴 / })).toBe(undefined)
+
+  await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: DONE\nTICKET: MIDI-1' } as any)
+  expect(await cols(ui)).toEqual([['ticket · Dev', '🟡 MIDI-1', 'PR 31 open, CI green']])
+
+  await ui.press({ key: 'act:local_a' })
+  expect(await ui.find({ type: 'Text', text: /PR 31/ })).toBe(undefined)
+  expect((await ui.findAll({ type: 'Button' })).filter((b: any) => b.key?.startsWith('act:local_a:')).map((b: any) => b.text)).toEqual(['Status', 'Stop', 'Reset'])
+  await ui.press({ key: 'act:local_a' })
+  expect((await ui.find({ type: 'Text', text: /PR 31/ }))?.text).toBe('PR 31 open, CI green')
+
+  questions = 'MIDI-1 | local_a | Merge it? Default: yes\n'
+  await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-questions add "MIDI-1 | local_a | Merge it?"' } as any)
+  expect((await ui.find({ type: 'Text', text: /^🔴 / }))?.text).toBe('🔴 MIDI-1: Merge it? Default: yes')
+  expect(await ui.find({ key: 'open:local_a' })).not.toBe(undefined)
+  await ui.unmount()
 })
