@@ -22,11 +22,12 @@ const dataFile = async ($: EngineInterface, name: string) => {
   const dir = await repoDir($)
   return String(dir ? await $.fs.read(`${dir}/${name}`).catch(() => '') : '')
 }
-// Open ledger items live in the ticket records; bouncer-ledger list prints one line each, and due only the items to act on.
+// Ledger items live in the ticket records; bouncer-ledger list --all prints one line each (done ones keep their PR URLs),
+// and due only the open items to act on.
 const ledgerList = async ($: EngineInterface, records: string, cmd: 'list' | 'due' = 'list') => {
   const env = await $.process.hookEnv()
   if (!env.CLAUDE_PLUGIN_ROOT) return undefined
-  const ran = await $.process.run([`${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-ledger`, cmd],
+  const ran = await $.process.run([`${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-ledger`, ...(cmd === 'list' ? ['list', '--all'] : [cmd])],
     { env: records ? { ...env, BOUNCER_RECORDS: records } : env }).catch(() => undefined)
   return ran?.exitCode === 0 ? queueLines(ran.stdout) : undefined
 }

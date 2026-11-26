@@ -179,6 +179,7 @@ ok "ledger: a fresh record is not stale" "$(lg stale --turn K-1=2020-01-01T00:00
 lg stale --turn K-1 2>/dev/null; ok "ledger: stale --turn without a time exits 2" $? 2
 unset BOUNCER_TODAY BOUNCER_RECORDS
 mkdir -p "$tmp/optcfg"; echo "{\"pluginConfigs\": {\"bouncer@rounds\": {\"options\": {\"records_dir\": \"$tmp/rec\"}}}}" > "$tmp/optcfg/settings.json"
+ok "ledger: list --all also prints done items" "$(CLAUDE_CONFIG_DIR="$tmp/optcfg" ./bouncer-ledger list --all | /usr/bin/grep -c '\[done\]')" "$(cat "$tmp"/rec/*.md | /usr/bin/grep -c '^- \[done\]')"
 ok "ledger: the records_dir option names the folder" "$(CLAUDE_CONFIG_DIR="$tmp/optcfg" ./bouncer-ledger list | /usr/bin/grep -c "$tmp/rec/")" 4
 unset BOUNCER_DATA BOUNCER_REPO
 

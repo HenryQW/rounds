@@ -127,12 +127,13 @@ export const prUrl = (n: number, texts: readonly string[]) => prUrls(texts).find
 export const prUrls = (texts: readonly string[]) =>
   [...new Set(texts.flatMap(t => [...t.matchAll(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g)].map(m => m[0])))]
 
-/** The ledger lines of one ticket's record (`/<path>/<KEY>.md: ...`). */
-export const ticketLedger = (lines: readonly string[], ticket: string) => ticket ? lines.filter(l => l.includes(`/${ticket}.md:`)) : []
+/** The ledger lines of one ticket's record: `/<path>/<KEY>.md: ...`, or `<repo>-<branch>.md` for work named by its branch's end. */
+export const ticketLedger = (lines: readonly string[], ticket: string) =>
+  ticket ? lines.filter(l => l.includes(`/${ticket}.md:`) || l.includes(`-${ticket}.md:`)) : []
 
 /** The next step of a ticket's first open ledger item (`... | next: review, then merge | 2026-11-26`). */
 export const ledgerNext = (lines: readonly string[]) =>
-  lines.map(l => /\| next: (.*?) \| \d{4}-\d{2}-\d{2}\s*$/.exec(l)?.[1]?.trim()).find(Boolean)
+  lines.filter(l => l.includes(': - [open] ')).map(l => /\| next: (.*?) \| \d{4}-\d{2}-\d{2}\s*$/.exec(l)?.[1]?.trim()).find(Boolean)
 
 /** Time since `at`, short: `3s`, `14m`, `2h`, `3d`. */
 export const ago = (at: string, now: number) => {

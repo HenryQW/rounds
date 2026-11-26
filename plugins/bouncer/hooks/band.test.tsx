@@ -57,6 +57,12 @@ const actions = async (ui: any, key: string) => {
   return labels
 }
 
+// True when a Link sits inside a Button: the Button would take the click, and the link would not open.
+const linkInButton = async (ui: any) => {
+  const has = (n: any): boolean => n && typeof n === 'object' && (n.type === 'Link' || (n.children ?? []).some(has))
+  return (await ui.findAll({ type: 'Button' })).some((b: any) => (b.children ?? []).some(has))
+}
+
 const title = ($: any, session_id: string, t: string) =>
   $.tool.call({ tool: 'mcp__ccd_session_mgmt__set_session_title', session_id, title: t } as any)
 
@@ -345,7 +351,7 @@ test('the band shows only the due ledger items as a count to act on, each a link
   runs.length = 0
   due = DUE
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-ledger done K-1 u' } as any)
-  expect(runs).toEqual([['/plugin/skills/bouncer/scripts/bouncer-ledger list', '~/.tickets']])
+  expect(runs).toEqual([['/plugin/skills/bouncer/scripts/bouncer-ledger list --all', '~/.tickets']])
   await endTurn($)
   expect(runs).toContainEqual(['/plugin/skills/bouncer/scripts/bouncer-ledger due', '~/.tickets'])
   ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
@@ -714,7 +720,9 @@ test('a card links its ticket to Linear and its PR to the URL that its ledger li
     if (cmd === 'git') return out('git@github.com:acme/rounds.git\n')
     if (cmd.endsWith('bouncer-ledger')) return out('/r/MIDI-1.md: - [open] pr | https://github.com/acme/backend/pull/17 | trigger: merged | check:  | next: review, then merge #17 | 2026-11-26\n'
       + '/r/MIDI-1.md: - [open] pr | https://github.com/acme/backend/pull/18 | trigger: merged | check:  | next: merge #18 | 2026-11-26\n'
-      + '/r/MIDI-9.md: - [open] pr | https://github.com/acme/web/pull/5 | trigger: merged | check:  | next: review | 2026-11-26\n')
+      + '/r/MIDI-9.md: - [open] pr | https://github.com/acme/web/pull/5 | trigger: merged | check:  | next: review | 2026-11-26\n'
+      // A done item still names its PR's URL: band's #3 is found here even without a report.
+      + '/r/rounds-bouncer-band.md: - [done] pr | https://github.com/acme/plugins/pull/3 | trigger: merged | check:  | next: merge | 2026-11-26\n')
     if (cmd.endsWith('bouncer-report')) return out('{"status":"WORKING","ticket":"band","linear":null,"result":"PR up","question":null}')
     return { value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
@@ -730,7 +738,7 @@ test('a card links its ticket to Linear and its PR to the URL that its ledger li
   await title($, 'self', '🚪 Bouncer')
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
   // A report whose EVIDENCE names the full PR URL.
-  await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: WORKING\nTICKET: band\nEVIDENCE: https://github.com/acme/plugins/pull/3' } as any)
+  await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: WORKING\nTICKET: band' } as any)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   const links = (await ui.findAll({ type: 'Link' })).map((l: any) => [l.props.label, l.props.href])
   expect(links).toEqual(expect.arrayContaining([['MIDI-1', 'https://linear.app/acme/issue/MIDI-1'], ['#17', 'https://github.com/acme/backend/pull/17'], ['#3', 'https://github.com/acme/plugins/pull/3']]))
@@ -750,6 +758,11 @@ test('a card links its ticket to Linear and its PR to the URL that its ledger li
   expect(await ui.find({ type: 'Text', text: /ticket|skill/ })).toBe(undefined)
   expect((await ui.find({ type: 'Text', text: /^⤵ $/ }))?.props?.color).toBe('merged')
   expect((await ui.find({ type: 'Text', text: /^⑂ $/ }))?.props?.color).toBe('success')
+  expect(await linkInButton(ui)).toBe(false)
+  // Compact draws the same links, none inside a Button.
+  await ui.press({ key: 'details' })
+  expect((await ui.findAll({ type: 'Link' })).map((l: any) => l.props.label)).toEqual(expect.arrayContaining(['MIDI-1', '#17', '#3']))
+  expect(await linkInButton(ui)).toBe(false)
   await ui.unmount()
 })
 
