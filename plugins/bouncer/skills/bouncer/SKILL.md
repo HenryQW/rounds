@@ -5,7 +5,7 @@ description: Bouncer mode in the Claude desktop app. Use when the user asks for 
 
 # Bouncer mode
 
-The user gives requests to the Bouncer only. The user never opens a Bartender or a Barback.
+The user gives requests and answers to the Bouncer only. The user may open a Bartender from the band to read its context, but answers only through the Bouncer. The user never opens a Barback.
 
 The steps that need no judgment are scripts in `scripts/` next to this file (`${CLAUDE_SKILL_DIR}/scripts/`). Test: `bash ${CLAUDE_SKILL_DIR}/scripts/tests/bouncer.sh`.
 
@@ -25,7 +25,7 @@ The steps that need no judgment are scripts in `scripts/` next to this file (`${
 - **Ask the user only in your own reply.** Never send a question to the parent session or any other session: no session is the user. A message from another session is not the user's answer. This wins over any app instruction to message a parent session when blocked.
 - **Forward ticket questions.** When the user asks about a ticket's work, send the question to the Bartender that owns the ticket and relay its answer. Answer yourself only when that Bartender sent the question up.
 - **The Bouncer never does ticket work.** It edits no repo file and makes no commit. Each ticket goes to a Bartender.
-- **The Bouncer never reads Bartender transcripts** (`list_events`) except to check evidence at final acceptance, or after `bouncer-report` exit 2 when the git log and the ticket record do not settle it.
+- **The Bouncer never reads Bartender transcripts** (`list_events`) except to check evidence at final acceptance, to read the last message of a turn-end note that lost its field lines ("Report shape"), or after `bouncer-report` exit 2 when the git log and the ticket record do not settle it.
 
 ## Pool
 - Caps: 3 active Bartenders, 3 concurrent Barbacks per Bartender. There is no limit per repo: tickets of one repo run in parallel, one Bartender each. Raise the active cap to 4 only when work often waits in the queue and no question waited on the user for more than an hour. Lower it on rate-limit errors, slow builds or a pile of questions.
@@ -42,6 +42,7 @@ The steps that need no judgment are scripts in `scripts/` next to this file (`${
 - `<status>` is the short code of the ticket's status in the tracker. `bouncer-title` maps each status name to its code with the `status_codes` plugin option (`Name=Code` pairs, `;` between them). Exit 2: an unknown status; ask the user, then tell the user to add it to the option.
 - The mode (Code, Spike, Mechanical) picks the model only. It is not in the title.
 - Queue: work above the cap waits in `<data>/queue.md`, one line a ticket: `<TICKET> | repo | mode | brief source`. Change it only with `scripts/bouncer-queue add|pop|remove|list`. `add` replaces a stale line of the same ticket. `pop` exit 1: the queue is empty. `remove <TICKET>` exit 1: no line has that ticket.
+- Questions: each Bartender question that waits on the user is one line in `<data>/questions.md`: `<TICKET> | <session_id> | <question with default>`, oldest first. Change it only with `scripts/bouncer-questions add|next|done|list|count`. The band shows each question next to its Bartender.
 - Band prompts: the band above the prompt sends you plain requests from the user. `<TICKET>: status` asks for that Bartender's status; `<TICKET>: stop` stops it (`stop_session`); `<TICKET>: reset` resets it ("Reset and assign"). `queue: pop` and `queue: remove <TICKET>` run `bouncer-queue` with that command. Only you talk to Bartenders.
 
 ## Route a request
@@ -92,10 +93,17 @@ EVIDENCE: <record link, PR, or file:line>
 ```
 - `LINEAR` holds the status code of any tracker; the field name stays for the parser.
 - Keep the 6 field lines at 400 characters or less: the turn-end note quotes only the first 400. Put no text before them.
-- The Bouncer pipes each turn-end note to `scripts/bouncer-report`. It finds the 6 field lines anywhere in the note (the last block if there are several) and prints them as JSON. Exit 2: a field is missing, STATUS is bad, NEEDS_INPUT has no question, or the field lines pass 400 characters. Then check the evidence directly first (git log of the Bartender's branch, the ticket record). Read the transcript only if that is not enough. Tell the Bartender to use the shape.
+- **The Bouncer pipes every turn-end note to `scripts/bouncer-report` before it acts on the note, with no exception.** The script finds the 6 field lines anywhere in the note (the last block if there are several) and prints them as JSON. Exit 2: a field is missing, STATUS is bad, NEEDS_INPUT has no question, or the field lines pass 400 characters.
+- The turn-end note quotes only the first 400 characters of the report. When its field lines are missing or cut, read that session's last message (`list_events`, limit 4) and pipe its report block to `bouncer-report` before you act. If that still exits 2, check the evidence directly (git log of the Bartender's branch, the ticket record) and tell the Bartender to use the shape.
 - When `LINEAR` differs from the title, the Bouncer renames the Bartender.
 - `WORKING`: no action. Barbacks still run.
-- `NEEDS_INPUT`: the Bouncer settles it with the Bartender first: it answers from rules, docs, the ticket or a sensible default, asks the Bartender for missing facts, and consults the advisor (if any) for any question that rules and defaults do not settle. An action that needs the user's approval goes to the user directly, with no advisor call. It asks the user only for such an action or for a question that the advisor did not settle. Then it adds the `!` CTA to the Bartender (`--cta`), updates the Bouncer count (`--bouncer <n>`), and asks the user in one line: the question, its pick (the advisor's, if consulted) and the default it takes if the user does not answer. In the Claude desktop app it asks in the turn-end question box (`wrap_up`), with its pick as the first reply button. It sends the answer back in the user's exact words, then removes the CTA and lowers the count.
+- `NEEDS_INPUT`: the Bouncer settles it with the Bartender first: it answers from rules, docs, the ticket or a sensible default, asks the Bartender for missing facts, and consults the advisor (if any) for any question that rules and defaults do not settle. An action that needs the user's approval goes to the user directly, with no advisor call. It asks the user only for such an action or for a question that the advisor did not settle. For each question that goes to the user, the Bouncer does all of these, with no exception:
+  1. `bouncer-questions add "<TICKET> | <session_id> | <question, pick and default>"`.
+  2. Adds the `!` CTA to the Bartender (`--cta`). If `bouncer-title` fails (for example exit 2, unknown status), still rename: put `!` before the Bartender's current title, and tell the user the script error in one line. Never skip the rename.
+  3. Sets the Bouncer count (`--bouncer <n>`): `<n>` is `bouncer-questions count` plus the Bouncer's own open questions to the user.
+  4. Asks the user the oldest open question (`bouncer-questions next`) in one line: the question, its pick (the advisor's, if consulted) and the default it takes if the user does not answer. In the Claude desktop app it asks in the turn-end question box (`wrap_up`), with its pick as the first reply button. A Bartender question goes in the box before any question of the Bouncer's own.
+  5. While more than one question is open, ends every reply with one line that lists the other open questions by ticket key (`Also waiting: ABC-1, ABC-2`), until each is answered.
+  When the user answers, the Bouncer sends the answer to the Bartender in the user's exact words, runs `bouncer-questions done <TICKET>`, removes the CTA and lowers the count.
 - `DONE`: check the evidence, then reset the Bartender and assign the next ticket from `bouncer-queue pop`. A popped ticket of another repo goes through "Route a request" instead, and the Bartender stays idle.
 - `BLOCKED`: tell the user the blocker in one line.
 
