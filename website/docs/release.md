@@ -41,7 +41,7 @@ A release is signed with the self-signed certificate "Rounds Self-Signed". Every
 
 ## Linear Keychain helper
 
-Beta and Stable use the same unsigned helper executable and property list from `Resources/`. The bundle script verifies their checksums and signs the helper with the release certificate. The helper's code signature hash must stay the same across routine app updates so Keychain can reuse its approval.
+The helper reads, saves and removes every Rounds Keychain item: the Linear key and the values of each push channel. Beta and Stable use the same unsigned helper executable and property list from `Resources/`. The bundle script verifies their checksums and signs the helper with the release certificate. The helper's code signature hash must stay the same across routine app updates so Keychain can reuse its approval.
 
 Run `sh scripts/build-linear-keychain-helper.sh` only when the helper changes. Commit the source, executable and checksum together. A helper or certificate change can require a new Keychain approval. If the release certificate changes, update the certificate checks in the app, helper and bundle script. Then regenerate the helper.
 

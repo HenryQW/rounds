@@ -2,17 +2,23 @@
 #import <Security/Security.h>
 
 // Keep the protocol and identifiers in sync with LinearKey.swift.
+// One service for every Rounds Keychain item: the Linear key and the values of each push channel.
 @protocol RoundsLinearKeychain
-- (void)readKeyWithReply:(void (^)(NSData *, int32_t))reply;
-- (void)saveKey:(NSData *)data withReply:(void (^)(int32_t))reply;
-- (void)removeKeyWithReply:(void (^)(int32_t))reply;
+- (void)readItem:(NSString *)service account:(NSString *)account withReply:(void (^)(NSData *, int32_t))reply;
+- (void)saveItem:(NSString *)service account:(NSString *)account data:(NSData *)data withReply:(void (^)(int32_t))reply;
+- (void)removeItem:(NSString *)service account:(NSString *)account withReply:(void (^)(int32_t))reply;
 @end
 
-static NSDictionary *item(void) {
+// Only the Rounds items: the Linear key, and one item per push channel (a lowercase channel name).
+static NSDictionary *item(NSString *service, NSString *account) {
+    BOOL linear = [service isEqualToString:@"com.henryqw.rounds.linear"] && [account isEqualToString:@"api-key"];
+    BOOL push = [service isEqualToString:@"com.henryqw.rounds.push"] && account.length > 0 && account.length <= 32 &&
+        [account rangeOfString:@"^[a-z]+$" options:NSRegularExpressionSearch].location != NSNotFound;
+    if (!linear && !push) { return nil; }
     return @{
         (__bridge NSString *)kSecClass: (__bridge id)kSecClassGenericPassword,
-        (__bridge NSString *)kSecAttrService: @"com.henryqw.rounds.linear",
-        (__bridge NSString *)kSecAttrAccount: @"api-key",
+        (__bridge NSString *)kSecAttrService: service,
+        (__bridge NSString *)kSecAttrAccount: account,
     };
 }
 
@@ -42,9 +48,10 @@ static NSDictionary *item(void) {
     return YES;
 }
 
-- (void)readKeyWithReply:(void (^)(NSData *, int32_t))reply {
+- (void)readItem:(NSString *)service account:(NSString *)account withReply:(void (^)(NSData *, int32_t))reply {
     dispatch_async(_keychain, ^{
-        NSMutableDictionary *query = [item() mutableCopy];
+        NSMutableDictionary *query = [item(service, account) mutableCopy];
+        if (!query) { reply(nil, errSecParam); return; }
         query[(__bridge NSString *)kSecReturnData] = @YES;
         CFTypeRef data = NULL;
         OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &data);
@@ -52,10 +59,10 @@ static NSDictionary *item(void) {
     });
 }
 
-- (void)saveKey:(NSData *)data withReply:(void (^)(int32_t))reply {
+- (void)saveItem:(NSString *)service account:(NSString *)account data:(NSData *)data withReply:(void (^)(int32_t))reply {
     dispatch_async(_keychain, ^{
-        if (!data.length) { reply(errSecParam); return; }
-        NSDictionary *query = item();
+        NSDictionary *query = item(service, account);
+        if (!query || !data.length) { reply(errSecParam); return; }
         NSDictionary *changes = @{(__bridge NSString *)kSecValueData: data};
         OSStatus status = SecItemUpdate((__bridge CFDictionaryRef)query, (__bridge CFDictionaryRef)changes);
         if (status == errSecItemNotFound) {
@@ -67,9 +74,11 @@ static NSDictionary *item(void) {
     });
 }
 
-- (void)removeKeyWithReply:(void (^)(int32_t))reply {
+- (void)removeItem:(NSString *)service account:(NSString *)account withReply:(void (^)(int32_t))reply {
     dispatch_async(_keychain, ^{
-        OSStatus status = SecItemDelete((__bridge CFDictionaryRef)item());
+        NSDictionary *query = item(service, account);
+        if (!query) { reply(errSecParam); return; }
+        OSStatus status = SecItemDelete((__bridge CFDictionaryRef)query);
         reply(status == errSecItemNotFound ? errSecSuccess : status);
     });
 }
