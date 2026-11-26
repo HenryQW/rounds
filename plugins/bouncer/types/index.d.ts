@@ -15,13 +15,13 @@ export type Pool = {
   pending?: boolean
   /** Bartender session id to its open question for the user, from `questions.md`. */
   questions?: Readonly<Record<string, string>>
-  /** Open items in the records' LEDGER sections (`bouncer-ledger list`); absent in a value an earlier version stored. */
-  ledger?: number
   /** The `bouncer-ledger list` lines; absent in a value an earlier version stored. */
   ledgerLines?: readonly string[]
   /** Each Bartender's last report text, kept for the full PR URLs its EVIDENCE names. */
   reportTexts?: Readonly<Record<string, string>>
-  /** True while the band lists the ledger's open items. */
+  /** The `bouncer-ledger due` lines: open items whose check says the user must act now. Read once a turn. */
+  due?: readonly string[]
+  /** True while the band lists the due items. */
   ledgerOpen?: boolean
   /** True while another session holds the Bouncer (`bouncer` in the plugin's data folder names it). */
   isOther?: boolean

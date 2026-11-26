@@ -320,24 +320,42 @@ test('a turn-end note sets the status code, and the CTA follows questions.md', a
 const LEDGER = '/r/K-1.md: - [open] pr | u | trigger: merged | check:  | next: merge it | 2026-11-26\n'
   + '/r/K-2.md: - [open] verify | K | trigger: t | check: c | next: check prod | 2026-11-26\n'
 
-test('the band shows the open ledger count', { options: { records_dir: '~/.tickets' } }, async ($, on) => {
+const DUE = '/r/MIDI-1.md: - [open] pr | https://github.com/acme/backend/pull/17 | trigger: merged | check:  | next: delete the branch | 2026-11-26\n'
+  + '/r/MIDI-2.md: - [open] held-message | 17-freeze | trigger: t | check: c | next: post the QA reply | 2026-11-26\n'
+
+test('the band shows only the due ledger items as a count to act on, each a link and its next step', { options: { records_dir: '~/.tickets', linear_workspace_url: 'https://linear.app/acme' } }, async ($, on) => {
   on('tool.call', () => ({ result: {} }))
+  on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
   base(on)
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
   on('fs.read', () => { throw new Error('missing') })
-  const envs: unknown[] = []
+  const runs: unknown[] = []
+  let due = ''
   on('process.run', (_: unknown, e: any) => {
-    envs.push([e.argv.join(' '), e.init?.env?.BOUNCER_RECORDS])
-    return { value: { exitCode: 0, stdout: LEDGER, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    runs.push([e.argv.join(' '), e.init?.env?.BOUNCER_RECORDS])
+    const stdout = e.argv[1] === 'due' ? due : LEDGER + DUE
+    return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
-  await title($, 'self', '🚪 Bouncer')
+  await $.tool.call({ tool: 'Skill', skill: 'bouncer' } as any)
+  // Open items that are not due show nowhere in the header.
+  let ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect(await ui.find({ key: 'ledger' })).toBe(undefined)
+  await ui.unmount()
+  // A tool call reads the list only; `due` runs its checks once a turn.
+  runs.length = 0
+  due = DUE
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-ledger done K-1 u' } as any)
-  expect(envs).toEqual([['/plugin/skills/bouncer/scripts/bouncer-ledger list', '~/.tickets']])
-  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
-  expect((await ui.find({ key: 'ledger' }))?.text).toBe('Due 2')
-  expect(await ui.find({ type: 'Text', text: /K-1/ })).toBe(undefined)
+  expect(runs).toEqual([['/plugin/skills/bouncer/scripts/bouncer-ledger list', '~/.tickets']])
+  await endTurn($)
+  expect(runs).toContainEqual(['/plugin/skills/bouncer/scripts/bouncer-ledger due', '~/.tickets'])
+  ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  expect((await ui.find({ key: 'ledger' }))?.text).toBe('2 to act')
+  expect(await ui.find({ type: 'Text', text: /post the QA reply/ })).toBe(undefined)
   await ui.press({ key: 'ledger' })
-  expect((await ui.findAll({ type: 'Text', text: /^K-/ })).map((t: any) => t.text)).toEqual(['K-1 · pr · merge it', 'K-2 · verify · check prod'])
+  const links = (await ui.findAll({ type: 'Link' })).map((l: any) => [l.props.label, l.props.href])
+  expect(links).toEqual(expect.arrayContaining([['#17', 'https://github.com/acme/backend/pull/17'], ['MIDI-2', 'https://linear.app/acme/issue/MIDI-2']]))
+  expect((await ui.find({ type: 'Text', text: /post the QA reply/ }))?.text).toBe('post the QA reply')
+  expect(await ui.find({ type: 'Text', text: /check prod|K-2/ })).toBe(undefined)
   await ui.unmount()
 })
 
@@ -493,7 +511,7 @@ test('a turn-end report sets its Bartender dot, and the strip is sorted red firs
   await ui.unmount()
 })
 
-test('Compact is one line: dots, the waiting count, the active keys and Details; Details is kept in the store', async ($, on) => {
+test('Compact is one line a Bartender (dot and key, chip), the waiting count and Details on the first; Details is kept in the store', async ($, on) => {
   const store: Record<string, unknown> = {}
   engine(on, store)
   await title($, 'self', '!1 🚪 Bouncer')
@@ -502,9 +520,11 @@ test('Compact is one line: dots, the waiting count, the active keys and Details;
   await title($, 'b', '[Idle] 🍸 aspire')
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-queue list' } as any)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
-  expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢]( [🔴🟡🟢])*$/u }))?.text).toBe('🟡 🟡 🟢')
+  expect(await ui.find({ key: 'dots' })).toBe(undefined)
   expect((await ui.find({ type: 'Text', text: /waits on you/ }))?.text).toBe('1 waits on you')
-  expect((await ui.find({ type: 'Text', text: /^MIDI-/ }))?.text).toBe('MIDI-1 MIDI-3')
+  expect(chip(await ui.find({ key: 'title:act:a' }))).toBe('🟡 MIDI-1')
+  expect(chip(await ui.find({ key: 'chip:act:c' }))).toBe('CR')
+  expect(chip(await ui.find({ key: 'title:idle' }))).toBe('🟢 1 idle')
   expect(await ui.find({ key: 'queue' })).toBe(undefined)
   expect(await ui.find({ type: 'Text', text: /Post the draft/ })).toBe(undefined)
   expect(await ui.find({ key: 'act:a' })).toBe(undefined)

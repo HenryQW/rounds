@@ -41,7 +41,7 @@ EOF
 # Run the preview hook from register.
 sed -i '' 's/^export const register: Register = (on, options) => {$/export const register: Register = (on, options) => {\n  registerPreview(on, options)/' "$r"
 # Seed the pool at session start (a reload runs it too), before its refresh.
-sed -i '' 's/^    if ((await read(\$, pool)).isOn) await refreshData(\$, records).catch(() => undefined)$/    await seedPreview($).catch(() => undefined)\n&/' "$r"
+sed -i '' 's/^    if ((await read(\$, pool)).isOn) {$/    await seedPreview($).catch(() => undefined)\n&/' "$r"
 for s in "'bouncer-dev', key" "const data = '$data'" "CLAUDE_PLUGIN_ROOT: '$dst'" "registerPreview(on, options)" "    await seedPreview(\$)"; do
   grep -qF "$s" "$r" || { echo "patch failed: $s" >&2; exit 1; }
 done

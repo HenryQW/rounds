@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { EMPTY, ago, archived, columns, dots, ledgerSummary, parseBartender, ledgerNext, prMark, prUrl, prUrls, ticketLedger, queueLines, queueSummary, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
+import { EMPTY, ago, archived, columns, dots, ledgerItem, parseBartender, ledgerNext, prMark, prUrl, prUrls, ticketLedger, queueLines, queueSummary, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
 import type { Column, Report } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
@@ -22,11 +22,11 @@ const dataFile = async ($: EngineInterface, name: string) => {
   const dir = await repoDir($)
   return String(dir ? await $.fs.read(`${dir}/${name}`).catch(() => '') : '')
 }
-// Open ledger items live in the ticket records; bouncer-ledger list prints one line each.
-const ledgerList = async ($: EngineInterface, records: string) => {
+// Open ledger items live in the ticket records; bouncer-ledger list prints one line each, and due only the items to act on.
+const ledgerList = async ($: EngineInterface, records: string, cmd: 'list' | 'due' = 'list') => {
   const env = await $.process.hookEnv()
   if (!env.CLAUDE_PLUGIN_ROOT) return undefined
-  const ran = await $.process.run([`${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-ledger`, 'list'],
+  const ran = await $.process.run([`${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-ledger`, cmd],
     { env: records ? { ...env, BOUNCER_RECORDS: records } : env }).catch(() => undefined)
   return ran?.exitCode === 0 ? queueLines(ran.stdout) : undefined
 }
@@ -78,8 +78,14 @@ const refreshData = async ($: EngineInterface, records = '') => {
   const ledger = await ledgerList($, records)
   await update($, pool, p => ({
     ...p, queue: lines.length, queueLines: lines, questions,
-    ledger: ledger?.length ?? p.ledger, ledgerLines: ledger ?? p.ledgerLines,
+    ledgerLines: ledger ?? p.ledgerLines,
   }))
+}
+
+// `due` runs each item's check (gh calls), so it runs once a turn, never on a render or a tool call.
+const refreshDue = async ($: EngineInterface, records = '') => {
+  const due = await ledgerList($, records, 'due')
+  if (due) await update($, pool, p => ({ ...p, due }))
 }
 
 // Make the titles match the open questions and, given a report, its status code; set_session_title is the Bouncer's own call.
@@ -118,6 +124,7 @@ export const register: Register = (on, options) => {
     if (tool === 'Skill' && /(^|:)bouncer$/.test(String((e as { skill?: unknown }).skill ?? ''))) {
       await update($, pool, p => ({ ...p, isOn: true }))
       await refreshData($, records)
+      await refreshDue($, records).catch(() => undefined)
     } else if (tool.endsWith('__set_session_title')) {
       const { session_id, title } = e as { session_id?: unknown; title?: unknown }
       const before = (await read($, pool)).waiting
@@ -154,7 +161,10 @@ export const register: Register = (on, options) => {
     const details = (await $.store.get('details').catch(() => undefined)) === true
     await update($, pool, p => (p.details === details ? p : { ...p, details }))
     await refreshLook($).catch(() => undefined)
-    if ((await read($, pool)).isOn) await refreshData($, records).catch(() => undefined)
+    if ((await read($, pool)).isOn) {
+      await refreshData($, records).catch(() => undefined)
+      await refreshDue($, records).catch(() => undefined)
+    }
     return next(e)
   })
   // The Bouncer's session ends (or a /clear gives it a new id): free the Bouncer for the next session.
@@ -167,7 +177,10 @@ export const register: Register = (on, options) => {
     if (!e.agentId) {
       await update($, pool, p => (p.pending ? { ...p, pending: false } : p))
       await refreshLook($).catch(() => undefined)
-      if ((await read($, pool)).isOn) await refreshData($, records).catch(() => undefined)
+      if ((await read($, pool)).isOn) {
+        await refreshData($, records).catch(() => undefined)
+        await refreshDue($, records).catch(() => undefined)
+      }
     }
     return next(e)
   })
@@ -214,7 +227,8 @@ export const register: Register = (on, options) => {
       ? { b: headB, name: headB ? headB.ticket || headB.repo : headId === 'self' ? 'Bouncer' : headId ?? '', question: headQuestion }
       : ctaB && { b: ctaB, name: ctaB.ticket || ctaB.repo, question: 'waits on you' }
     const lines = p.queueOpen ? p.queueLines ?? [] : []
-    const ledgerLines = p.ledgerOpen ? p.ledgerLines ?? [] : []
+    const due = p.due ?? []
+    const dueLines = p.ledgerOpen ? due : []
     const all = columns(p.bartenders, p.reports, p.running)
     // Compact (the default) is one line; Details adds the ask row and the columns. Kept across sessions.
     const flip = async () => {
@@ -261,20 +275,84 @@ export const register: Register = (on, options) => {
     const detailsLabel = p.details ? 'Compact' : 'Details'
     // A quiet switch: no fill, dim text that turns full strength under the pointer.
     const detailsButton = <Button key="details" plain dimColor label={detailsLabel} onPress={flip} />
+    const { Link } = $.ui.resolve(e)
+    // Only the ledger items due now (`bouncer-ledger due`), as what the user must do; open items that are not due are in
+    // their card's row 2. Each row: the key as a link (the PR, else the Linear issue) and its next step.
+    const dueButton = due.length > 0 && (
+      <Button key="ledger" plain onPress={() => toggle('ledgerOpen')}><Text color="error">{`${due.length} to act`}</Text></Button>
+    )
+    const dueRows = dueLines.map(line => {
+      const it = ledgerItem(line)
+      if (!it) return <Text key={`due:${line}`} wrap="truncate">{line}</Text>
+      const pr = /^https:\/\/github\.com\/\S+\/pull\/(\d+)$/.exec(it.key)
+      const label = pr ? `#${pr[1]}` : LINEAR_KEY.test(it.key) ? it.key : it.record
+      const href = pr ? it.key : linear && LINEAR_KEY.test(label) ? `${linear}/issue/${label}` : undefined
+      return (
+        <Box key={`due:${line}`} flexDirection="row" alignItems="center" gap="sm">
+          <Box flexShrink={0}>{href ? <Link href={href} label={label} /> : <Text color={t?.ink}>{label}</Text>}</Box>
+          <Box flexShrink={1} minWidth={0}><Text color={t?.muted} wrap="truncate-end">{it.next}</Text></Box>
+        </Box>
+      )
+    })
+    // The clock only when a card shows a time.
+    const now = Object.values(p.sessions ?? {}).some(x => x.at) ? await $.clock.now() : 0
+    // A Bartender as Rounds row pieces: the title (dot and key, the key a link to its Linear issue), the status code as a
+    // chip, the PR (`#17860 +1`, glyph in the PR state colour). The title is not a Button: a desktop Button adds its own
+    // inset, so the rows would not align.
+    const titleOf = (c: Column) => c.ticket && linear && LINEAR_KEY.test(c.ticket)
+      ? <Box flexDirection="row"><Text>{`${c.dot} `}</Text><Link href={`${linear}/issue/${c.ticket}`} label={c.ticket} /></Box>
+      : <Text weight="medium" color={t?.ink} wrap="truncate-end">{c.value}</Text>
+    const chipOf = (c: Column) => (
+      <Box key={`chip:${c.key}`} flexShrink={0} paddingX="xs" {...(t ? { backgroundColor: t.hairline } : {})}>
+        <Text size="footnote" color={t?.muted}>{c.label}</Text>
+      </Box>
+    )
+    const prOf = (c: Column) => {
+      const id = c.ids.length === 1 ? c.ids[0]! : undefined
+      const s = id ? p.sessions?.[id] : undefined
+      const [glyph, glyphColor] = prMark(s?.pr?.state)
+      // PR links only from full URLs in its report or its ticket's ledger lines; never from the folder's remote.
+      const urls = prUrls([id ? p.reportTexts?.[id] ?? '' : '', ...ticketLedger(p.ledgerLines ?? [], c.ticket)])
+      const n = s?.pr?.number ?? Number(/\d+$/.exec(urls[0] ?? '')?.[0] ?? 0)
+      const href = n ? prUrl(n, urls) : undefined
+      const others = urls.filter(u => u !== href).length
+      return {
+        cells: n ? `⑂ #${n}${others ? ` +${others}` : ''}`.length + 1 : 0,
+        time: s?.at ? ago(s.at, now) : '',
+        el: n > 0 && (
+          <Box key={`pr:${c.key}`} flexDirection="row" flexShrink={0}>
+            <Text color={glyphColor}>{`${glyph} `}</Text>
+            {href ? <Link href={href} label={`#${n}`} /> : <Text color={t?.muted}>{`#${n}`}</Text>}
+            {others > 0 && <Text color={t?.muted}>{` +${others}`}</Text>}
+          </Box>
+        ),
+      }
+    }
 
     if (!p.details) {
-      // Compact: one line, laid out as ponytail's compact band (gap 2, a spacer, the switch on the right).
+      // Compact: one line a Bartender (dot and key, status chip, PR); the first line also holds what waits on the user,
+      // the due count and the switch on the right. The dots are in the lines, so there is no dot strip.
       const n = p.waiting
-      const keys = all.filter(c => c.ticket).map(c => c.ticket).join(' ')
+      const controls = [
+        n > 0 && (waits?.b
+          ? <Button key="waits" plain onPress={() => open(waits.b!.id, waits.name)}><Text color="error">{`${n} waits on you`}</Text></Button>
+          : <Text key="waits" color="error">{`${n} waits on you`}</Text>),
+        dueButton,
+        detailsButton,
+      ]
+      const rows = all.length === 0 ? [undefined] : all
       const mine = (
-        <Box flexDirection="row" alignItems="center" gap={2} width={width}>
-          {strip}
-          {n > 0 && (waits?.b
-            ? <Button key="waits" plain onPress={() => open(waits.b!.id, waits.name)}><Text color="error">{`${n} waits on you`}</Text></Button>
-            : <Text key="waits" color="error">{`${n} waits on you`}</Text>)}
-          {keys && <Text color={t?.muted} wrap="truncate">{keys}</Text>}
-          <Box flexGrow={1} />
-          {detailsButton}
+        <Box flexDirection="column" width={width} gap={isTerminal ? 0 : 'xs'}>
+          {rows.map((c, i) => (
+            <Box key={`row:${c?.key ?? 'none'}`} flexDirection="row" alignItems="center" gap={isTerminal ? 1 : 'sm'}>
+              {c ? <Box key={`title:${c.key}`} flexShrink={1} minWidth={0}>{titleOf(c)}</Box> : strip}
+              {c?.label && chipOf(c)}
+              {c && prOf(c).el}
+              {i === 0 && <Box flexGrow={1} />}
+              {i === 0 && controls}
+            </Box>
+          ))}
+          {dueRows}
         </Box>
       )
       return below ? <Box flexDirection="column">{mine}{below}</Box> : mine
@@ -289,51 +367,24 @@ export const register: Register = (on, options) => {
     const rule = isTerminal && <Text dimColor wrap="truncate-end">{'─'.repeat(e.props.bodyColumns)}</Text>
     const bar = (i: number) => <Box key={`bar:${i}`} flexDirection="column">{['a', 'b', 'c'].map(k => <Text key={k} dimColor>│</Text>)}</Box>
     const colWidth = width === undefined ? undefined : Math.max(10, Math.floor(width / Math.max(1, shown.length)) - 3)
-    const { Link } = $.ui.resolve(e)
-    // The clock only when a card shows a time.
-    const now = Object.values(p.sessions ?? {}).some(x => x.at) ? await $.clock.now() : 0
-    // One card a Bartender, as a Rounds session row in two rows. Row 1: the title (dot and key, the key a link to its Linear
-    // issue), the status code as a chip, the PR (`#17860 +1`, glyph in the PR state colour), the time, `⋯` (the menu).
-    // Row 2: the next step or the last result. Width 0 and grow 1 give equal cards (no flexBasis prop). The title is not a
-    // Button: a desktop Button adds its own inset, so the rows would not align.
+    // One card a Bartender, as a Rounds session row in two rows. Row 1: title, chip, PR, the time, `⋯` (the menu).
+    // Row 2: the next step or the last result. Width 0 and grow 1 give equal cards (no flexBasis prop).
     // shortcut: no prop gives a card's drawn width, so what fits is guessed from the band's cells (one character a cell);
     // when row 1 is too long the time goes first, then the chip. Measure the card once the engine gives its width.
     const room = Math.floor((e.props.bodyColumns ?? 120) / Math.max(1, shown.length)) - 3
     const card = (c: Column) => {
-      const id = c.ids.length === 1 ? c.ids[0]! : undefined
-      const s = id ? p.sessions?.[id] : undefined
-      const [glyph, glyphColor] = prMark(s?.pr?.state)
-      // PR links only from full URLs in its report or its ticket's ledger lines; never from the folder's remote.
-      const urls = prUrls([id ? p.reportTexts?.[id] ?? '' : '', ...ticketLedger(p.ledgerLines ?? [], c.ticket)])
-      const n = s?.pr?.number ?? Number(/\d+$/.exec(urls[0] ?? '')?.[0] ?? 0)
-      const href = n ? prUrl(n, urls) : undefined
-      const others = urls.filter(u => u !== href).length
-      const time = s?.at ? ago(s.at, now) : ''
-      const prCells = n ? `⑂ #${n}${others ? ` +${others}` : ''}`.length + 1 : 0
+      const { cells: prCells, time, el: prEl } = prOf(c)
       const showChip = !!c.label && c.value.length + c.label.length + 3 + prCells <= room
       const showTime = !!time && c.value.length + (showChip ? c.label.length + 3 : 0) + prCells + time.length + 1 <= room
-      const title = c.ticket && linear && LINEAR_KEY.test(c.ticket)
-        ? <Box flexDirection="row"><Text>{`${c.dot} `}</Text><Link href={`${linear}/issue/${c.ticket}`} label={c.ticket} /></Box>
-        : <Text weight="medium" color={t?.ink} wrap="truncate-end">{c.value}</Text>
       const line = sub(c)
       return (
         <Box key={`col:${c.key}`} flexDirection="column" minWidth={0} {...(t
           ? { flexGrow: 1, flexShrink: 1, width: 0, minWidth: 24, borderStyle: 'round', borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'lg' as const, paddingY: 'md' as const }
           : colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
           <Box flexDirection="row" alignItems="center" gap="sm">
-            <Box key={`title:${c.key}`} flexGrow={1} flexShrink={1} minWidth={0}>{title}</Box>
-            {showChip && (
-              <Box key={`chip:${c.key}`} flexShrink={0} paddingX="xs" {...(t ? { backgroundColor: t.hairline } : {})}>
-                <Text size="footnote" color={t?.muted}>{c.label}</Text>
-              </Box>
-            )}
-            {n > 0 && (
-              <Box key={`pr:${c.key}`} flexDirection="row" flexShrink={0}>
-                <Text color={glyphColor}>{`${glyph} `}</Text>
-                {href ? <Link href={href} label={`#${n}`} /> : <Text color={t?.muted}>{`#${n}`}</Text>}
-                {others > 0 && <Text color={t?.muted}>{` +${others}`}</Text>}
-              </Box>
-            )}
+            <Box key={`title:${c.key}`} flexGrow={1} flexShrink={1} minWidth={0}>{titleOf(c)}</Box>
+            {showChip && chipOf(c)}
+            {prEl}
             {showTime && <Text size="footnote" color={t?.muted}>{time}</Text>}
             <Button key={c.key} plain dimColor label="⋯" onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))} />
           </Box>
@@ -356,7 +407,7 @@ export const register: Register = (on, options) => {
           <Text color={t?.muted}>{ownRepo}</Text>
           <Box flexGrow={1} />
           {p.queue > 0 && <Button key="queue" plain onPress={() => toggle('queueOpen')}><Text color={t?.muted}>{`Queue ${p.queue}`}</Text></Button>}
-          {(p.ledger ?? 0) > 0 && <Button key="ledger" plain onPress={() => toggle('ledgerOpen')}><Text color={t?.muted}>{`Due ${p.ledger}`}</Text></Button>}
+          {dueButton}
           {detailsButton}
         </Box>
         {rule}
@@ -385,7 +436,7 @@ export const register: Register = (on, options) => {
             </Box>
           )
         })}
-        {ledgerLines.map(line => <Text wrap="truncate">{ledgerSummary(line)}</Text>)}
+        {dueRows}
       </Box>
     )
     return below ? <Box flexDirection="column">{mine}{below}</Box> : mine

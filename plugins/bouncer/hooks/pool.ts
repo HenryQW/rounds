@@ -147,10 +147,10 @@ export const prMark = (state?: string): [string, string] =>
 /** A queue line (`KEY | repo | mode | note`) as `KEY · repo · mode`. */
 export const queueSummary = (line: string) => line.split('|').slice(0, 3).map(s => s.trim()).filter(Boolean).join(' · ')
 
-/** A `bouncer-ledger list` line (`/r/KEY.md: - [open] kind | key | ... | next: x | date`) as `KEY · kind · x`. */
-export const ledgerSummary = (line: string) => {
-  const m = /([^/]+)\.md: - \[open\] (\S+) \|.*\| next: (.*?) \| \d{4}-\d{2}-\d{2}\s*$/.exec(line)
-  return m ? `${m[1]} · ${m[2]} · ${m[3]}` : line
+/** A `bouncer-ledger` line (`/r/KEY.md: - [open] kind | key | ... | next: x | date`) as its record, kind, key and next step. */
+export const ledgerItem = (line: string) => {
+  const m = /([^/]+)\.md: - \[open\] (\S+) \| (.+?) \|.*\| next: (.*?) \| \d{4}-\d{2}-\d{2}\s*$/.exec(line)
+  return m ? { record: m[1]!, kind: m[2]!, key: m[3]!, next: m[4]! } : undefined
 }
 
 export const queueLines = (text: string) => text.split('\n').filter(l => l.trim() !== '')
