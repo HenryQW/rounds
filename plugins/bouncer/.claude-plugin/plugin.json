@@ -23,6 +23,12 @@
       "description": "Short codes for ticket statuses in Bartender titles, as Name=Code pairs with ; between them. Use the status names of your tracker.",
       "default": "Backlog=Bklog; Todo=Todo; In Progress=Dev; In Review=CR; Done=Done; Canceled=Cxl; Duplicate=Dup; Open=Open; Closed=Done"
     },
+    "records_dir": {
+      "type": "string",
+      "title": "Ticket records folder",
+      "description": "The folder of the ticket records (one <TICKET>.md each), whose LEDGER sections hold the work to revisit, for example ~/.tickets. Blank: tickets/ in the plugin data folder.",
+      "default": ""
+    },
     "linear_workspace_url": {
       "type": "string",
       "title": "Linear workspace URL",

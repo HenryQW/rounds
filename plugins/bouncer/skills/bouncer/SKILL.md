@@ -56,7 +56,7 @@ There is no drafting type: the Bartender that owns the work drafts its messages.
 ## Pool
 - Caps: 3 active Bartenders, 3 concurrent Barbacks per Bartender. There is no limit per repo: tickets of one repo run in parallel, one Bartender each. Raise the active cap to 4 only when work often waits in the queue and no question waited on the user for more than an hour. Lower it on rate-limit errors, slow builds or a pile of questions.
 - `<repo>` is the folder name of the repo's main checkout, for example `my-repo`. The Bartender `cwd` is that main checkout, which is also the Bouncer's folder; each Bartender works in its own worktree of it.
-- The ticket record is one file a ticket outside every repo, so a branch switch or a new worktree never loses it: the place the user's rules name, else `<data>/tickets/<TICKET>.md`.
+- The ticket record is one file a ticket outside every repo, so a branch switch or a new worktree never loses it: `<records>/<TICKET>.md`, where `<records>` is the `records_dir` plugin option (`${user_config.records_dir}`), else the place the user's rules name (pass it as `BOUNCER_RECORDS=<folder>` to `bouncer-ledger`), else `<data>/tickets`. Work with no ticket gets a record named `<repo>-<branch>`, for example `rounds-bouncer-own-calls.md`. The Bartender that holds the context writes its record at each turn end.
 - `<data>` is the plugin's data folder: the one path that `${CLAUDE_SKILL_DIR}/scripts/bouncer-data` prints. Claude Code keeps it across plugin updates and removes it on uninstall unless `--keep-data` is given. Every Bouncer session sees the same folder, whatever folder it runs in.
 - The pool state is the session titles. `list_sessions {"linked": true}` is the only read the Bouncer needs to route.
 - Titles (the Bouncer is the only one that renames, with `set_session_title`). Make each title with `${CLAUDE_SKILL_DIR}/scripts/bouncer-title <args>`, never by hand (the one exception is an unknown status, below). Status codes: `${user_config.status_codes}`. The script reads the option from Claude Code's settings itself; `BOUNCER_STATUS_CODES="<pairs>"` before the command overrides it. With no option set, it uses the default codes:
@@ -72,7 +72,7 @@ There is no drafting type: the Bartender that owns the work drafts its messages.
 - Queue: work above the cap waits in `<data>/queue.md`, one line a ticket: `<TICKET> | repo | mode | brief source`. Change it only with `scripts/bouncer-queue add|pop|remove|list`. `add` replaces a stale line of the same ticket. `pop` exit 1: the queue is empty. `remove <TICKET>` exit 1: no line has that ticket.
 - Questions: each question that waits on the user is one line in `<data>/questions.md`: `<TICKET> | <session_id> | <question with default>`, oldest first. The Bouncer's own questions use the session id `self`. Change it only with `scripts/bouncer-questions add|next|done|list|count`. The band shows each question next to its Bartender.
 - Grants: the user's one yes for a ticket's closing chain is one line in `<data>/grants.md`: `<TICKET> | <actions> | <the user's words>`. Change it only with `scripts/bouncer-grants add|has|get|done|list`. Only the Bouncer writes it.
-- Ledger: each piece of work to revisit later is one line in `<data>/ledger.md`: `<id> | <kind> | <key> | <trigger> | <check> | <added> | <note>`. Change it only with `scripts/bouncer-ledger add|done|due|list`. See "Ledger".
+- Ledger: each piece of work to revisit later is one line in the `LEDGER` section of its ticket record. Change it only with `scripts/bouncer-ledger add|done|due|list|stale`. See "Ledger".
 - Band prompts are sequential: the band sends none while a question waits on the user (count above 0) or while your turn runs, and at most one until your turn ends. Answer the open question first.
 - Band prompts: the band above the prompt sends you plain requests from the user. `<TICKET>: status` asks for that Bartender's status; `<TICKET>: stop` stops it (`stop_session`); `<TICKET>: reset` resets it ("Reset and assign"). `queue: pop` and `queue: remove <TICKET>` run `bouncer-queue` with that command. `<TICKET>: open` (sent when the band could not open it itself) shows that Bartender beside you: `open_session_in` with its session id and `target: "split"` ("focus" is refused while the cursor is in a text field). Only you talk to Bartenders.
 
@@ -128,7 +128,7 @@ Fill in the `<...>` parts.
 You are a Bartender in Bouncer mode. Ticket: <TICKET>. Mode: <mode>. Repo: <repo>.
 Goal: <one line>. Done means: <acceptance criteria>.
 Work only in your own worktree, never in the shared main checkout. First run `${CLAUDE_SKILL_DIR}/scripts/bartender-branch <TICKET> [base]` (base default main) there. It makes a new branch from the base. Exit 1: a dirty tree; report BLOCKED with "dirty tree" in RESULT, and never stash, commit or discard changes that are not yours.
-Record: keep the ticket state in <ticket record path> after each result, not in messages. Decisions and results also go where the user's rules say (the ticket, a work doc).
+Record: keep the ticket state in <ticket record path> after each result and at each turn end, not in messages. Keep its LEDGER section (the lines that `bouncer-ledger` writes) when you rewrite the record, and add a line for anything left to revisit. Decisions and results also go where the user's rules say (the ticket, a work doc).
 Run each bounded part in a Barback: the Agent tool with isolation "worktree", and the model and effort the user's rules give for that kind of work. At most 3 Barbacks at a time.
 A Barback that cannot decide returns "NEEDS_INPUT: <one question>". Answer it from the rules, the docs or a sensible default, then resume it with SendMessage to its agent id.
 For any question that rules and defaults do not settle (technical, product or priority), consult the advisor if this setup has one, before you send it up. A Mechanical Bartender never consults the advisor: it sends the question up.
@@ -177,19 +177,21 @@ The Bouncer runs each outward action of a ticket itself, from what the Bartender
 5. After the chain: `bouncer-grants done <TICKET>`, then report each action in one line (PR link, merge commit, comment link) and show any posted text in full. A PR left open (not merged yet) gets a ledger line.
 
 ## Ledger
-The ledger keeps work that must be revisited, so it survives every clear and reset.
-- Add a line whenever work leaves something to revisit: `bouncer-ledger add "<kind> | <key> | <trigger> | <check> | <note>"`.
+The ledger keeps work that must be revisited in the ticket records, so it survives every clear and reset. There is no separate ledger file.
+- Each open item is one line in the `LEDGER` section of its record: `- [open] <kind> | <key or URL> | trigger: <text> | check: <command> | next: <one-line next action> | <date>`. A settled item becomes `- [done]`.
+- Add a line whenever work leaves something to revisit: `bouncer-ledger add <record> <kind> <key> "<trigger>" "<check>" "<next>"`.
 
   | Kind | Key | Trigger and check |
   |---|---|---|
   | `pr` | PR URL | Leave both empty: due when the PR merged or closed |
-  | `held-message` | Ticket key | When to send it, and a command that exits 0 then. The draft text stays in the ticket record; the note points to it |
+  | `held-message` | Ticket key | When to send it, and a command that exits 0 then. The draft text stays in the record |
   | `follow-up` | Ticket key | What it waits on, and a check if one exists |
   | `verify` | Ticket key | What to verify where (for example staging), and a check if one exists |
 
-  A check exits 0 when due and 1 when not. No `|` in a check: the line uses `|` between fields.
-- Run `bouncer-ledger due` at Bouncer start and on each user turn. Act on each due item through the "Decision table" (a held message still needs the user's yes to send), and `bouncer-ledger done <id>` when it is settled. An `unsure` line: check it by hand.
-- An item with no check is never due by itself: read `bouncer-ledger list` when the user asks what is open.
+  A check exits 0 when due and 1 when not.
+- Run `bouncer-ledger due` at Bouncer start and on each user turn. It prints only due items, each with its record path: read that one record, never all of them. Act on each due item through the "Decision table" (a held message still needs the user's yes to send), and `bouncer-ledger done <record> <key>` when it is settled. An `unsure` line: check it by hand.
+- Run `bouncer-ledger stale --turn <record>=<last turn time>` (one `--turn` for each Bartender, from `list_sessions`) at Bouncer start. For a stale record, ask its Bartender to refresh it. Only when that Bartender is gone, a Haiku subagent rebuilds the record from that session's transcript. No routine model summaries.
+- An item with no check is never due by itself: run `bouncer-ledger list` when the user asks what is open.
 - The band shows the open count.
 
 ## Escalation
@@ -217,4 +219,4 @@ Auto mode refuses an approval that one session relays to another ("Unsanctioned 
 ## Token rules
 - One Barback costs about 68K tokens of startup context (measured 2026-11-25, Haiku, one tool call). Use a Barback for real work, never for a one-line check.
 - Messages between levels carry the report shape only. Detail goes to the ticket record.
-- The Bouncer clears itself (`clear_session "self"`) when its context passes 150K and no Bartender is working. The session titles hold the pool, and `<data>/queue.md`, `questions.md`, `grants.md` and `ledger.md` hold the queue, the open questions, the closing chain grants and the work to revisit, so nothing is lost.
+- The Bouncer clears itself (`clear_session "self"`) when its context passes 150K and no Bartender is working. The session titles hold the pool, and `<data>/queue.md`, `questions.md` and `grants.md` hold the queue, the open questions and the closing chain grants, and the records' `LEDGER` sections hold the work to revisit, so nothing is lost.

@@ -292,15 +292,18 @@ test('a turn-end note sets the status code, and the CTA follows questions.md', a
   expect(renames).toEqual(['local_a=[CR] 🍸 MIDI-1 aspire', 'self=🚪 Bouncer'])
 })
 
-test('the band shows the open ledger count', async ($, on) => {
+test('the band shows the open ledger count', { options: { records_dir: '~/.tickets' } }, async ($, on) => {
   on('tool.call', () => ({ result: {} }))
-  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
-  on('fs.read', (_: unknown, e: { path?: string }) => {
-    if (e.path === '/data/ledger.md') return { value: 'L1 | pr | u | t |  | 2026-11-26 | n\nL2 | verify | K | t | true | 2026-11-26 | n\n' }
-    throw new Error('missing')
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
+  on('fs.read', () => { throw new Error('missing') })
+  const envs: unknown[] = []
+  on('process.run', (_: unknown, e: any) => {
+    envs.push([e.argv.join(' '), e.init?.env?.BOUNCER_RECORDS])
+    return { value: { exitCode: 0, stdout: '/r/K-1.md: - [open] pr | u\n/r/K-2.md: - [open] verify | K\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   await title($, 'self', '🚪 Bouncer')
-  await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-ledger list' } as any)
+  await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-ledger done K-1 u' } as any)
+  expect(envs).toEqual([['/plugin/skills/bouncer/scripts/bouncer-ledger list', '~/.tickets']])
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect((await ui.find({ type: 'Text', text: /ledger/ }))?.text).toBe('ledger 2')
   await ui.unmount()

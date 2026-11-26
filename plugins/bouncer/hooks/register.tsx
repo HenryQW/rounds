@@ -14,11 +14,19 @@ const dataFile = async ($: EngineInterface, name: string) => {
   const data = (await $.process.hookEnv()).CLAUDE_PLUGIN_DATA
   return String(data ? await $.fs.read(`${data}/${name}`).catch(() => '') : '')
 }
-const refreshData = async ($: EngineInterface) => {
+// Open ledger items live in the ticket records; bouncer-ledger list prints one line each.
+const ledgerCount = async ($: EngineInterface, records: string) => {
+  const env = await $.process.hookEnv()
+  if (!env.CLAUDE_PLUGIN_ROOT) return undefined
+  const ran = await $.process.run([`${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-ledger`, 'list'],
+    { env: records ? { ...env, BOUNCER_RECORDS: records } : env }).catch(() => undefined)
+  return ran?.exitCode === 0 ? queueLines(ran.stdout).length : undefined
+}
+const refreshData = async ($: EngineInterface, records = '') => {
   const lines = queueLines(await dataFile($, 'queue.md'))
   const questions = questionsBySession(await dataFile($, 'questions.md'))
-  const ledger = queueLines(await dataFile($, 'ledger.md')).length
-  await update($, pool, p => ({ ...p, queue: lines.length, queueLines: lines, questions, ledger }))
+  const ledger = await ledgerCount($, records)
+  await update($, pool, p => ({ ...p, queue: lines.length, queueLines: lines, questions, ledger: ledger ?? p.ledger }))
 }
 
 // Make the titles match the open questions and, given a report, its status code; set_session_title is the Bouncer's own call.
@@ -42,6 +50,7 @@ const onNote = async ($: EngineInterface, text: string) => {
 
 export const register: Register = (on, options) => {
   const linear = String(options.linear_workspace_url ?? '').replace(/\/+$/, '')
+  const records = String(options.records_dir ?? '').trim()
 
   on('tool.call', async ($, e, next) => {
     const ran = await next(e)
@@ -50,7 +59,7 @@ export const register: Register = (on, options) => {
     const tool = String(e.tool)
     if (tool === 'Skill' && /(^|:)bouncer$/.test(String((e as { skill?: unknown }).skill ?? ''))) {
       await update($, pool, p => ({ ...p, isOn: true }))
-      await refreshData($)
+      await refreshData($, records)
     } else if (tool.endsWith('__set_session_title')) {
       const { session_id, title } = e as { session_id?: unknown; title?: unknown }
       const before = (await read($, pool)).waiting
@@ -66,7 +75,7 @@ export const register: Register = (on, options) => {
     } else if (tool.endsWith('__archive_session')) {
       await update($, pool, p => archived(p, String((e as { session_id?: unknown }).session_id)))
     } else if (tool === 'Bash' && /bouncer-(queue|questions|ledger)/.test(String((e as { command?: unknown }).command))) {
-      await refreshData($)
+      await refreshData($, records)
       if (/bouncer-questions/.test(String((e as { command?: unknown }).command))) await syncTitles($)
     }
     return ran
@@ -142,7 +151,7 @@ export const register: Register = (on, options) => {
             </Box>
           ))}
           {p.queue > 0
-            ? <Button key="queue" onPress={async () => { await update($, pool, q => ({ ...q, queueOpen: !q.queueOpen })); await refreshData($) }}>
+            ? <Button key="queue" onPress={async () => { await update($, pool, q => ({ ...q, queueOpen: !q.queueOpen })); await refreshData($, records) }}>
                 {`queue ${p.queue}`}
               </Button>
             : <Text dimColor>queue 0</Text>}

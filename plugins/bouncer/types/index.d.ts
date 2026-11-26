@@ -15,7 +15,7 @@ export type Pool = {
   pending?: boolean
   /** Bartender session id to its open question for the user, from `questions.md`. */
   questions?: Readonly<Record<string, string>>
-  /** Open items in `ledger.md` (work to revisit); absent in a value an earlier version stored. */
+  /** Open items in the records' LEDGER sections (`bouncer-ledger list`); absent in a value an earlier version stored. */
   ledger?: number
 }
 

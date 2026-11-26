@@ -122,27 +122,38 @@ ok "grants: a new grant of the same ticket replaces the old" "$(./bouncer-grants
 ok "grants: get" "$(./bouncer-grants get ABC-1)" "ABC-1 | close, link, comment | yes, close it"
 ./bouncer-grants done ABC-2; ok "grants: done removes only that ticket" "$(cat "$tmp/q/grants.md")" "ABC-1 | close, link, comment | yes, close it"
 
-# bouncer-ledger (in the data folder; a fake gh answers PR states)
+# bouncer-ledger (LEDGER sections in the records; a fake gh answers PR states)
 mkdir -p "$tmp/bin"; printf '#!/bin/sh\ncase "$3" in *merged*) echo MERGED;; *open*) echo OPEN;; *) exit 1;; esac\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
-export BOUNCER_TODAY=2026-11-26
-ok "ledger: due on empty prints nothing" "$(./bouncer-ledger due)" ""
-./bouncer-ledger add "memo | K-1 | t | | n" 2>/dev/null; ok "ledger: unknown kind exits 2" $? 2
-./bouncer-ledger add "pr |  | t | | n" 2>/dev/null; ok "ledger: no key exits 2" $? 2
-./bouncer-ledger done L9 2>/dev/null; ok "ledger: done of a missing id exits 1" $? 1
-./bouncer-ledger nope 2>/dev/null; ok "ledger: bad command exits 2" $? 2
-ok "ledger: add prints the id" "$(./bouncer-ledger add "pr | https://x/pull/1-merged | | | dev PR")" L1
-./bouncer-ledger add "pr | https://x/pull/2-open | | | staging PR" >/dev/null
-./bouncer-ledger add "held-message | K-1 | PR 2 merged | true | QA reply | draft in record" >/dev/null
-./bouncer-ledger add "follow-up | K-2 | K-1 accepted | false | waits" >/dev/null
-./bouncer-ledger add "verify | K-3 | staging | exit 3 | odd" >/dev/null
-./bouncer-ledger add "follow-up | K-4 | by hand | | no check" >/dev/null
-ok "ledger: a pr line gets the default trigger and the date" "$(sed -n 1p "$tmp/q/ledger.md")" "L1 | pr | https://x/pull/1-merged | merged or closed |  | 2026-11-26 | dev PR"
-ok "ledger: the note keeps |" "$(sed -n 3p "$tmp/q/ledger.md" | cut -d'|' -f7-)" " QA reply | draft in record"
-ok "ledger: due prints merged PRs and fired checks only" "$(PATH="$tmp/bin:$PATH" ./bouncer-ledger due 2>/dev/null | cut -d' ' -f1 | tr '\n' ' ')" "L1 L3 "
-ok "ledger: a check with another exit code is unsure" "$(PATH="$tmp/bin:$PATH" ./bouncer-ledger due 2>&1 >/dev/null | cut -d' ' -f1-2)" "unsure L5"
-./bouncer-ledger done L1; ok "ledger: done removes only that item" "$(./bouncer-ledger list | cut -d' ' -f1 | tr '\n' ' ')" "L2 L3 L4 L5 L6 "
-ok "ledger: ids keep counting after a done" "$(./bouncer-ledger add "verify | K-9 | x | false | y")" L7
-unset BOUNCER_TODAY
+export BOUNCER_TODAY=2026-11-26 BOUNCER_RECORDS="$tmp/rec"
+lg() { PATH="$tmp/bin:$PATH" ./bouncer-ledger "$@"; }
+ok "ledger: due with no records prints nothing" "$(lg due)" ""
+lg add K-1 memo k t "" n 2>/dev/null; ok "ledger: unknown kind exits 2" $? 2
+lg add ../x pr k "" "" n 2>/dev/null; ok "ledger: a bad record name exits 2" $? 2
+lg add K-1 follow-up "a | b" t "" n 2>/dev/null; ok "ledger: | in the key exits 2" $? 2
+lg done K-1 k 2>/dev/null; ok "ledger: done with no item exits 1" $? 1
+lg nope 2>/dev/null; ok "ledger: bad command exits 2" $? 2
+mkdir -p "$tmp/rec"; printf 'GOAL\nFix it.\n\nLEDGER\n- [done] verify | K-0 | trigger: x | check: true | next: y | 2026-11-01\n\nLINKS\nx\n' > "$tmp/rec/K-1.md"
+lg add K-1 pr https://x/pull/1-merged "" "" "close the ticket" >/dev/null
+lg add K-1 held-message K-1 "PR 2 merged" 's=$(echo a | tr a b); [ "$s" = b ]' "post the QA reply" >/dev/null
+lg add K-2 follow-up K-2 "K-1 accepted" false "start K-2" >/dev/null
+lg add rounds-main verify rounds "staging" "exit 3" "check it" >/dev/null
+lg add rounds-main pr https://x/pull/2-open "" "" "merge" >/dev/null
+ok "ledger: add goes under the LEDGER header, before other sections" "$(sed -n 6,7p "$tmp/rec/K-1.md" | cut -c1-24 | tr '\n' ';')" "- [open] pr | https://x/;- [open] held-message | ;"
+ok "ledger: other sections stay" "$(tail -2 "$tmp/rec/K-1.md" | tr '\n' ';')" "LINKS;x;"
+ok "ledger: a record with no section gets one at the end" "$(sed -n 1p "$tmp/rec/K-2.md")" "LEDGER"
+ok "ledger: a pr line gets the default trigger" "$(sed -n 6p "$tmp/rec/K-1.md")" "- [open] pr | https://x/pull/1-merged | trigger: merged or closed | check:  | next: close the ticket | 2026-11-26"
+ok "ledger: list prints open items with their record" "$(lg list | sed "s#$tmp/rec/##" | cut -d: -f1 | tr '\n' ' ')" "K-1.md K-1.md K-2.md rounds-main.md rounds-main.md "
+ok "ledger: due prints merged PRs and fired checks (a | in a check is kept)" "$(lg due 2>/dev/null | sed "s#$tmp/rec/##" | cut -d' ' -f1,4 | tr '\n' ';')" "K-1.md: pr;K-1.md: held-message;"
+ok "ledger: a check with another exit code is unsure" "$(lg due 2>&1 >/dev/null | cut -d' ' -f1)" "unsure"
+lg done K-1 https://x/pull/1-merged; ok "ledger: done marks only that item" "$(/usr/bin/grep -c '^- \[done\]' "$tmp/rec/K-1.md") $(lg list | /usr/bin/grep -c K-1.md)" "2 1"
+touch -t 202611010000 "$tmp/rec/K-2.md"
+ok "ledger: stale by age" "$(BOUNCER_NOW=$(date -j -f %Y%m%d%H%M 202611260000 +%s) lg stale | sed "s#$tmp/rec/##")" "K-2.md: older than 7 days"
+ok "ledger: stale by the Bartender's last turn" "$(BOUNCER_NOW=$(date -j -f %Y%m%d%H%M 202611260000 +%s) lg stale --days 30 --turn K-2=2026-11-02T00:00:00 | sed "s#$tmp/rec/##")" "K-2.md: older than its Bartender's last turn"
+ok "ledger: a fresh record is not stale" "$(lg stale --turn K-1=2020-01-01T00:00:00 | /usr/bin/grep -c K-1.md)" 0
+lg stale --turn K-1 2>/dev/null; ok "ledger: stale --turn without a time exits 2" $? 2
+unset BOUNCER_TODAY BOUNCER_RECORDS
+mkdir -p "$tmp/optcfg"; echo "{\"pluginConfigs\": {\"bouncer@rounds\": {\"options\": {\"records_dir\": \"$tmp/rec\"}}}}" > "$tmp/optcfg/settings.json"
+ok "ledger: the records_dir option names the folder" "$(CLAUDE_CONFIG_DIR="$tmp/optcfg" ./bouncer-ledger list | /usr/bin/grep -c "$tmp/rec/")" 4
 unset BOUNCER_DATA
 
 # bouncer-report
