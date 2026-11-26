@@ -61,19 +61,31 @@ _Avoid_: repo, workspace, folder
 
 ## Bouncer mode roles
 
-Bouncer mode runs as the `bouncer` plugin (`plugins/bouncer`) in Claude desktop. Rounds reads the session titles (spec 2.1).
+Bouncer mode runs as the `bouncer` plugin (`plugins/bouncer`) in Claude desktop. Rounds reads the session titles (spec 2.1). An experimental Pi Bouncer runs beside it ([docs/bouncer-mode/pi-loop.md](docs/bouncer-mode/pi-loop.md)).
 
 **Bouncer**:
 The user-facing agent that assigns repository tasks to Bartenders and coordinates their results. It makes routine decisions and decides which results need the user's attention.
 _Avoid_: router agent
 
 **Bartender**:
-An agent that carries out a repository task in its own worktree on its own branch and reports to the Bouncer. Rounds shows it as a subagent of its Bouncer. One repository can have multiple Bartenders in separate worktrees. A Bartender can delegate bounded work to Barbacks.
+An agent that carries out a repository task in its own worktree on its own branch and reports to the Bouncer. Rounds shows a Claude desktop Bartender as a subagent of its Bouncer. One repository can have multiple Bartenders in separate worktrees. A Bartender can delegate bounded work to Barbacks.
 _Avoid_: repository agent, network server
 
 **Barback**:
 A subagent that carries out bounded work for a Bartender and reports to that Bartender. It cannot delegate further or request input directly from the user.
 _Avoid_: worker, runner
+
+**Claim**:
+The Pi Bouncer's mark on a GitHub issue that says one Bartender has it: the `bouncer:claimed` label. One issue has one claim.
+_Avoid_: lease, lock, assignment
+
+**Wake**:
+A turn that the Pi Bouncer starts by itself because the state of its issues or Bartenders changed.
+_Avoid_: tick, poll, nudge
+
+**Orphan**:
+A claimed issue that has a worktree or branch but no live Bartender. The Pi Bouncer reports it and does not start it again.
+_Avoid_: interrupted, stale task
 
 ## States
 
