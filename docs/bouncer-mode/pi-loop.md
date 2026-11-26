@@ -58,7 +58,7 @@ A wake fires only on a difference, one wake at a time, with a 60 second minimum.
 
 ## Reconcile
 
-The `bouncer-reconcile` script reads the issues, `herdr agent list`, `git worktree list` and the local `bouncer/*` branches. It gives one state and one action for each issue. It writes nothing.
+The `bouncer-reconcile` script reads the issues, `herdr agent list`, `git worktree list` and the local `bouncer/*` branches. It gives one state and one action for each issue. It writes nothing. The script is in the `henry` skill, with a fixture test; its config is `~/.config/bouncer/config.json` and holds the owner, the cap, the write level of each organization and the repositories to watch.
 
 | State | Action |
 |---|---|
