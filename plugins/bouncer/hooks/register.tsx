@@ -63,8 +63,13 @@ export const register: Register = (on, options) => {
     // Only the Bouncer talks to Bartenders: the band asks it with a plain prompt.
     const ask = (text: string) => void $.prompt.submit({ text })
     const lines = p.queueOpen ? p.queueLines ?? [] : []
-    // The app opens a session from its link; a Link draws a non-https href as plain text on desktop.
-    const open = (id: string) => void $.process.run(['open', `claude://claude.ai/epitaxy/${id}`]).catch(() => undefined)
+    // `open claude://…` does not switch the app (tried 2026-11-26), so show the Bartender in split view.
+    // The window tool takes only sessions the Bouncer started; when the call fails, the Bouncer opens it.
+    const open = async (id: string, name: string) => {
+      const ran = await $.tool.call({ tool: 'mcp__ccd_window__open_session_in', session_id: id, target: 'split' } as any)
+        .catch(() => undefined)
+      if (!ran || ran.deny !== undefined || ran.isError === true) ask(`${name}: open`)
+    }
 
     const mine = (
       <Box flexDirection="column" width={width}>
@@ -97,7 +102,7 @@ export const register: Register = (on, options) => {
         {bartenders.filter(b => b.cta).map(b => (
           <Box flexDirection="row" alignItems="center" gap={1}>
             <Text color="warning">! {b.ticket || b.repo}: {p.questions?.[b.id] ?? 'waits on you'}</Text>
-            <Button key={`open:${b.id}`} onPress={() => open(b.id)}>Open</Button>
+            <Button key={`open:${b.id}`} onPress={() => open(b.id, b.ticket || b.repo)}>Open</Button>
           </Box>
         ))}
         {lines.map((line, i) => {

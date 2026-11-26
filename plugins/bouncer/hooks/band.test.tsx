@@ -150,9 +150,14 @@ test('a start_session call with a non-Bartender title leaves the pool unchanged'
 })
 
 test('a Bartender that waits shows its question and opens its conversation', async ($, on) => {
+  const opened: unknown[] = []
+  on('tool.call', { tool: 'mcp__ccd_window__open_session_in' }, (_: unknown, e: any) => {
+    opened.push([e.session_id, e.target])
+    if (e.session_id === 'local_c') return { deny: 'not a session this session started' }
+    return { result: 'Opened in split view.' }
+  })
   engine(on)
-  const runs: unknown[] = []
-  on('process.run', (_: unknown, e: any) => { runs.push(e.argv); return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } })
+  const { prompts } = record(on)
   await title($, 'local_a', '![Wont] MIDI-1616 - Bartender - aspire')
   await title($, 'local_b', '[Dev] MIDI-2 - Bartender - web')
   await title($, 'local_c', '![Dev] MIDI-3 - Bartender - web')
@@ -163,7 +168,11 @@ test('a Bartender that waits shows its question and opens its conversation', asy
   expect((await ui.find({ type: 'Text', text: /MIDI-3:/ }))?.text).toBe('! MIDI-3: waits on you')
   expect(await ui.find({ type: 'Text', text: /MIDI-2:/ })).toBe(undefined)
   expect((await ui.findAll({ type: 'Button' })).map(b => b.key).filter(k => k?.startsWith('open:'))).toEqual(['open:local_a', 'open:local_c'])
+
+  // The plugin opens the Bartender in split view itself; when the app refuses, it asks the Bouncer.
   await ui.press({ key: 'open:local_a' })
-  expect(runs).toEqual([['open', 'claude://claude.ai/epitaxy/local_a']])
+  await ui.press({ key: 'open:local_c' })
+  expect(opened).toEqual([['local_a', 'split'], ['local_c', 'split']])
+  expect(prompts).toEqual(['MIDI-3: open'])
   await ui.unmount()
 })
