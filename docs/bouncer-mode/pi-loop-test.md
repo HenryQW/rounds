@@ -57,4 +57,4 @@ Setup: private repository `HenryQW/bouncer-probe-20261126` with the labels `boun
 
 ## Cleanup
 
-The Bouncer and both Bartenders stopped. Their Herdr workspaces, the worktrees, the test clone and the live `bouncer.json` are removed. The test repository is not deleted yet: the GitHub token has no `delete_repo` scope.
+The Bouncer and both Bartenders stopped. Their Herdr workspaces, the worktrees, the test clone and the live `bouncer.json` are removed. The owner deleted the test repository on 2026-11-26. It now returns HTTP 404.
