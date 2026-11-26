@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { EMPTY, ago, archived, columns, dots, ledgerSummary, parseBartender, prMark, prUrl, queueLines, queueSummary, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
+import { EMPTY, ago, archived, columns, dots, ledgerSummary, parseBartender, ledgerNext, prMark, prUrl, prUrls, ticketLedger, queueLines, queueSummary, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
 import type { Column, Report } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
@@ -248,13 +248,12 @@ export const register: Register = (on, options) => {
     }
     const strip = bartenders.length === 0
       ? <Text>no Bartenders yet</Text>
-      : <Text key="dots">{dots(p.bartenders, p.reports, p.running).join('')}</Text>
-    // The sub-line: the last report's RESULT or wait reason; before any report, whether a turn runs.
+      : <Text key="dots">{dots(p.bartenders, p.reports, p.running).join(' ')}</Text>
+    // Row 2 is the most useful fact: the next step of the ticket's open ledger item, else the last report's RESULT or
+    // wait reason, else nothing (the dot already says whether a turn runs).
     const sub = (c: Column) => {
       const id = c.ids.length === 1 ? c.ids[0]! : undefined
-      if (!id) return c.ids.length > 1 ? 'free for work' : ''
-      // The PR shows once, as the card's link, never in the sub-line.
-      return p.notes?.[id] || (p.running?.[id] ? 'working' : p.running?.[id] === false ? 'waiting' : '')
+      return id ? ledgerNext(ticketLedger(p.ledgerLines ?? [], c.ticket)) ?? p.notes?.[id] ?? '' : ''
     }
     const isTerminal = e.surface === 'terminal'
     // Linear's look off the terminal; the terminal keeps its own colours.
@@ -293,50 +292,59 @@ export const register: Register = (on, options) => {
     const { Link } = $.ui.resolve(e)
     // The clock only when a card shows a time.
     const now = Object.values(p.sessions ?? {}).some(x => x.at) ? await $.clock.now() : 0
-    // One card a Bartender, as a Rounds session row, in three rows so no line squeezes another: the title (dot and key, the
-    // key a link to its Linear issue) with `⋯` (the menu) on the right; the status code and branch (it truncates first)
-    // with the time and the PR link on the right; the sub-line. Linear's tokens give the colours and the card. Width 0 and grow 1 give equal cards
-    // (no flexBasis prop). The title is not a Button: a desktop Button adds its own inset, so the lines would not align.
+    // One card a Bartender, as a Rounds session row in two rows. Row 1: the title (dot and key, the key a link to its Linear
+    // issue), the status code as a chip, the PR (`#17860 +1`, glyph in the PR state colour), the time, `⋯` (the menu).
+    // Row 2: the next step or the last result. Width 0 and grow 1 give equal cards (no flexBasis prop). The title is not a
+    // Button: a desktop Button adds its own inset, so the rows would not align.
+    // shortcut: no prop gives a card's drawn width, so what fits is guessed from the band's cells (one character a cell);
+    // when row 1 is too long the time goes first, then the chip. Measure the card once the engine gives its width.
+    const room = Math.floor((e.props.bodyColumns ?? 120) / Math.max(1, shown.length)) - 3
     const card = (c: Column) => {
       const id = c.ids.length === 1 ? c.ids[0]! : undefined
       const s = id ? p.sessions?.[id] : undefined
-      const branch = s?.branch ?? s?.cwd?.split('/').pop()
       const [glyph, glyphColor] = prMark(s?.pr?.state)
-      // The PR link only from a full URL its report or its ticket's ledger lines name; else the number as plain text.
-      const href = s?.pr && prUrl(s.pr.number, [p.reportTexts?.[id!] ?? '', ...(p.ledgerLines ?? []).filter(l => c.ticket && l.includes(`/${c.ticket}.md:`))])
+      // PR links only from full URLs in its report or its ticket's ledger lines; never from the folder's remote.
+      const urls = prUrls([id ? p.reportTexts?.[id] ?? '' : '', ...ticketLedger(p.ledgerLines ?? [], c.ticket)])
+      const n = s?.pr?.number ?? Number(/\d+$/.exec(urls[0] ?? '')?.[0] ?? 0)
+      const href = n ? prUrl(n, urls) : undefined
+      const others = urls.filter(u => u !== href).length
+      const time = s?.at ? ago(s.at, now) : ''
+      const prCells = n ? `⑂ #${n}${others ? ` +${others}` : ''}`.length + 1 : 0
+      const showChip = !!c.label && c.value.length + c.label.length + 3 + prCells <= room
+      const showTime = !!time && c.value.length + (showChip ? c.label.length + 3 : 0) + prCells + time.length + 1 <= room
       const title = c.ticket && linear && LINEAR_KEY.test(c.ticket)
         ? <Box flexDirection="row"><Text>{`${c.dot} `}</Text><Link href={`${linear}/issue/${c.ticket}`} label={c.ticket} /></Box>
         : <Text weight="medium" color={t?.ink} wrap="truncate-end">{c.value}</Text>
-      const line2 = [c.label, branch && `⎇ ${branch}`].filter(Boolean).join(' · ')
+      const line = sub(c)
       return (
         <Box key={`col:${c.key}`} flexDirection="column" minWidth={0} {...(t
           ? { flexGrow: 1, flexShrink: 1, width: 0, minWidth: 24, borderStyle: 'round', borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'lg' as const, paddingY: 'md' as const }
           : colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
           <Box flexDirection="row" alignItems="center" gap="sm">
             <Box key={`title:${c.key}`} flexGrow={1} flexShrink={1} minWidth={0}>{title}</Box>
+            {showChip && (
+              <Box key={`chip:${c.key}`} flexShrink={0} paddingX="xs" {...(t ? { backgroundColor: t.hairline } : {})}>
+                <Text size="footnote" color={t?.muted}>{c.label}</Text>
+              </Box>
+            )}
+            {n > 0 && (
+              <Box key={`pr:${c.key}`} flexDirection="row" flexShrink={0}>
+                <Text color={glyphColor}>{`${glyph} `}</Text>
+                {href ? <Link href={href} label={`#${n}`} /> : <Text color={t?.muted}>{`#${n}`}</Text>}
+                {others > 0 && <Text color={t?.muted}>{` +${others}`}</Text>}
+              </Box>
+            )}
+            {showTime && <Text size="footnote" color={t?.muted}>{time}</Text>}
             <Button key={c.key} plain dimColor label="⋯" onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))} />
           </Box>
-          {(line2 || s?.pr || s?.at) && (
-            <Box flexDirection="row" alignItems="center" gap="sm">
-              <Box key={`line2:${c.key}`} flexGrow={1} flexShrink={1} minWidth={0}>
-                <Text size="footnote" color={t?.muted} wrap="truncate-end">{line2}</Text>
-              </Box>
-              {s?.at && <Box flexShrink={0}><Text size="footnote" color={t?.muted} wrap="truncate">{ago(s.at, now)}</Text></Box>}
-              {s?.pr && (
-                <Box key={`pr:${c.key}`} flexDirection="row" flexShrink={0}>
-                  <Text size="footnote" color={glyphColor}>{`${glyph} `}</Text>
-                  {href ? <Link href={href} label={`#${s.pr.number}`} /> : <Text size="footnote" color={t?.muted}>{`#${s.pr.number}`}</Text>}
-                </Box>
-              )}
-            </Box>
-          )}
           {p.menu === c.key
-            ? <Box flexDirection="row" gap={1} flexWrap="wrap">
-                {actions(c).map(o => <Button key={`${c.key}:${o.value}`} plain onPress={() => pick(c, o.value)}>
-                  <Text color={o.value === 'linear' ? t?.accent : t?.muted}>{o.label}</Text>
+            // The menu takes row 2: quiet footnote buttons, so the card keeps its height.
+            ? <Box flexDirection="row" gap="sm" flexWrap="wrap">
+                {actions(c).map(o => <Button key={`${c.key}:${o.value}`} plain dimColor onPress={() => pick(c, o.value)}>
+                  <Text size="footnote" color={o.value === 'linear' ? t?.accent : t?.muted}>{o.label}</Text>
                 </Button>)}
               </Box>
-            : <Box key={`line3:${c.key}`}><Text size="footnote" color={t?.muted} wrap="truncate-end">{sub(c)}</Text></Box>}
+            : line && <Box key={`line:${c.key}`}><Text size="footnote" color={t?.muted} wrap="truncate-end">{line}</Text></Box>}
         </Box>
       )
     }

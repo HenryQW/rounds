@@ -107,15 +107,23 @@ export const sessionRows = (raw: string): SessionRow[] | undefined => {
  * A PR's full GitHub URL from texts that carry one (a report, the ticket's ledger lines); undefined when none names
  * PR `n`. Never built from a folder's remote: a Bartender's PR may live in another repo than its folder.
  */
-export const prUrl = (n: number, texts: readonly string[]) =>
-  texts.flatMap(t => [...t.matchAll(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)/g)])
-    .find(m => Number(m[1]) === n)?.[0]
+export const prUrl = (n: number, texts: readonly string[]) => prUrls(texts).find(u => u.endsWith(`/pull/${n}`))
 
-/** Time since `at`, in the Rounds row's format: `3 sec ago`, `14 min ago`, `2 hr ago`, `3 days ago`. */
+/** Each distinct full GitHub PR URL in the texts, in order. */
+export const prUrls = (texts: readonly string[]) =>
+  [...new Set(texts.flatMap(t => [...t.matchAll(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g)].map(m => m[0])))]
+
+/** The ledger lines of one ticket's record (`/<path>/<KEY>.md: ...`). */
+export const ticketLedger = (lines: readonly string[], ticket: string) => ticket ? lines.filter(l => l.includes(`/${ticket}.md:`)) : []
+
+/** The next step of a ticket's first open ledger item (`... | next: review, then merge | 2026-11-26`). */
+export const ledgerNext = (lines: readonly string[]) =>
+  lines.map(l => /\| next: (.*?) \| \d{4}-\d{2}-\d{2}\s*$/.exec(l)?.[1]?.trim()).find(Boolean)
+
+/** Time since `at`, short: `3s`, `14m`, `2h`, `3d`. */
 export const ago = (at: string, now: number) => {
   const s = Math.max(1, Math.floor((now - Date.parse(at)) / 1000))
-  return s < 60 ? `${s} sec ago` : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? `${Math.floor(s / 3600)} hr ago`
-    : `${Math.floor(s / 86400)} ${Math.floor(s / 86400) === 1 ? 'day' : 'days'} ago`
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`
 }
 
 /** A PR's glyph and colour by its GitHub state, as the Rounds row: green open, purple merged, grey closed. */
