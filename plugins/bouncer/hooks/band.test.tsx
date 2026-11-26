@@ -4,6 +4,7 @@ const BAND = { plugin: 'bouncer', component: 'AbovePrompt', props: { hasSurvey: 
 
 const engine = (on: any) => {
   on('tool.call', () => ({ result: {} }))
+  on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
   on('fs.read', (_: unknown, e: { path?: string }) => {
     if (e.path === '/data/queue.md') return { value: 'A-1 | r | Code | x\nA-2 | r | Spike | y\n' }
@@ -12,14 +13,19 @@ const engine = (on: any) => {
   })
 }
 
-// What the band asks the Bouncer, and the notifications it raises.
+// What the band asks the Bouncer, and the notifications and toasts it raises.
 const record = (on: any) => {
   const prompts: string[] = []
   const notes: string[] = []
+  const toasts: string[] = []
   on('prompt.submit', (_: unknown, e: { text: string }) => { prompts.push(e.text); return { text: e.text } })
   on('ui.notify', (_: unknown, e: { text: string }) => { notes.push(e.text); return { value: { isSent: true, channel: 'test' } } })
-  return { prompts, notes }
+  on('ui.toast', (_: unknown, e: { text: string }) => { toasts.push(e.text); return { value: undefined } })
+  return { prompts, notes, toasts }
 }
+
+// The Bouncer's turn that a band prompt started ends.
+const endTurn = ($: any) => $.turn.complete({ answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
 
 const title = ($: any, session_id: string, t: string) =>
   $.tool.call({ tool: 'mcp__ccd_session_mgmt__set_session_title', session_id, title: t } as any)
@@ -80,7 +86,7 @@ test('the Bartender menu asks the Bouncer, never the Bartender', async ($, on) =
   await title($, 'a', '[Dev] 🍸 MIDI-1616 aspire')
   await title($, 'c', '[Idle] 🍸 web')
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
-  for (const value of ['status', 'stop', 'reset']) await ui.select({ key: 'act:a', value })
+  for (const value of ['status', 'stop', 'reset']) { await ui.select({ key: 'act:a', value }); await endTurn($) }
   await ui.select({ key: 'act:c', value: 'stop' })
   expect(prompts).toEqual(['MIDI-1616: status', 'MIDI-1616: stop', 'MIDI-1616: reset', 'web: stop'])
   await ui.unmount()
@@ -109,6 +115,7 @@ test('the queue opens to its lines, with Pop and Remove sent to the Bouncer', as
   expect((await ui.find({ type: 'Text', text: /A-2 \|/ }))?.text).toBe('A-2 | r | Spike | y')
   expect(await ui.findAll({ key: 'queue:pop' })).toHaveLength(1)
   await ui.press({ key: 'queue:pop' })
+  await endTurn($)
   await ui.press({ key: 'queue:remove:A-2' })
   expect(prompts).toEqual(['queue: pop', 'queue: remove A-2'])
 
@@ -174,5 +181,60 @@ test('a Bartender that waits shows its question and opens its conversation', asy
   await ui.press({ key: 'open:local_c' })
   expect(opened).toEqual([['local_a', 'split'], ['local_c', 'split']])
   expect(prompts).toEqual(['MIDI-3: open'])
+  await ui.unmount()
+})
+
+test('while a question waits, the band sends no prompt but Open still works', async ($, on) => {
+  const opened: unknown[] = []
+  on('tool.call', { tool: 'mcp__ccd_window__open_session_in' }, (_: unknown, e: any) => {
+    opened.push(e.session_id)
+    return e.session_id === 'local_a' ? { result: 'Opened in split view.' } : { deny: 'not started here' }
+  })
+  engine(on)
+  const { prompts, toasts } = record(on)
+  await title($, 'self', '!1 🚪 Bouncer')
+  await title($, 'local_a', '![Dev] 🍸 MIDI-1 aspire')
+  await title($, 'local_b', '![Dev] 🍸 MIDI-2 web')
+  await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-queue list' } as any)
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  await ui.select({ key: 'act:local_a', value: 'stop' })
+  await ui.press({ key: 'queue' })
+  await ui.press({ key: 'queue:pop' })
+  await ui.press({ key: 'open:local_a' })
+  await ui.press({ key: 'open:local_b' })
+  expect(opened).toEqual(['local_a', 'local_b'])
+  expect(prompts).toEqual([])
+  expect(toasts).toEqual(Array(3).fill('Answer the waiting question first'))
+
+  await title($, 'self', '🚪 Bouncer')
+  await ui.select({ key: 'act:local_a', value: 'stop' })
+  expect(prompts).toEqual(['MIDI-1: stop'])
+  await ui.unmount()
+})
+
+test('the band sends one prompt at a time, and none while the Bouncer works', async ($, on) => {
+  engine(on)
+  const { prompts, toasts } = record(on)
+  await title($, 'self', '🚪 Bouncer')
+  await title($, 'local_a', '[Dev] 🍸 MIDI-1 aspire')
+
+  const busy = await $.ui.mount({ ...BAND, surface: 'desktop', props: { ...BAND.props, isWorking: true } } as any)
+  await busy.select({ key: 'act:local_a', value: 'status' })
+  await busy.unmount()
+  expect(prompts).toEqual([])
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: { ...BAND.props, isWorking: false } } as any)
+  await ui.select({ key: 'act:local_a', value: 'status' })
+  await ui.select({ key: 'act:local_a', value: 'stop' })
+  expect(prompts).toEqual(['MIDI-1: status'])
+  expect(toasts).toEqual(Array(2).fill('Wait for the Bouncer to finish its turn'))
+
+  await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, reason: 'answer', agentId: 'sub' } as any)
+  await ui.select({ key: 'act:local_a', value: 'stop' })
+  expect(prompts).toEqual(['MIDI-1: status'])
+  await endTurn($)
+  await ui.select({ key: 'act:local_a', value: 'stop' })
+  expect(prompts).toEqual(['MIDI-1: status', 'MIDI-1: stop'])
   await ui.unmount()
 })

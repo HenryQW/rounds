@@ -48,6 +48,12 @@ export const register: Register = (on, options) => {
     return ran
   })
 
+  // A band prompt's turn ended (main's, not a subagent's): the band may send the next one.
+  on('turn.complete', async ($, e, next) => {
+    if (!e.agentId) await update($, pool, p => (p.pending ? { ...p, pending: false } : p))
+    return next(e)
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const p = await read($, pool)
     if (e.props.hasSurvey || !p.isOn) return next(e)
@@ -60,15 +66,23 @@ export const register: Register = (on, options) => {
       const b = parseBartender(t)
       return b ? [{ id, ...b }] : []
     })
-    // Only the Bouncer talks to Bartenders: the band asks it with a plain prompt.
-    const ask = (text: string) => void $.prompt.submit({ text })
+    // Only the Bouncer talks to Bartenders: the band asks it with a plain prompt. Prompts are sequential:
+    // none while a question waits on the user, while the Bouncer works, or before the last one's turn ended.
+    const isWorking = e.props.isWorking
+    const ask = async (text: string) => {
+      const now = await read($, pool)
+      if (now.waiting > 0) return $.ui.toast('Answer the waiting question first')
+      if (isWorking || now.pending) return $.ui.toast('Wait for the Bouncer to finish its turn')
+      await update($, pool, q => ({ ...q, pending: true }))
+      await $.prompt.submit({ text }).catch(() => update($, pool, q => ({ ...q, pending: false })))
+    }
     const lines = p.queueOpen ? p.queueLines ?? [] : []
     // `open claude://…` does not switch the app (tried 2026-11-26), so show the Bartender in split view.
     // The window tool takes only sessions the Bouncer started; when the call fails, the Bouncer opens it.
     const open = async (id: string, name: string) => {
       const ran = await $.tool.call({ tool: 'mcp__ccd_window__open_session_in', session_id: id, target: 'split' } as any)
         .catch(() => undefined)
-      if (!ran || ran.deny !== undefined || ran.isError === true) ask(`${name}: open`)
+      if (!ran || ran.deny !== undefined || ran.isError === true) await ask(`${name}: open`)
     }
 
     const mine = (

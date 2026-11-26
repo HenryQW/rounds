@@ -27,6 +27,7 @@ A Bouncer session shows a band above the prompt: each Bartender with its status 
 The band also lets you act:
 - A ticket key opens the ticket in Linear when you set the `linear_workspace_url` plugin option (for example `https://linear.app/<workspace>`). Unset, keys are plain text.
 - The menu on each Bartender (Status, Stop, Reset) sends the Bouncer a prompt such as `ABC-123: stop`. The band never talks to a Bartender.
+- The band sends one prompt at a time: none while a question waits on you or while the Bouncer works. Open still works then.
 - When the number of questions that wait on you goes up, you get a notification.
 - A Bartender that waits on you (`!`) shows its question under the band, from `questions.md` in the plugin data folder. Open shows that Bartender's conversation in split view beside the Bouncer; if the app refuses, the band asks the Bouncer to open it. You still answer the Bouncer.
 - Click the queue length to show the queued tickets. Pop and Remove send the Bouncer `queue: pop` or `queue: remove ABC-123`; the Bouncer runs `bouncer-queue`.

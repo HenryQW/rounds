@@ -43,6 +43,7 @@ The steps that need no judgment are scripts in `scripts/` next to this file (`${
 - The mode (Code, Spike, Mechanical) picks the model only. It is not in the title.
 - Queue: work above the cap waits in `<data>/queue.md`, one line a ticket: `<TICKET> | repo | mode | brief source`. Change it only with `scripts/bouncer-queue add|pop|remove|list`. `add` replaces a stale line of the same ticket. `pop` exit 1: the queue is empty. `remove <TICKET>` exit 1: no line has that ticket.
 - Questions: each Bartender question that waits on the user is one line in `<data>/questions.md`: `<TICKET> | <session_id> | <question with default>`, oldest first. Change it only with `scripts/bouncer-questions add|next|done|list|count`. The band shows each question next to its Bartender.
+- Band prompts are sequential: the band sends none while a question waits on the user (count above 0) or while your turn runs, and at most one until your turn ends. Answer the open question first.
 - Band prompts: the band above the prompt sends you plain requests from the user. `<TICKET>: status` asks for that Bartender's status; `<TICKET>: stop` stops it (`stop_session`); `<TICKET>: reset` resets it ("Reset and assign"). `queue: pop` and `queue: remove <TICKET>` run `bouncer-queue` with that command. `<TICKET>: open` (sent when the band could not open it itself) shows that Bartender beside you: `open_session_in` with its session id and `target: "split"` ("focus" is refused while the cursor is in a text field). Only you talk to Bartenders.
 
 ## Route a request
