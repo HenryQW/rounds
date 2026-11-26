@@ -272,12 +272,8 @@ export const register: Register = (on, options) => {
     // Linear's look off the terminal; the terminal keeps its own colours.
     const t = isTerminal ? undefined : LINEAR[p.dark ? 'dark' : 'light']
     const detailsLabel = p.details ? 'Compact' : 'Details'
-    // A secondary button: surface, hairline border, round corners.
-    const detailsButton = t
-      ? <Box borderStyle="round" borderColor={t.hairline} backgroundColor={t.surface} paddingX="sm">
-          <Button key="details" plain label={detailsLabel} onPress={flip} />
-        </Box>
-      : <Button key="details" plain label={detailsLabel} onPress={flip} />
+    // A quiet switch: no fill, dim text that turns full strength under the pointer.
+    const detailsButton = <Button key="details" plain dimColor label={detailsLabel} onPress={flip} />
 
     if (!p.details) {
       // Compact: one line, laid out as ponytail's compact band (gap 2, a spacer, the switch on the right).
@@ -302,19 +298,16 @@ export const register: Register = (on, options) => {
     // shortcut: the hidden columns are only counted (`+N`); a fifth active Bartender has no menu until one ends.
     const shown = all.slice(0, 4)
     const more = all.length - shown.length
-    let rule = <Text dimColor wrap="truncate-end">{'─'.repeat(e.props.bodyColumns)}</Text>
-    if (t && e.surface === 'desktop') {
-      // A Box draws a border on all four sides only; an SVG draws the one line, in the hairline colour.
-      const { Svg } = $.ui.resolve(e)
-      rule = <Svg source={`<svg xmlns="http://www.w3.org/2000/svg" width="4000" height="1"><line stroke="${t.hairline}" x1="0" y1="0.5" x2="4000" y2="0.5"/></svg>`} alt="divider" height={1} />
-    }
+    // The terminal draws a rule under the header; elsewhere the cards' borders do that work.
+    const rule = isTerminal && <Text dimColor wrap="truncate-end">{'─'.repeat(e.props.bodyColumns)}</Text>
     const bar = (i: number) => <Box key={`bar:${i}`} flexDirection="column">{['a', 'b', 'c'].map(k => <Text key={k} dimColor>│</Text>)}</Box>
     const colWidth = width === undefined ? undefined : Math.max(10, Math.floor(width / Math.max(1, shown.length)) - 3)
     const { Link } = $.ui.resolve(e)
     // The clock only when a card shows a time.
     const now = Object.values(p.sessions ?? {}).some(x => x.at) ? await $.clock.now() : 0
-    // One card a Bartender, as a Rounds session row: a title line (dot and key) and a subtitle; on the right the time and,
-    // under it, the ticket and PR links. Linear's tokens give the colours and the card.
+    // One card a Bartender, as a Rounds session row: a title line (dot and key) and a subtitle; on the right the time,
+    // the ticket and PR links and `⋯` for the menu. Linear's tokens give the colours and the card. Width 0 and grow 1 give
+    // equal cards (no flexBasis prop). The title is plain Text: a desktop Button adds its own inset, so the lines align.
     const card = (c: Column) => {
       const id = c.ids.length === 1 ? c.ids[0]! : undefined
       const s = id ? p.sessions?.[id] : undefined
@@ -331,12 +324,10 @@ export const register: Register = (on, options) => {
       )
       return (
         <Box key={`col:${c.key}`} flexDirection="row" gap="sm" minWidth={0} {...(t
-          ? { flexGrow: 1, borderStyle: 'round', borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'lg' as const, paddingY: 'md' as const }
+          ? { flexGrow: 1, flexShrink: 1, width: 0, minWidth: 24, borderStyle: 'round', borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'lg' as const, paddingY: 'md' as const }
           : colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
           <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
-            <Button key={c.key} plain onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))}>
-              <Text weight="medium" color={t?.ink} wrap="truncate-end">{c.value}</Text>
-            </Button>
+            <Box key={`title:${c.key}`}><Text weight="medium" color={t?.ink} wrap="truncate-end">{c.value}</Text></Box>
             <Text size="footnote" color={t?.subtle} wrap="truncate-end">{[c.label, folder && `⎇ ${folder}`].filter(Boolean).join(' · ')}</Text>
             {p.menu === c.key
               ? <Box flexDirection="row" gap={1} flexWrap="wrap">
@@ -346,17 +337,18 @@ export const register: Register = (on, options) => {
                 </Box>
               : <Text size="footnote" color={t?.muted} wrap="truncate-end">{sub(c)}</Text>}
           </Box>
-          {(s?.at || ticket || pr) && (
-            <Box flexDirection="column" alignItems="flex-end" flexShrink={0}>
+          <Box flexDirection="column" alignItems="flex-end" flexShrink={0}>
+            <Box flexDirection="row" alignItems="center" gap="sm">
               {s?.at && <Text size="footnote" mono color={t?.subtle}>{ago(s.at, now)}</Text>}
-              {(ticket || pr) && <Box flexDirection="row" gap="sm">{ticket}{pr}</Box>}
+              <Button key={c.key} plain dimColor label="⋯" onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))} />
             </Box>
-          )}
+            {(ticket || pr) && <Box flexDirection="row" gap="sm">{ticket}{pr}</Box>}
+          </Box>
         </Box>
       )
     }
     const mine = (
-      <Box flexDirection="column" width={width} gap={isTerminal ? 0 : 'md'} paddingY={isTerminal ? 0 : 'xs'}>
+      <Box flexDirection="column" width={width} gap={isTerminal ? 0 : 'sm'} paddingY={isTerminal ? 0 : 'xs'}>
         <Box flexDirection="row" alignItems="center" gap={isTerminal ? 1 : 'sm'}>
           {strip}
           <Text bold weight="semibold" color={t?.ink}>Bouncer</Text>
@@ -377,7 +369,7 @@ export const register: Register = (on, options) => {
           </Box>
         )}
         {shown.length > 0 && (
-          <Box flexDirection="row" gap={isTerminal ? 2 : 'md'}>
+          <Box flexDirection="row" gap={isTerminal ? 2 : 'md'} flexWrap={isTerminal ? 'nowrap' : 'wrap'}>
             {shown.flatMap((c, i) => [...(isTerminal && i > 0 ? [bar(i)] : []), card(c)])}
             {more > 0 && <Text key="more" color={t?.muted}>{`+${more}`}</Text>}
           </Box>

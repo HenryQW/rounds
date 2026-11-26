@@ -82,8 +82,8 @@ test('the band shows Bartenders, the question count and the queue', async ($, on
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await details(await $.ui.mount({ ...BAND, surface } as any))
     expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢⚪]+$/u }))?.text).toBe('🔴🟡')
-    expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 MIDI-1')
-    expect(chip(await ui.find({ key: 'act:b' }))).toBe('🔴 MIDI-2')
+    expect(chip(await ui.find({ key: 'title:' + 'act:a' }))).toBe('🟡 MIDI-1')
+    expect(chip(await ui.find({ key: 'title:' + 'act:b' }))).toBe('🔴 MIDI-2')
     expect((await ui.find({ key: 'queue' }))?.text).toBe('Queue 2')
     await ui.unmount()
   }
@@ -169,7 +169,7 @@ test('a Bartender shows in the band when the Bouncer starts it', async ($, on) =
   await start('[Idle] 🧹 aspire')
 
   const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
-  const shown = (await ui.findAll({ type: 'Button' })).filter((b: any) => /^(act:|idle$)/.test(b.key ?? '')).map(chip)
+  const shown = (await cols(ui)).map((c: any) => c[1])
   expect(shown).toEqual(['🟡 MIDI-1616', '🟡 bouncer-types', '🟢 1 idle'])
   await ui.unmount()
 })
@@ -208,7 +208,7 @@ test('only the head question shows; it opens its Bartender, or asks the Bouncer 
   expect((await ui.find({ type: 'Text', text: /MIDI-1616:/ }))?.text).toBe('🔴 MIDI-1616: Post the draft yourself? Default: yes')
   // Questions block in order: MIDI-3 waits (its `!` shows) but its line stays hidden until the head is answered.
   expect(await ui.find({ type: 'Text', text: /MIDI-3:/ })).toBe(undefined)
-  expect(chip(await ui.find({ key: 'act:local_c' }))).toBe('🔴 MIDI-3')
+  expect(chip(await ui.find({ key: 'title:' + 'act:local_c' }))).toBe('🔴 MIDI-3')
   expect((await ui.findAll({ type: 'Button' })).map((b: any) => b.key).filter((k: any) => k?.startsWith('open:'))).toEqual(['open:local_a'])
 
   // The plugin opens the Bartender in split view itself; when the app refuses, it asks the Bouncer.
@@ -348,7 +348,7 @@ test('all idle Bartenders share one column, whose actions name each session', as
   await title($, 'local_bbbbbbbb2', '[Idle] 🍸 aspire')
   await title($, 'local_c', '[Idle] 🔧 web')
   const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
-  expect(chip(await ui.find({ key: 'idle' }))).toBe('🟢 3 idle')
+  expect(chip(await ui.find({ key: 'title:' + 'idle' }))).toBe('🟢 3 idle')
   expect((await ui.findAll({ type: 'Button' })).filter((b: any) => b.key?.startsWith('act:'))).toEqual([])
   const labels = await actions(ui, 'idle')
   expect(labels).toContain('Reset aaaaaaaa')
@@ -420,7 +420,7 @@ test('one Bouncer a repo: a second session of the same repo shows Take Over, and
   expect(writes).toEqual(['me'])
   expect(await ui.find({ type: 'Text', text: /another session/ })).toBe(undefined)
   await details(ui)
-  expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 MIDI-1')
+  expect(chip(await ui.find({ key: 'title:' + 'act:a' }))).toBe('🟡 MIDI-1')
   await ui.unmount()
 
   // Its session ends: the Bouncer is free for the next one.
@@ -489,7 +489,7 @@ test('a turn-end report sets its Bartender dot, and the strip is sorted red firs
   await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: BLOCKED\nTICKET: A-2' } as any)
   const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
   expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢⚪]+$/u }))?.text).toBe('🔴🟡🟡🟢')
-  expect(chip(await ui.find({ key: 'act:c' }))).toBe('🔴 A-2')
+  expect(chip(await ui.find({ key: 'title:' + 'act:c' }))).toBe('🔴 A-2')
   await ui.unmount()
 })
 
@@ -512,7 +512,7 @@ test('Compact is one line: dots, the waiting count, the active keys and Details;
   expect((await ui.find({ key: 'details' }))?.text).toBe('Details')
 
   await ui.press({ key: 'details' })
-  expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 MIDI-1')
+  expect(chip(await ui.find({ key: 'title:' + 'act:a' }))).toBe('🟡 MIDI-1')
   expect((await ui.find({ key: 'details' }))?.text).toBe('Compact')
   expect(store.details).toBe(true)
   await ui.press({ key: 'details' })
@@ -531,7 +531,7 @@ test('a new session starts in the stored mode', async ($, on) => {
   await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
-  expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 MIDI-1')
+  expect(chip(await ui.find({ key: 'title:' + 'act:a' }))).toBe('🟡 MIDI-1')
   await ui.unmount()
 })
 
@@ -588,10 +588,13 @@ test('a report line is the wait reason while the Bartender waits on the user, el
 // Each card as [subtitle, title, sub-line], in band order.
 const cols = async (ui: any) => {
   const texts = (await ui.findAll({ type: 'Text' })).map((t: any) => t.text)
-  return (await ui.findAll({ type: 'Button' })).filter((b: any) => /^(act:|idle$)/.test(b.key ?? '')).map((b: any) => {
-    const i = texts.indexOf(b.text)
-    return [texts[i + 1], b.text, texts[i + 2]]
-  })
+  const out = []
+  for (const b of (await ui.findAll({ type: 'Button' })).filter((b: any) => /^(act:|idle$)/.test(b.key ?? ''))) {
+    const title = (await ui.find({ key: `title:${b.key}` }))?.text
+    const i = texts.indexOf(title)
+    out.push([texts[i + 1], title, texts[i + 2]])
+  }
+  return out
 }
 
 test('Details: one column an active Bartender, idle ones in one column, at most 4 then +N', async ($, on) => {
@@ -670,7 +673,9 @@ test("Details off the terminal takes Linear's tokens for the system appearance: 
   expect(await color(/^Bouncer$/)).toBe('#f7f8f8')
   expect(await color(/^ticket · Dev$/)).toBe('#8a8f98')
   const cards = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props?.borderStyle === 'round' && b.props?.backgroundColor === '#0f1011')
-  expect(cards.length).toBe(2)
+  // One card, sized for equal widths (width 0, grow 1); the Compact switch is a quiet plain Button with no box of its own.
+  expect(cards.map((b: any) => [b.props.width, b.props.flexGrow])).toEqual([[0, 1]])
+  expect((await ui.find({ key: 'details' }))?.props?.dimColor).toBe(true)
   style = ''
   await endTurn($)
   expect(await color(/^Bouncer$/)).toBe('#000000')
