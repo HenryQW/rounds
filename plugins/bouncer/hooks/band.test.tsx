@@ -25,8 +25,8 @@ const engine = (on: any, store?: Record<string, unknown>) => {
   base(on, store)
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
   on('fs.read', (_: unknown, e: { path?: string }) => {
-    if (e.path === '/data/queue.md') return { value: 'A-1 | r | Code | x\nA-2 | r | Spike | y\n' }
-    if (e.path === '/data/questions.md') return { value: 'MIDI-1616 | local_a | Post the draft yourself? Default: yes\n' }
+    if (e.path === '/data/rounds/queue.md') return { value: 'A-1 | r | Code | x\nA-2 | r | Spike | y\n' }
+    if (e.path === '/data/rounds/questions.md') return { value: 'MIDI-1616 | local_a | Post the draft yourself? Default: yes\n' }
     throw new Error('missing')
   })
 }
@@ -282,7 +282,7 @@ test('a turn-end note sets the status code, and the CTA follows questions.md', a
   base(on)
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
   on('fs.read', (_: unknown, e: { path?: string }) => {
-    if (e.path === '/data/questions.md') return { value: questions }
+    if (e.path === '/data/rounds/questions.md') return { value: questions }
     throw new Error('missing')
   })
   on('session.receive', (_: unknown, e: any) => ({ text: e.text }))
@@ -309,12 +309,12 @@ test('a turn-end note sets the status code, and the CTA follows questions.md', a
   questions = 'MIDI-1 | local_a | Ship it? Default: yes\n'
   renames.length = 0
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-questions add "MIDI-1 | local_a | Ship it?"' } as any)
-  expect(renames).toEqual(['local_a=![CR] 🍸 MIDI-1 aspire', 'self=!1 🚪 Bouncer'])
+  expect(renames).toEqual(['local_a=![CR] 🍸 MIDI-1 aspire', 'self=!1 🚪 Bouncer rounds'])
 
   questions = ''
   renames.length = 0
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-questions done MIDI-1' } as any)
-  expect(renames).toEqual(['local_a=[CR] 🍸 MIDI-1 aspire', 'self=🚪 Bouncer'])
+  expect(renames).toEqual(['local_a=[CR] 🍸 MIDI-1 aspire', 'self=🚪 Bouncer rounds'])
 })
 
 const LEDGER = '/r/K-1.md: - [open] pr | u | trigger: merged | check:  | next: merge it | 2026-11-26\n'
@@ -380,7 +380,7 @@ test('a queue emptied elsewhere leaves the band after the next turn or session s
   base(on)
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
   on('fs.read', (_: unknown, e: { path?: string }) => {
-    if (e.path === '/data/queue.md') return { value: queue }
+    if (e.path === '/data/rounds/queue.md') return { value: queue }
     throw new Error('missing')
   })
   await title($, 'self', '🚪 Bouncer')
@@ -396,7 +396,7 @@ test('a queue emptied elsewhere leaves the band after the next turn or session s
   await ui.unmount()
 })
 
-test('one Bouncer: a second session shows Take Over, and only that takes the Bouncer', async ($, on) => {
+test('one Bouncer a repo: a second session of the same repo shows Take Over, and only that takes the Bouncer', async ($, on) => {
   let owner = 'other'
   const writes: string[] = []
   on('tool.call', () => ({ result: {} }))
@@ -406,13 +406,13 @@ test('one Bouncer: a second session shows Take Over, and only that takes the Bou
   on('fs.write', (_: unknown, e: any) => { writes.push(e.text ?? e.content ?? e.data); owner = String(writes.at(-1)); return { value: undefined } })
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
   on('fs.read', (_: unknown, e: { path?: string }) => {
-    if (e.path === '/data/bouncer') return { value: owner }
+    if (e.path === '/data/rounds/bouncer') return { value: owner }
     throw new Error('missing')
   })
   await $.tool.call({ tool: 'Skill', skill: 'bouncer:bouncer' } as any)
   await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
   const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
-  expect((await ui.find({ type: 'Text', text: /another session/ }))?.text).toBe('another session is the Bouncer')
+  expect((await ui.find({ type: 'Text', text: /another session/ }))?.text).toBe('another session is the Bouncer of rounds')
   expect(await ui.find({ key: 'act:a' })).toBe(undefined)
   expect(writes).toEqual([])
 
@@ -492,5 +492,31 @@ test('a new session starts in the stored mode', async ($, on) => {
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 🍸 MIDI-1 aspire · Dev')
+  await ui.unmount()
+})
+
+test('a Bouncer of another repo does not block this one, and a repo title turns the band on', async ($, on) => {
+  on('tool.call', () => ({ result: {} }))
+  on('session.id', () => ({ value: 'me' }))
+  on('session.cwd', () => ({ value: '/w/rounds' }))
+  on('store.get', () => ({ value: true }))
+  const writes: string[] = []
+  on('fs.write', (_: unknown, e: any) => { writes.push(e.path); return { value: undefined } })
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
+  const reads: string[] = []
+  on('fs.read', (_: unknown, e: { path?: string }) => {
+    reads.push(String(e.path))
+    if (e.path === '/data/web/bouncer') return { value: 'other' }
+    if (e.path === '/data/rounds/queue.md') return { value: 'R-1 | rounds | Code | x\n' }
+    if (e.path === '/data/web/queue.md') return { value: 'W-1 | web | Code | x\n' }
+    throw new Error('missing')
+  })
+  await title($, 'self', '!1 🚪 Bouncer rounds')
+  await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-queue list' } as any)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect(await ui.find({ type: 'Text', text: /another session/ })).toBe(undefined)
+  expect((await ui.find({ key: 'queue' }))?.text).toBe('📥 1 queued')
+  expect(reads.filter(r => r.startsWith('/data/web/'))).toEqual([])
+  expect(writes).toEqual(['/data/rounds/bouncer'])
   await ui.unmount()
 })

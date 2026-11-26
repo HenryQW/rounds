@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# bouncer-data   print the plugin's data folder (made if missing): the queue and the default ticket records live there.
+# bouncer-data          print the plugin's data folder (made if missing): grants, the decision table and the default ticket records.
+# bouncer-data --repo   print <data>/<repo> (made if missing): one Bouncer's queue.md and questions.md. <repo> is $BOUNCER_REPO,
+#                       else the folder name of the main checkout of the git repo at the current folder. Exit 2: neither.
+#                       Once: a <data>/queue.md or questions.md of an earlier version moves into the first <data>/<repo>.
 # It is the folder Claude Code gives the plugin (~/.claude/plugins/data/<name>-<marketplace>/, kept across updates,
 # removed by `claude plugin uninstall` unless --keep-data). Order: $BOUNCER_DATA (tests), $CLAUDE_PLUGIN_DATA, else from this path.
 set -euo pipefail
@@ -13,4 +16,18 @@ if [ -z "$d" ]; then
   esac
 fi
 mkdir -p "$d/tickets"
-printf '%s\n' "$d"
+[ "${1:-}" = --repo ] || { printf '%s\n' "$d"; exit 0; }
+repo=${BOUNCER_REPO:-}
+if [ -z "$repo" ]; then
+  common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || { echo "not in a git repo: set BOUNCER_REPO" >&2; exit 2; }
+  repo=$(basename "$(dirname "$common")")   # <main checkout>/.git, also from a worktree
+fi
+case $repo in ''|.|..|*/*) echo "bad repo name: $repo" >&2; exit 2 ;; esac
+mkdir -p "$d/$repo"
+if [ ! -e "$d/.per-repo" ]; then   # the one move, marked so a later file at the top is never taken
+  for f in queue.md questions.md; do
+    if [ -f "$d/$f" ] && [ ! -e "$d/$repo/$f" ]; then mv "$d/$f" "$d/$repo/$f"; fi
+  done
+  touch "$d/.per-repo"
+fi
+printf '%s\n' "$d/$repo"

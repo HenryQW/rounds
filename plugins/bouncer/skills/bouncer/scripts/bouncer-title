@@ -2,7 +2,7 @@
 """bouncer-title <status> <ticket> <repo> [--cta] [--type T]   ->  [<code>] 🍸 <ticket> <repo>  (! prefix with --cta)
 bouncer-title --idle <repo> [--type T]                        ->  [Idle] 🍸 <repo>
 --type picks the emoji: Ticket 🍸 (default), Skill 🔧, Cleanup 🧹. For Skill and Cleanup, <ticket> is a short task name.
-bouncer-title --bouncer <n>                        ->  !<n> 🚪 Bouncer, or 🚪 Bouncer at 0
+bouncer-title --bouncer <n> <repo>                 ->  !<n> 🚪 Bouncer <repo>, or 🚪 Bouncer <repo> at 0
 Status codes come from BOUNCER_STATUS_CODES ("Name=Code; Name=Code"), else from the status_codes plugin option
 stored in Claude Code's settings.json, else from the option default in the plugin manifest.
 Exit 2: bad input, a bad code pair or an unknown status."""
@@ -44,8 +44,8 @@ if a[:1] == ["--idle"]:
     if len(a) != 2 or not a[1]: die("usage: bouncer-title --idle <repo>")
     print(f"[Idle] {BARTENDER} {a[1]}"); sys.exit(0)
 if a[:1] == ["--bouncer"]:
-    if len(a) != 2 or not a[1].isdigit(): die("usage: bouncer-title --bouncer <n>  (n >= 0)")
-    n = int(a[1]); print(f"!{n} {BOUNCER}" if n else BOUNCER); sys.exit(0)
+    if len(a) != 3 or not a[1].isdigit() or not a[2] or " " in a[2]: die("usage: bouncer-title --bouncer <n> <repo>  (n >= 0)")
+    n = int(a[1]); print(f"!{n} {BOUNCER} {a[2]}" if n else f"{BOUNCER} {a[2]}"); sys.exit(0)
 cta = "--cta" in a
 a = [x for x in a if x != "--cta"]
 if len(a) != 3 or not all(a): die("usage: bouncer-title <status> <ticket> <repo> [--cta]")
