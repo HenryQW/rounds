@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """bouncer-route < {"sessions": [list_sessions rows], "request": {"ticket", "repo", "type"?}, "caps": {"active": 3}}
 Out: {"action": "assign"|"start"|"queue", "sessionId"?: id, "reason": text}. Exit 2: bad input.
-Rules: a Bartender title contains its type emoji (Ticket 🍸, the default; Skill 🔧; Cleanup 🧹); its repo is the last word.
-Idle: the title starts with "[Idle]" and isRunning is not true. An idle Bartender of the same type and repo gets the work;
+Rules: a Bartender title contains its type emoji (Ticket 🍸, the default; Skill 🔧; Cleanup 🧹).
+Idle: the title is "<emoji> [Idle] <repo>" (before plugin 0.10.5 "[Idle] <emoji> <repo>") and isRunning is not true; the repo
+is its last word. An idle Bartender of the same type and repo gets the work;
 else a new Bartender starts (one per ticket, so tickets of one repo run in parallel).
 At most caps.active non-idle Bartenders (default 3). Archived rows are ignored."""
 import json, sys
@@ -22,11 +23,12 @@ if not ticket or not repo or active < 1 or kind not in TYPES:
     bad(f"ticket, repo, caps.active >= 1 and a type of {'|'.join(TYPES)} are required")
 
 def idle(s):
-    return (s.get("title") or "").startswith("[Idle]") and not s.get("isRunning")
+    words = (s.get("title") or "").split()
+    return "[Idle]" in words[:2] and not s.get("isRunning")
 
 def emoji(s):
-    words = (s.get("title") or "").split()
-    return next((w for w in words if w in TYPES.values()), None)
+    words = (s.get("title") or "").lstrip("!").split()
+    return next((w for w in words[:2] if w in TYPES.values()), None)
 
 bars = [s for s in rows if emoji(s) and not s.get("isArchived")]
 here = [s for s in bars if s["title"].split()[-1] == repo and emoji(s) == TYPES[kind]]

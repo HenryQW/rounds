@@ -15,7 +15,7 @@ Start a new session that you open yourself, then say "bouncer mode" or run `/bou
 
 | Option | Default | What it does |
 |---|---|---|
-| `status_codes` | `Backlog=Bklog; Todo=Todo; In Progress=Dev; In Review=CR; In QA=QA; Done=Done; Canceled=Cxl; Duplicate=Dup; Open=Open; Closed=Done` | Maps each tracker status to the short code in a Bartender title, for example `[Dev] 🍸 ABC-123 my-repo`. Use `Name=Code` pairs with `;` between them. |
+| `status_codes` | `Backlog=Bklog; Todo=Todo; In Progress=Dev; In Review=CR; In QA=QA; Done=Done; Canceled=Cxl; Duplicate=Dup; Open=Open; Closed=Done` | Maps each tracker status to the short code in a Bartender title, for example `🍸 [ABC-123] [Dev] Fix the login loop`. Use `Name=Code` pairs with `;` between them. |
 | `records_dir` | blank | The folder of the ticket records, for example `~/.tickets`. Blank: `tickets/` in the plugin data folder. |
 
 Set it with `/plugin configure bouncer@rounds`, then start a new session.

@@ -2,19 +2,33 @@ import type { Pool } from '../types'
 
 export const EMPTY: Pool = { isOn: false, bartenders: {}, waiting: 0, queue: 0 }
 
-export type Bartender = { cta: boolean; status: string; type: string; emoji: string; ticket: string; repo: string }
+export type Bartender = { cta: boolean; status: string; type: string; emoji: string; ticket: string; repo: string; name: string; isOld: boolean }
 
-// `![Dev] 🍸 MIDI-1 repo` or `[Idle] 🔧 repo` (made by bouncer-title); a repo is a folder name with no space.
-// The emoji is the type: 🍸 Ticket, 🔧 Skill, 🧹 Cleanup.
+// `!🍸 [MIDI-1] [Dev] Ticket title` or `🍸 [Idle] repo` (made by bouncer-title); before 0.10.5 `![Dev] 🍸 MIDI-1 repo`
+// or `[Idle] 🔧 repo`, read until the Bouncer renames them. The emoji is the type: 🍸 Ticket, 🔧 Skill, 🧹 Cleanup.
 const TYPES: Record<string, string> = { '🍸': 'Ticket', '🔧': 'Skill', '🧹': 'Cleanup' }
-const BARTENDER = /^(!)?\[([^\]]+)\] (🍸|🔧|🧹) (?:(\S+) )?(\S+)$/u
+const BARTENDER = /^(!)?(🍸|🔧|🧹) \[([^\]\s]+)\](?: \[([^\]]+)\])? (.+)$/u
+const OLD_BARTENDER = /^(!)?\[([^\]]+)\] (🍸|🔧|🧹) (?:(\S+) )?(\S+)$/u
 // `!2 🚪 Bouncer rounds`; a title from before 0.10.4 has no repo.
 const BOUNCER = /^(?:!(\d+) )?🚪 Bouncer(?: \S+)?$/
 
 export const parseBartender = (title: string): Bartender | undefined => {
-  const m = BARTENDER.exec(title)
-  return m ? { cta: m[1] === '!', status: m[2] ?? '', type: TYPES[m[3] ?? ''] ?? 'Ticket', emoji: m[3] ?? '🍸', ticket: m[4] ?? '', repo: m[5] ?? '' } : undefined
+  const n = BARTENDER.exec(title)
+  // `🍸 [Idle] repo` has one bracket: the status; `🍸 [KEY] [Dev] title` has the ticket, then the status.
+  if (n) {
+    const emoji = n[2] ?? '🍸', isIdle = n[4] === undefined
+    return { cta: n[1] === '!', status: isIdle ? n[3] ?? '' : n[4] ?? '', type: TYPES[emoji] ?? 'Ticket', emoji,
+      ticket: isIdle ? '' : n[3] ?? '', repo: isIdle ? n[5] ?? '' : '', name: isIdle ? '' : n[5] ?? '', isOld: false }
+  }
+  const m = OLD_BARTENDER.exec(title)
+  return m ? { cta: m[1] === '!', status: m[2] ?? '', type: TYPES[m[3] ?? ''] ?? 'Ticket', emoji: m[3] ?? '🍸', ticket: m[4] ?? '', repo: m[5] ?? '', name: '', isOld: true } : undefined
 }
+
+/** A Bartender's title in the format it came in, with the status and CTA given. */
+const titleOf = (b: Bartender, status: string, cta: boolean) => b.isOld
+  ? `${cta ? '!' : ''}[${status}] ${b.emoji} ${b.ticket ? `${b.ticket} ` : ''}${b.repo}`
+  : !b.ticket ? `${cta ? '!' : ''}${b.emoji} [${status}] ${b.repo}`
+  : `${cta ? '!' : ''}${b.emoji} [${b.ticket}] [${status}] ${b.name}`
 
 /** The pool after the Bouncer renamed a session; unchanged for any other title. */
 export const renamed = (pool: Pool, sessionId: string, title: string): Pool => {
@@ -169,7 +183,7 @@ export const synced = (pool: Pool, questionsText: string, report?: Report, repo 
     const b = parseBartender(title)
     if (!b) continue
     const status = report?.linear && b.ticket && b.ticket === report.ticket ? report.linear : b.status
-    const next = `${id in waiting ? '!' : ''}[${status}] ${b.emoji} ${b.ticket ? `${b.ticket} ` : ''}${b.repo}`
+    const next = titleOf(b, status, id in waiting)
     if (next !== title) out.push([id, next])
   }
   const n = queueLines(questionsText).length

@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { EMPTY, dot, parseBartender, questionsBySession, renamed, reportLine, sessionRows } from './pool'
+import { EMPTY, dot, parseBartender, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
 
 const BAND = { plugin: 'bouncer', component: 'AbovePrompt', props: { hasSurvey: false, bodyColumns: 120 } } as const
 
@@ -731,4 +731,16 @@ test('a card links its ticket to Linear and its PR to the URL that its ledger li
   expect((await ui.find({ type: 'Text', text: /^⤵ $/ }))?.props?.color).toBe('merged')
   expect((await ui.find({ type: 'Text', text: /^⑂ $/ }))?.props?.color).toBe('success')
   await ui.unmount()
+})
+
+test('a Bartender title parses in the new format and the old one; a sync keeps the format', () => {
+  expect(parseBartender('!🍸 [MIDI-3498] [QA] Broadcast channel switch skips low band…')).toMatchObject(
+    { cta: true, status: 'QA', type: 'Ticket', ticket: 'MIDI-3498', name: 'Broadcast channel switch skips low band…', repo: '' })
+  expect(parseBartender('🔧 [Idle] rounds')).toMatchObject({ cta: false, status: 'Idle', type: 'Skill', ticket: '', repo: 'rounds' })
+  expect(parseBartender('🔧 [band] [Dev] Band layout')).toMatchObject({ status: 'Dev', ticket: 'band', name: 'Band layout' })
+  expect(parseBartender('![Dev] 🍸 MIDI-1 rounds')).toMatchObject({ cta: true, status: 'Dev', ticket: 'MIDI-1', repo: 'rounds' })
+  expect(parseBartender('🍸 MIDI-1 rounds')).toBe(undefined)
+  const pool = { ...EMPTY, bartenders: { a: '🍸 [MIDI-1] [Dev] Fix it', b: '[Dev] 🍸 MIDI-2 rounds', c: '🧹 [Idle] rounds' } }
+  const report = { status: 'DONE', ticket: 'MIDI-1', linear: 'QA', result: null, question: null }
+  expect(synced(pool, 'MIDI-2 | b | Merge?\n', report)).toEqual([['a', '🍸 [MIDI-1] [QA] Fix it'], ['b', '![Dev] 🍸 MIDI-2 rounds'], ['self', '!1 🚪 Bouncer']])
 })

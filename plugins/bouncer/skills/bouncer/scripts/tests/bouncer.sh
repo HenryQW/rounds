@@ -15,23 +15,25 @@ ok "title: bouncer count" "$(./bouncer-title --bouncer 2 rounds)" "!2 🚪 Bounc
 ./bouncer-title --bouncer -1 rounds 2>/dev/null; ok "title: negative count exits 2" $? 2
 ./bouncer-title --bouncer 1 2>/dev/null; ok "title: bouncer without a repo exits 2" $? 2
 ./bouncer-title "Not A Status" ABC-1 r 2>/dev/null; ok "title: unknown status exits 2" $? 2
-./bouncer-title "In Progress" ABC-1 2>/dev/null; ok "title: missing repo exits 2" $? 2
-ok "title: idle" "$(./bouncer-title --idle my-repo)" "[Idle] 🍸 my-repo"
-ok "title: idle skill type" "$(./bouncer-title --idle my-repo --type Skill)" "[Idle] 🔧 my-repo"
-ok "title: cleanup type with cta" "$(./bouncer-title --type Cleanup "In Progress" old-sessions my-repo --cta)" "![Dev] 🧹 old-sessions my-repo"
-ok "title: ticket type is the default" "$(./bouncer-title --type Ticket Todo ABC-1 r)" "[Todo] 🍸 ABC-1 r"
+./bouncer-title "In Progress" ABC-1 2>/dev/null; ok "title: missing ticket title exits 2" $? 2
+./bouncer-title "In Progress" "ABC 1" t 2>/dev/null; ok "title: a ticket with a space exits 2" $? 2
+ok "title: idle" "$(./bouncer-title --idle my-repo)" "🍸 [Idle] my-repo"
+ok "title: idle skill type" "$(./bouncer-title --idle my-repo --type Skill)" "🔧 [Idle] my-repo"
+ok "title: cleanup type with cta" "$(./bouncer-title --type Cleanup "In Progress" old-sessions my-repo --cta)" "!🧹 [old-sessions] [Dev] my-repo"
+ok "title: ticket type is the default" "$(./bouncer-title --type Ticket Todo ABC-1 r)" "🍸 [ABC-1] [Todo] r"
 ./bouncer-title --type Draft Todo ABC-1 r 2>/dev/null; ok "title: unknown type exits 2" $? 2
 ./bouncer-title Todo ABC-1 r --type 2>/dev/null; ok "title: --type without a value exits 2" $? 2
-ok "title: bartender (default codes)" "$(./bouncer-title "In Progress" ABC-1234 my-repo)" "[Dev] 🍸 ABC-1234 my-repo"
-ok "title: github closed (default codes)" "$(./bouncer-title Closed 12 my-repo)" "[Done] 🍸 12 my-repo"
-ok "title: empty option uses the default" "$(BOUNCER_STATUS_CODES=" " ./bouncer-title Todo T r)" "[Todo] 🍸 T r"
+ok "title: bartender (default codes)" "$(./bouncer-title "In Progress" ABC-1234 "Fix the  login page")" "🍸 [ABC-1234] [Dev] Fix the login page"
+ok "title: a long ticket title is cut to 40" "$(./bouncer-title "In QA" ABC-1 "Broadcast channel switch skips low bandwidth mode")" "🍸 [ABC-1] [QA] Broadcast channel switch skips low band…"
+ok "title: github closed (default codes)" "$(./bouncer-title Closed 12 my-repo)" "🍸 [12] [Done] my-repo"
+ok "title: empty option uses the default" "$(BOUNCER_STATUS_CODES=" " ./bouncer-title Todo T r)" "🍸 [T] [Todo] r"
 BOUNCER_STATUS_CODES="Todo=Todo" ./bouncer-title Closed T r 2>/dev/null; ok "title: a set option replaces the default" $? 2
 BOUNCER_STATUS_CODES="Todo" ./bouncer-title Todo T r 2>/dev/null; ok "title: pair without = exits 2" $? 2
 mkdir -p "$tmp/config"; echo '{"pluginConfigs": {"bouncer@rounds": {"options": {"status_codes": "Won'"'"'t Do=Wont"}}}}' > "$tmp/config/settings.json"
-ok "title: the stored option without the env var" "$(./bouncer-title "Won't Do" ABC-9 web)" "[Wont] 🍸 ABC-9 web"
-ok "title: the env var wins over the stored option" "$(BOUNCER_STATUS_CODES="Won't Do=WD" ./bouncer-title "Won't Do" ABC-9 web)" "[WD] 🍸 ABC-9 web"
+ok "title: the stored option without the env var" "$(./bouncer-title "Won't Do" ABC-9 web)" "🍸 [ABC-9] [Wont] web"
+ok "title: the env var wins over the stored option" "$(BOUNCER_STATUS_CODES="Won't Do=WD" ./bouncer-title "Won't Do" ABC-9 web)" "🍸 [ABC-9] [WD] web"
 rm "$tmp/config/settings.json"
-ok "title: custom codes, apostrophe, cta, spaces" "$(BOUNCER_STATUS_CODES=" Won't Do = Wont ;; Code Review=CR; " ./bouncer-title "Won't Do" ABC-9 web --cta)" "![Wont] 🍸 ABC-9 web"
+ok "title: custom codes, apostrophe, cta, spaces" "$(BOUNCER_STATUS_CODES=" Won't Do = Wont ;; Code Review=CR; " ./bouncer-title "Won't Do" ABC-9 web --cta)" "!🍸 [ABC-9] [Wont] web"
 
 # bouncer-route
 route() { echo "$1" | ./bouncer-route | jq -r "$2"; }
@@ -40,13 +42,15 @@ echo '{"sessions": [], "request": {"ticket": "ABC-1", "repo": ""}}' | ./bouncer-
 ok "route: empty pool starts" "$(route '{"sessions": [], "request": {"ticket": "ABC-1", "repo": "a"}}' .action)" start
 S='[{"sessionId":"s1","title":"[Dev] 🍸 ABC-1 a","isRunning":true},
     {"sessionId":"s2","title":"[Idle] 🍸 b","isRunning":false},
-    {"sessionId":"s3","title":"![CR] 🍸 ABC-3 c"},
+    {"sessionId":"s3","title":"!🍸 [ABC-3] [CR] Fix c"},
     {"sessionId":"s4","title":"[Spec] 🍸 ABC-4 d"},
     {"sessionId":"s5","title":"[Idle] 🍸 e","isRunning":true},
     {"sessionId":"s6","title":"[Dev][ABC-7] Reply button"},
     {"sessionId":"s7","title":"[Idle] 🍸 f","isArchived":true},
-    {"sessionId":"s8","title":"[Idle] 🔧 g"}]'
+    {"sessionId":"s8","title":"[Idle] 🔧 g"},
+    {"sessionId":"s9","title":"🍸 [Idle] h","isRunning":false}]'
 ok "route: idle Bartender in repo is assigned" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"b\"}}" '.action+" "+.sessionId')" "assign s2"
+ok "route: an idle Bartender in the new title format is assigned" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"h\"}}" '.action+" "+.sessionId')" "assign s9"
 ok "route: idle title but running is busy" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"e\"}}" .action)" queue
 ok "route: busy repo under cap starts (one per ticket)" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"a\"}, \"caps\": {\"active\": 9}}" .action)" start
 ok "route: 4 active at cap 3 queues" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"z\"}}" .action)" queue
