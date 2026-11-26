@@ -41,6 +41,8 @@ export type Pool = {
   details?: boolean
   /** The column whose actions show in place of its sub-line (its key). */
   menu?: string
+  /** The Stop or Reset action (its value) that waits for its second click; cleared after 5 seconds. */
+  confirm?: string
 }
 
 declare module 'claude-code' {

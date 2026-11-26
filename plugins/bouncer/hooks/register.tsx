@@ -255,8 +255,23 @@ export const register: Register = (on, options) => {
       ...c.ids.flatMap(id => ACTIONS.map(([a, label]) =>
         ({ value: `${a} ${id}`, label: c.ids.length > 1 ? `${label} ${id.replace(/^local_/, '').slice(0, 8)}` : label }))),
     ]
+    // Stop and Reset send only on a second click: the first shows "Confirm …?" and Cancel, for 5 seconds.
+    const menuCells = (c: Column) => {
+      const o = actions(c).find(x => x.value === p.confirm)
+      if (o) return [
+        { value: o.value, label: `Confirm ${o.label.toLowerCase()}?`, red: o.value.startsWith('reset'), press: () => pick(c, o.value) },
+        { value: 'cancel', label: 'Cancel', red: false, press: () => update($, pool, q => ({ ...q, confirm: undefined })) },
+      ]
+      return actions(c).map(x => ({
+        ...x, red: x.value.startsWith('reset'),
+        press: x.value.startsWith('status') ? () => pick(c, x.value) : async () => {
+          await update($, pool, q => ({ ...q, confirm: x.value }))
+          $.clock.after(5000, () => { void update($, pool, q => (q.confirm === x.value ? { ...q, confirm: undefined } : q)) })
+        },
+      }))
+    }
     const pick = async (c: Column, v: string) => {
-      await update($, pool, q => ({ ...q, menu: undefined }))
+      await update($, pool, q => ({ ...q, menu: undefined, confirm: undefined }))
       const [a, id] = v.split(' ')
       if (a && id) await ask(`${c.ticket || id}: ${a}`)
     }
@@ -443,13 +458,16 @@ export const register: Register = (on, options) => {
               The terminal keeps plain ones. */}
           {p.menu === c.key && (
             <Box key={`menu:${c.key}`} flexDirection="row" gap="sm" flexWrap="nowrap">
-              {/* A desktop Button keeps its label's width (no width prop), so each cell draws the button: equal (width 0, grow 1, as the cards), a plain Button centred in it. paddingX 0, else the label truncates. */}
-              {actions(c).map(o => (
+              {/* A desktop Button keeps its label's width (no width prop), so each cell draws the button: equal (width 0, grow 1, as the cards),
+                  a plain Button centred in it, in a Box that never shrinks, so the label never truncates. Stop and Reset ask first. */}
+              {menuCells(c).map(o => (
                 <Box key={`cell:${c.key}:${o.value}`} flexDirection="row" width={0} flexGrow={1} alignItems="center" justifyContent="center"
-                  {...(t ? { backgroundColor: t.hairline, borderStyle: 'round', borderColor: t.hairline, paddingX: 0 as const, paddingY: 'xs' as const } : {})}>
-                  <Button key={`${c.key}:${o.value}`} plain onPress={() => pick(c, o.value)}>
-                    {o.label}
-                  </Button>
+                  {...(t ? { backgroundColor: t.hairline, borderStyle: 'round', borderColor: o.red ? 'error' : t.hairline, paddingX: 0 as const, paddingY: 'xs' as const } : {})}>
+                  <Box flexShrink={0}>
+                    <Button key={`${c.key}:${o.value}`} plain onPress={o.press}>
+                      {o.red ? <Text color="error">{o.label}</Text> : o.label}
+                    </Button>
+                  </Box>
                 </Box>
               ))}
             </Box>

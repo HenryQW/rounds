@@ -6,6 +6,8 @@ const BAND = { plugin: 'bouncer', component: 'AbovePrompt', props: { hasSurvey: 
 
 // This session's id, and writes of the Bouncer owner file.
 const base = (on: any, store: Record<string, unknown> = {}) => {
+  // The 5-second confirm timer never fires in a test (a refused clock.after never runs its fn).
+  on('clock.after', () => { throw new Error('no timer') })
   on('session.id', () => ({ value: 'me' }))
   on('session.cwd', () => ({ value: '/w/rounds' }))
   on('fs.write', () => ({ value: undefined }))
@@ -48,7 +50,12 @@ const endTurn = ($: any) => $.turn.complete({ answer: '', durationMs: 1, isAbort
 // The text a column's value draws.
 const chip = (el: any) => el?.text
 // A pick in a column's actions: the value opens them, the action closes them.
-const act = async (ui: any, key: string, value: string) => { await ui.press({ key }); await ui.press({ key: `${key}:${value}` }) }
+// Stop and Reset ask first: the second press of the same key sends.
+const act = async (ui: any, key: string, value: string) => {
+  await ui.press({ key })
+  await ui.press({ key: `${key}:${value}` })
+  if (!value.startsWith('status')) await ui.press({ key: `${key}:${value}` })
+}
 // The labels of a column's actions.
 const actions = async (ui: any, key: string) => {
   await ui.press({ key })
@@ -108,6 +115,24 @@ test('the menu has only Status, Stop and Reset (the key is the Linear link), on 
   // Three equal cells, each a plain Button centred.
   const cells = (await ui.find({ key: 'menu:act:a' }))?.children ?? []
   expect(cells.map((x: any) => [x.props?.width, x.props?.flexGrow, x.props?.justifyContent])).toEqual(Array(3).fill([0, 1, 'center']))
+  await ui.unmount()
+})
+
+test('one click on Stop or Reset sends nothing; it asks to confirm, and Cancel ends the ask', async ($, on) => {
+  engine(on)
+  const { prompts } = record(on)
+  await title($, 'a', '[Dev] 🍸 MIDI-1616 aspire')
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  const labels = async () => (await ui.findAll({ type: 'Button' })).filter((b: any) => b.key?.startsWith('act:a:')).map((b: any) => b.text)
+  await ui.press({ key: 'act:a' })
+  for (const v of ['stop', 'reset']) {
+    await ui.press({ key: `act:a:${v} a` })
+    expect(prompts).toEqual([])
+    expect(await labels()).toEqual([`Confirm ${v}?`, 'Cancel'])
+    await ui.press({ key: 'act:a:cancel' })
+    expect(prompts).toEqual([])
+    expect(await labels()).toEqual(['Status', 'Stop', 'Reset'])
+  }
   await ui.unmount()
 })
 
