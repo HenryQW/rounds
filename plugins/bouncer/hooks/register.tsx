@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { EMPTY, archived, chips, ledgerSummary, parseBartender, queueLines, queueSummary, questionsBySession, renamed, synced } from './pool'
+import { EMPTY, archived, chips, dots, ledgerSummary, parseBartender, queueLines, queueSummary, questionsBySession, renamed, synced } from './pool'
 import type { Chip, Report } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
@@ -63,7 +63,12 @@ const onNote = async ($: EngineInterface, text: string) => {
   const ran = await $.process.run([`${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-report`], { stdin: text, env })
     .catch(() => undefined)
   if (!ran || ran.exitCode !== 0) return
-  try { await syncTitles($, JSON.parse(ran.stdout) as Report) } catch { /* not a report */ }
+  let report: Report
+  try { report = JSON.parse(ran.stdout) as Report } catch { return /* not a report */ }
+  // Keep the STATUS for the band's dot, on the session whose title has the report's ticket.
+  const id = Object.entries((await read($, pool)).bartenders).find(([, t]) => report.ticket && parseBartender(t)?.ticket === report.ticket)?.[0]
+  if (id) await update($, pool, p => ({ ...p, reports: { ...p.reports, [id]: report.status } }))
+  await syncTitles($, report)
 }
 
 export const register: Register = (on, options) => {
@@ -111,6 +116,8 @@ export const register: Register = (on, options) => {
   // The queue, questions and ledger change outside the Bouncer's own calls (a Bartender, a shell, the last session):
   // read them again when the session starts and after each of the Bouncer's turns.
   on('session.start', async ($, e, next) => {
+    const details = (await $.store.get('details').catch(() => undefined)) === true
+    await update($, pool, p => (p.details === details ? p : { ...p, details }))
     if ((await read($, pool)).isOn) await refreshData($, records).catch(() => undefined)
     return next(e)
   })
@@ -134,7 +141,7 @@ export const register: Register = (on, options) => {
     // Other mods share this slot (ponytail's band): draw theirs below ours.
     const below = await next(e).catch(() => undefined)
 
-    const { Box, Text, Button, Select } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
     const width = e.surface === 'terminal' ? e.props.bodyColumns : undefined
     const bartenders = Object.entries(p.bartenders).flatMap(([id, t]) => {
       const b = parseBartender(t)
@@ -170,15 +177,24 @@ export const register: Register = (on, options) => {
       : ctaB && { b: ctaB, name: ctaB.ticket || ctaB.repo, question: 'waits on you' }
     const lines = p.queueOpen ? p.queueLines ?? [] : []
     const ledgerLines = p.ledgerOpen ? p.ledgerLines ?? [] : []
-    // The chip is its own menu: the first option draws the chip and does nothing. Each other option names one
-    // session (a ticket key, else its session id), so an action on a grouped idle chip is never ambiguous.
-    const menu = (c: Chip) => [
-      { value: 'chip', label: c.text },
+    const ownRepo = (await $.session.cwd()).split('/').pop() ?? ''
+    const all = chips(p.bartenders, p.reports, ownRepo)
+    const opened = p.details ? all.find(c => c.key === p.menu) : undefined
+    // Compact (the default) shows the dots, the ask pill and the counts; Details adds the chips. Kept across sessions.
+    const flip = async () => {
+      const details = !(await read($, pool)).details
+      await update($, pool, q => ({ ...q, details }))
+      await $.store.set('details', details).catch(() => undefined)
+    }
+    // A chip opens its action row. Each action names one session (a ticket key, else its session id),
+    // so an action on the grouped idle chip is never ambiguous.
+    const actions = (c: Chip) => [
       ...c.ids.flatMap(id => ACTIONS.map(([a, label]) =>
         ({ value: `${a} ${id}`, label: c.ids.length > 1 ? `${label} ${id.replace(/^local_/, '').slice(0, 8)}` : label }))),
       ...(linear && LINEAR_KEY.test(c.ticket) ? [{ value: 'linear', label: 'Open in Linear' }] : []),
     ]
     const pick = async (c: Chip, v: string) => {
+      await update($, pool, q => ({ ...q, menu: undefined }))
       if (v === 'linear') return void await $.process.run(['/usr/bin/open', `${linear}/issue/${c.ticket}`]).catch(() => undefined)
       const [a, id] = v.split(' ')
       if (a && id) await ask(`${c.ticket || id}: ${a}`)
@@ -195,25 +211,38 @@ export const register: Register = (on, options) => {
       if (!ran || ran.deny !== undefined || ran.isError === true) await ask(`${name}: open`)
     }
 
+    // One row: dot strip, the head question, chips, then the counts on the right. Steps: `lg` between chips, `xs` inside.
     const mine = (
       <Box flexDirection="column" width={width}>
-        <Box flexDirection="row" alignItems="center" gap={2} flexWrap="wrap">
-          {p.waiting > 0 && <Text color="warning">!{p.waiting} waiting</Text>}
-          <Text bold>Bouncer</Text>
-          {bartenders.length === 0 && <Text dimColor>no Bartenders yet</Text>}
-          {chips(p.bartenders).map(c => (
-            <Box flexDirection="row" alignItems="center" gap={1}>
-              {c.cta && <Text color="warning">!</Text>}
-              <Select key={c.key} value="chip" options={menu(c)} onSelect={v => pick(c, v)} />
+        <Box flexDirection="row" alignItems="center" columnGap="lg" rowGap="xs" flexWrap="wrap">
+          {bartenders.length === 0
+            ? <Text dimColor>no Bartenders yet</Text>
+            : <Text key="dots">{dots(p.bartenders, p.reports).join('')}</Text>}
+          {waits && (
+            <Box backgroundColor="diffRemovedDimmed" paddingX="xs" flexShrink={1} minWidth={0}>
+              {waits.b
+                ? <Button key={`open:${waits.b.id}`} plain onPress={() => open(waits.b!.id, waits.name)}>
+                    <Text wrap="truncate">{`🔴 ${waits.name}: ${waits.question} →`}</Text>
+                  </Button>
+                : <Text wrap="truncate">{`🔴 ${waits.name}: ${waits.question}`}</Text>}
             </Box>
+          )}
+          {p.details && waits && <Text dimColor>│</Text>}
+          {p.details && all.map(c => (
+            <Button key={c.key} plain dimColor={c.key === 'idle'} onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))}>
+              <Text bold={c.key !== 'idle'}>{c.head}</Text>
+              {c.tail && <Text dimColor>{` ${c.tail}`}</Text>}
+            </Button>
           ))}
-          {p.queue > 0 && <Button key="queue" dimColor onPress={() => toggle('queueOpen')}>{`queue ${p.queue}`}</Button>}
-          {(p.ledger ?? 0) > 0 && <Button key="ledger" dimColor onPress={() => toggle('ledgerOpen')}>{`ledger ${p.ledger}`}</Button>}
+          <Box flexGrow={1} />
+          {p.queue > 0 && <Button key="queue" plain dimColor onPress={() => toggle('queueOpen')}>{`📥 ${p.queue} queued`}</Button>}
+          {(p.ledger ?? 0) > 0 && <Button key="ledger" plain dimColor onPress={() => toggle('ledgerOpen')}>{`⏰ ${p.ledger} open`}</Button>}
+          {bartenders.length > 0 && <Button key="details" plain dimColor label={p.details ? 'Compact' : 'Details'} onPress={flip} />}
         </Box>
-        {waits && (
-          <Box flexDirection="row" alignItems="center" gap={1}>
-            <Text color="warning" wrap="truncate">! {waits.name}: {waits.question}</Text>
-            {waits.b && <Button key={`open:${waits.b.id}`} onPress={() => open(waits.b!.id, waits.name)}>Open</Button>}
+        {opened && (
+          <Box flexDirection="row" alignItems="center" gap="xs" flexWrap="wrap">
+            <Text dimColor>{opened.head}</Text>
+            {actions(opened).map(o => <Button key={`${opened.key}:${o.value}`} plain dimColor onPress={() => pick(opened, o.value)}>{o.label}</Button>)}
           </Box>
         )}
         {lines.map((line, i) => {

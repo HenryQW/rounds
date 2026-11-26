@@ -28,25 +28,41 @@ export const archived = (pool: Pool, sessionId: string): Pool => {
   return { ...pool, bartenders: rest }
 }
 
-/** One band chip: an active Bartender, or the idle Bartenders of one type and repo. */
-export type Chip = { key: string; cta: boolean; text: string; ticket: string; ids: string[] }
+/** One band chip: an active Bartender, or all idle Bartenders. `head` is drawn bold, `tail` grey. */
+export type Chip = { key: string; dot: string; head: string; tail: string; ticket: string; ids: string[] }
 
-/** Active Bartenders one chip each (`🍸 Dev MIDI-1`); idle ones grouped by type and repo (`🍸 2 idle · aspire`), after them. */
-export const chips = (bartenders: Readonly<Record<string, string>>): Chip[] => {
+// Traffic light, in band order: needs the user, works (or waits on others), idle and free for work.
+const DOTS = ['🔴', '🟡', '🟢']
+
+/** A Bartender's dot from its title and its last report STATUS (the mapping is in SKILL.md, "Band"). */
+export const dot = (b: Bartender, report?: string) =>
+  b.cta ? '🔴'
+  : b.status === 'Idle' ? '🟢'
+  : report === 'NEEDS_INPUT' || report === 'BLOCKED' ? '🔴'
+  : '🟡'
+
+const byDot = <T extends { dot: string }>(a: T, b: T) => DOTS.indexOf(a.dot) - DOTS.indexOf(b.dot)
+
+/** Each Bartender's dot, in band order. */
+export const dots = (bartenders: Readonly<Record<string, string>>, reports: Readonly<Record<string, string>> = {}) =>
+  Object.entries(bartenders).flatMap(([id, t]) => { const b = parseBartender(t); return b ? [{ dot: dot(b, reports[id]) }] : [] })
+    .sort(byDot).map(d => d.dot)
+
+/** Active Bartenders one chip each, red first (`🔴 🍸 MIDI-1`, grey `aspire · Dev`); all idle ones in one `🟢 N idle` chip, last. */
+export const chips = (bartenders: Readonly<Record<string, string>>, reports: Readonly<Record<string, string>> = {}, ownRepo = ''): Chip[] => {
   const active: Chip[] = []
-  const idle = new Map<string, { emoji: string; repo: string; ids: string[] }>()
+  const idle: string[] = []
   for (const [id, title] of Object.entries(bartenders)) {
     const b = parseBartender(title)
     if (!b) continue
-    if (b.status === 'Idle' && !b.cta) {
-      const key = `idle:${b.emoji}:${b.repo}`
-      idle.set(key, { emoji: b.emoji, repo: b.repo, ids: [...(idle.get(key)?.ids ?? []), id] })
-    } else {
-      active.push({ key: `act:${id}`, cta: b.cta, text: `${b.emoji} ${b.status} ${b.ticket || b.repo}`, ticket: b.ticket, ids: [id] })
-    }
+    const d = dot(b, reports[id])
+    if (b.status === 'Idle' && !b.cta) { idle.push(id); continue }
+    // A task with no ticket shows its repo as the name; the grey part then holds only the status code.
+    const repo = b.ticket && b.repo !== ownRepo ? b.repo : ''
+    active.push({ key: `act:${id}`, dot: d, head: `${d} ${b.emoji} ${b.ticket || b.repo}`, tail: [repo, b.status].filter(Boolean).join(' · '), ticket: b.ticket, ids: [id] })
   }
-  return [...active, ...[...idle].map(([key, g]) =>
-    ({ key, cta: false, text: `${g.emoji} ${g.ids.length} idle · ${g.repo}`, ticket: '', ids: g.ids }))]
+  active.sort(byDot)
+  return idle.length ? [...active, { key: 'idle', dot: '🟢', head: `🟢 ${idle.length} idle`, tail: '', ticket: '', ids: idle }] : active
 }
 
 /** A queue line (`KEY | repo | mode | note`) as `KEY · repo · mode`. */
