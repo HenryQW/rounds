@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# bouncer-questions add "<TICKET> | <session_id> | <question>"   add a Bartender question for the user (replaces that ticket's old one)
+# bouncer-questions next     print the oldest question (exit 1 when none is open)
+# bouncer-questions done <TICKET>   remove that ticket's question once the user answered (exit 1 when it has none)
+# bouncer-questions list     print the open questions, oldest first
+# bouncer-questions count    print the number of open questions
+# The list is questions.md in the plugin's data folder (bouncer-data); the band reads it to show each question.
+# Exit 2: bad usage or a line without a ticket, a session id and a question.
+set -euo pipefail
+trim() { local s=$1; s=${s#"${s%%[![:space:]]*}"}; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
+usage() { echo "usage: bouncer-questions add|next|done|list|count [line|ticket]" >&2; exit 2; }
+cmd=${1:-}
+[ -n "$cmd" ] || usage
+f="$("$(dirname "$0")/bouncer-data")/questions.md"
+touch "$f"
+case $cmd in
+  add)
+    IFS='|' read -r t s q <<<"${2:-}"   # q keeps any further | of the question
+    t=$(trim "$t"); s=$(trim "${s:-}"); q=$(trim "${q:-}")
+    [ -n "$t" ] && [ -n "$s" ] && [ -n "$q" ] || { echo "bad line: want TICKET | session_id | question" >&2; exit 2; }
+    tmp=$(mktemp); grep -v "^$t |" "$f" > "$tmp" || true
+    echo "$t | $s | $q" >> "$tmp"; mv "$tmp" "$f" ;;
+  next)
+    [ -s "$f" ] || { echo "no open question" >&2; exit 1; }
+    head -n 1 "$f" ;;
+  done)
+    t=$(trim "${2:-}"); [ -n "$t" ] || usage
+    grep -q "^$t |" "$f" || { echo "no open question for $t" >&2; exit 1; }
+    tmp=$(mktemp); grep -v "^$t |" "$f" > "$tmp" || true; mv "$tmp" "$f" ;;
+  list) cat "$f" ;;
+  count) grep -c . "$f" || true ;;
+  *) usage ;;
+esac

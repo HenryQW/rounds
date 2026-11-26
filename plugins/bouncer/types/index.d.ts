@@ -11,6 +11,8 @@ export type Pool = {
   queueLines?: readonly string[]
   /** True while the band lists the queue's lines. */
   queueOpen?: boolean
+  /** Bartender session id to its open question for the user, from `questions.md`. */
+  questions?: Readonly<Record<string, string>>
 }
 
 declare module 'claude-code' {

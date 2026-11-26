@@ -1,19 +1,20 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { EMPTY, archived, parseBartender, queueLines, renamed } from './pool'
+import { EMPTY, archived, parseBartender, queueLines, questionsBySession, renamed } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
 
 // A Linear-shaped key (ABC-123) links to the tracker; a GitHub issue number does not.
 const LINEAR_KEY = /^[A-Z][A-Z0-9]*-\d+$/
 
-// The plugin's data folder, the one bouncer-data prints (CLAUDE_PLUGIN_DATA).
-const refreshQueue = async ($: EngineInterface) => {
+// The queue and the open questions in the plugin's data folder, the one bouncer-data prints (CLAUDE_PLUGIN_DATA).
+const refreshData = async ($: EngineInterface) => {
   const data = (await $.process.hookEnv()).CLAUDE_PLUGIN_DATA
-  const text = data ? await $.fs.read(`${data}/queue.md`).catch(() => '') : ''
-  const lines = queueLines(String(text))
-  await update($, pool, p => ({ ...p, queue: lines.length, queueLines: lines }))
+  const file = async (name: string) => String(data ? await $.fs.read(`${data}/${name}`).catch(() => '') : '')
+  const lines = queueLines(await file('queue.md'))
+  const questions = questionsBySession(await file('questions.md'))
+  await update($, pool, p => ({ ...p, queue: lines.length, queueLines: lines, questions }))
 }
 
 export const register: Register = (on, options) => {
@@ -26,7 +27,7 @@ export const register: Register = (on, options) => {
     const tool = String(e.tool)
     if (tool === 'Skill' && /(^|:)bouncer$/.test(String((e as { skill?: unknown }).skill ?? ''))) {
       await update($, pool, p => ({ ...p, isOn: true }))
-      await refreshQueue($)
+      await refreshData($)
     } else if (tool.endsWith('__set_session_title')) {
       const { session_id, title } = e as { session_id?: unknown; title?: unknown }
       const before = (await read($, pool)).waiting
@@ -41,8 +42,8 @@ export const register: Register = (on, options) => {
       if (id && initiation !== 'offer' && typeof title === 'string') await update($, pool, p => renamed(p, id, title))
     } else if (tool.endsWith('__archive_session')) {
       await update($, pool, p => archived(p, String((e as { session_id?: unknown }).session_id)))
-    } else if (tool === 'Bash' && String((e as { command?: unknown }).command).includes('bouncer-queue')) {
-      await refreshQueue($)
+    } else if (tool === 'Bash' && /bouncer-(queue|questions)/.test(String((e as { command?: unknown }).command))) {
+      await refreshData($)
     }
     return ran
   })
@@ -62,6 +63,8 @@ export const register: Register = (on, options) => {
     // Only the Bouncer talks to Bartenders: the band asks it with a plain prompt.
     const ask = (text: string) => void $.prompt.submit({ text })
     const lines = p.queueOpen ? p.queueLines ?? [] : []
+    // The app opens a session from its link; a Link draws a non-https href as plain text on desktop.
+    const open = (id: string) => void $.process.run(['open', `claude://claude.ai/epitaxy/${id}`]).catch(() => undefined)
 
     const mine = (
       <Box flexDirection="column" width={width}>
@@ -86,11 +89,17 @@ export const register: Register = (on, options) => {
             </Box>
           ))}
           {p.queue > 0
-            ? <Button key="queue" onPress={async () => { await update($, pool, q => ({ ...q, queueOpen: !q.queueOpen })); await refreshQueue($) }}>
+            ? <Button key="queue" onPress={async () => { await update($, pool, q => ({ ...q, queueOpen: !q.queueOpen })); await refreshData($) }}>
                 {`queue ${p.queue}`}
               </Button>
             : <Text dimColor>queue 0</Text>}
         </Box>
+        {bartenders.filter(b => b.cta).map(b => (
+          <Box flexDirection="row" alignItems="center" gap={1}>
+            <Text color="warning">! {b.ticket || b.repo}: {p.questions?.[b.id] ?? 'waits on you'}</Text>
+            <Button key={`open:${b.id}`} onPress={() => open(b.id)}>Open</Button>
+          </Box>
+        ))}
         {lines.map((line, i) => {
           const ticket = line.split('|')[0]?.trim() ?? ''
           return (

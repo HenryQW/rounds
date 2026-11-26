@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fixture test for bouncer-data, bouncer-title, bouncer-route, bouncer-queue, bouncer-report and bartender-branch. Boundary cases first. No network.
+# Fixture test for bouncer-data, bouncer-title, bouncer-route, bouncer-queue, bouncer-questions, bouncer-report and bartender-branch. Boundary cases first. No network.
 # Run: bash scripts/tests/bouncer.sh (from the skill folder)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -74,6 +74,24 @@ ok "queue: pop removes it" "$(./bouncer-queue list)" "ABC-1 | a | Mechanical | d
 ./bouncer-queue remove ABC-1; ok "queue: remove drops only that line" "$(./bouncer-queue list)" "ABC-3 | c | Code | x"
 ./bouncer-queue remove ABC-3
 BOUNCER_DATA="$tmp/data2" ./bouncer-queue add "T | r | Spike | user's msg" 2>/dev/null; ok "queue: apostrophe is kept" "$(cat "$tmp/data2/queue.md")" "T | r | Spike | user's msg"
+
+# bouncer-questions (in the data folder)
+export BOUNCER_DATA="$tmp/q"
+ok "questions: count on empty is 0" "$(./bouncer-questions count)" 0
+./bouncer-questions next >/dev/null 2>&1; ok "questions: next on empty exits 1" $? 1
+./bouncer-questions add "ABC-1 | local_a" 2>/dev/null; ok "questions: no question exits 2" $? 2
+./bouncer-questions add " | local_a | why?" 2>/dev/null; ok "questions: no ticket exits 2" $? 2
+./bouncer-questions done 2>/dev/null; ok "questions: done without a ticket exits 2" $? 2
+./bouncer-questions done ABC-9 2>/dev/null; ok "questions: done of a missing ticket exits 1" $? 1
+./bouncer-questions nope 2>/dev/null; ok "questions: bad command exits 2" $? 2
+./bouncer-questions add "ABC-1 | local_a | Will Henry post it himself, or allow save_comment? Default: post"
+./bouncer-questions add "ABC-2|local_b|Ship A | or B?"
+./bouncer-questions add "ABC-1 | local_a | Post it or not?"
+ok "questions: next is the oldest open one" "$(./bouncer-questions next)" "ABC-2 | local_b | Ship A | or B?"
+ok "questions: a new question of the same ticket replaces the old" "$(./bouncer-questions list | tr '\n' ';')" "ABC-2 | local_b | Ship A | or B?;ABC-1 | local_a | Post it or not?;"
+ok "questions: count" "$(./bouncer-questions count)" 2
+./bouncer-questions done ABC-2; ok "questions: done removes only that ticket" "$(./bouncer-questions list)" "ABC-1 | local_a | Post it or not?"
+ok "questions: the file is questions.md in the data folder" "$(cat "$tmp/q/questions.md")" "ABC-1 | local_a | Post it or not?"
 unset BOUNCER_DATA
 
 # bouncer-report

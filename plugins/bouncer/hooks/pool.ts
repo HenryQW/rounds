@@ -27,3 +27,10 @@ export const archived = (pool: Pool, sessionId: string): Pool => {
 }
 
 export const queueLines = (text: string) => text.split('\n').filter(l => l.trim() !== '')
+
+/** `questions.md` lines (`<TICKET> | <session_id> | <question>`) as session id to question. */
+export const questionsBySession = (text: string): Record<string, string> =>
+  Object.fromEntries(queueLines(text).flatMap(l => {
+    const [, id, ...q] = l.split('|').map(s => s.trim())
+    return id && q.length ? [[id, q.join(' | ')]] : []
+  }))

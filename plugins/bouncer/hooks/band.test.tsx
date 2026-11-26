@@ -7,6 +7,7 @@ const engine = (on: any) => {
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
   on('fs.read', (_: unknown, e: { path?: string }) => {
     if (e.path === '/data/queue.md') return { value: 'A-1 | r | Code | x\nA-2 | r | Spike | y\n' }
+    if (e.path === '/data/questions.md') return { value: 'MIDI-1616 | local_a | Post the draft yourself? Default: yes\n' }
     throw new Error('missing')
   })
 }
@@ -145,5 +146,24 @@ test('a start_session call with a non-Bartender title leaves the pool unchanged'
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect((await ui.find({ type: 'Text', text: /Bartenders/ }))?.text).toBe('no Bartenders yet')
+  await ui.unmount()
+})
+
+test('a Bartender that waits shows its question and opens its conversation', async ($, on) => {
+  engine(on)
+  const runs: unknown[] = []
+  on('process.run', (_: unknown, e: any) => { runs.push(e.argv); return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } })
+  await title($, 'local_a', '![Wont] MIDI-1616 - Bartender - aspire')
+  await title($, 'local_b', '[Dev] MIDI-2 - Bartender - web')
+  await title($, 'local_c', '![Dev] MIDI-3 - Bartender - web')
+  await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-questions add "MIDI-1616 | local_a | x"' } as any)
+
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect((await ui.find({ type: 'Text', text: /MIDI-1616:/ }))?.text).toBe('! MIDI-1616: Post the draft yourself? Default: yes')
+  expect((await ui.find({ type: 'Text', text: /MIDI-3:/ }))?.text).toBe('! MIDI-3: waits on you')
+  expect(await ui.find({ type: 'Text', text: /MIDI-2:/ })).toBe(undefined)
+  expect((await ui.findAll({ type: 'Button' })).map(b => b.key).filter(k => k?.startsWith('open:'))).toEqual(['open:local_a', 'open:local_c'])
+  await ui.press({ key: 'open:local_a' })
+  expect(runs).toEqual([['open', 'claude://claude.ai/epitaxy/local_a']])
   await ui.unmount()
 })
