@@ -2,9 +2,16 @@ import { expect, test } from 'claude-code/testing'
 
 const BAND = { plugin: 'bouncer', component: 'AbovePrompt', props: { hasSurvey: false, bodyColumns: 120 } } as const
 
+// This session's id, and writes of the Bouncer owner file.
+const base = (on: any) => {
+  on('session.id', () => ({ value: 'me' }))
+  on('fs.write', () => ({ value: undefined }))
+}
+
 const engine = (on: any) => {
   on('tool.call', () => ({ result: {} }))
   on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
+  base(on)
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
   on('fs.read', (_: unknown, e: { path?: string }) => {
     if (e.path === '/data/queue.md') return { value: 'A-1 | r | Code | x\nA-2 | r | Spike | y\n' }
@@ -163,11 +170,11 @@ test('a start_session call with a non-Bartender title leaves the pool unchanged'
   await ui.unmount()
 })
 
-test('a Bartender that waits shows its question and opens its conversation', async ($, on) => {
+test('only the head question shows; it opens its Bartender, or asks the Bouncer to', async ($, on) => {
   const opened: unknown[] = []
   on('tool.call', { tool: 'mcp__ccd_window__open_session_in' }, (_: unknown, e: any) => {
     opened.push([e.session_id, e.target])
-    if (e.session_id === 'local_c') return { deny: 'not a session this session started' }
+    if (e.session_id === 'local_a') return { deny: 'not a session this session started' }
     return { result: 'Opened in split view.' }
   })
   engine(on)
@@ -182,15 +189,15 @@ test('a Bartender that waits shows its question and opens its conversation', asy
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect((await ui.find({ type: 'Text', text: /MIDI-1616:/ }))?.text).toBe('! MIDI-1616: Post the draft yourself? Default: yes')
-  expect((await ui.find({ type: 'Text', text: /MIDI-3:/ }))?.text).toBe('! MIDI-3: waits on you')
-  expect(await ui.find({ type: 'Text', text: /MIDI-2:/ })).toBe(undefined)
-  expect((await ui.findAll({ type: 'Button' })).map(b => b.key).filter(k => k?.startsWith('open:'))).toEqual(['open:local_a', 'open:local_c'])
+  // Questions block in order: MIDI-3 waits (its `!` shows) but its line stays hidden until the head is answered.
+  expect(await ui.find({ type: 'Text', text: /MIDI-3:/ })).toBe(undefined)
+  expect(chip(await ui.find({ key: 'act:local_c' }))).toBe('🍸 Dev MIDI-3')
+  expect((await ui.findAll({ type: 'Button' })).map(b => b.key).filter(k => k?.startsWith('open:'))).toEqual(['open:local_a'])
 
   // The plugin opens the Bartender in split view itself; when the app refuses, it asks the Bouncer.
   await ui.press({ key: 'open:local_a' })
-  await ui.press({ key: 'open:local_c' })
-  expect(opened).toEqual([['local_a', 'split'], ['local_c', 'split']])
-  expect(prompts).toEqual(['MIDI-3: open'])
+  expect(opened).toEqual([['local_a', 'split']])
+  expect(prompts).toEqual(['MIDI-1616: open'])
   await ui.unmount()
 })
 
@@ -212,10 +219,9 @@ test('while a question waits, the band sends no prompt but Open still works', as
   await ui.press({ key: 'queue' })
   await ui.press({ key: 'queue:pop' })
   await ui.press({ key: 'open:local_a' })
-  await ui.press({ key: 'open:local_b' })
-  expect(opened).toEqual(['local_a', 'local_b'])
+  expect(opened).toEqual(['local_a'])
   expect(prompts).toEqual([])
-  expect(toasts).toEqual(Array(3).fill('Answer the waiting question first'))
+  expect(toasts).toEqual(Array(2).fill('Answer the waiting question first'))
 
   await title($, 'self', '🚪 Bouncer')
   await ui.select({ key: 'act:local_a', value: 'stop local_a' })
@@ -256,6 +262,7 @@ test('a turn-end note sets the status code, and the CTA follows questions.md', a
     if (String(e.tool).endsWith('set_session_title')) renames.push(`${e.session_id}=${e.title}`)
     return { result: {} }
   })
+  base(on)
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
   on('fs.read', (_: unknown, e: { path?: string }) => {
     if (e.path === '/data/questions.md') return { value: questions }
@@ -298,6 +305,7 @@ const LEDGER = '/r/K-1.md: - [open] pr | u | trigger: merged | check:  | next: m
 
 test('the band shows the open ledger count', { options: { records_dir: '~/.tickets' } }, async ($, on) => {
   on('tool.call', () => ({ result: {} }))
+  base(on)
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
   on('fs.read', () => { throw new Error('missing') })
   const envs: unknown[] = []
@@ -334,6 +342,7 @@ test('idle Bartenders of one type and repo share one chip, whose menu names each
 
 test('nothing waits: no waiting text, no queue or ledger count, one row', async ($, on) => {
   on('tool.call', () => ({ result: {} }))
+  base(on)
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
   on('fs.read', () => { throw new Error('missing') })
   await title($, 'self', '🚪 Bouncer')
@@ -350,6 +359,7 @@ test('a queue emptied elsewhere leaves the band after the next turn or session s
   on('tool.call', () => ({ result: {} }))
   on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  base(on)
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
   on('fs.read', (_: unknown, e: { path?: string }) => {
     if (e.path === '/data/queue.md') return { value: queue }
@@ -366,4 +376,34 @@ test('a queue emptied elsewhere leaves the band after the next turn or session s
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
   expect((await ui.find({ key: 'queue' }))?.text).toBe('queue 2')
   await ui.unmount()
+})
+
+test('one Bouncer: a second session shows Take Over, and only that takes the Bouncer', async ($, on) => {
+  let owner = 'other'
+  const writes: string[] = []
+  on('tool.call', () => ({ result: {} }))
+  on('session.end', (_: unknown, e: any) => ({ sessionId: e.sessionId }))
+  on('session.id', () => ({ value: 'me' }))
+  on('fs.write', (_: unknown, e: any) => { writes.push(e.text ?? e.content ?? e.data); owner = String(writes.at(-1)); return { value: undefined } })
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
+  on('fs.read', (_: unknown, e: { path?: string }) => {
+    if (e.path === '/data/bouncer') return { value: owner }
+    throw new Error('missing')
+  })
+  await $.tool.call({ tool: 'Skill', skill: 'bouncer:bouncer' } as any)
+  await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect((await ui.find({ type: 'Text', text: /another session/ }))?.text).toBe('another session is the Bouncer')
+  expect(await ui.find({ type: 'Select' })).toBe(undefined)
+  expect(writes).toEqual([])
+
+  await ui.press({ key: 'takeover' })
+  expect(writes).toEqual(['me'])
+  expect(await ui.find({ type: 'Text', text: /another session/ })).toBe(undefined)
+  expect(chip(await ui.find({ key: 'act:a' }))).toBe('🍸 Dev MIDI-1')
+  await ui.unmount()
+
+  // Its session ends: the Bouncer is free for the next one.
+  await $.session.end({ reason: 'other', sessionId: 'me' } as any)
+  expect(writes).toEqual(['me', ''])
 })
