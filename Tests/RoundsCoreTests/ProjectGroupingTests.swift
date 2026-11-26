@@ -26,6 +26,17 @@ private func row(_ id: String, _ group: StatusGroup, cwd: String, activity: Doub
     #expect(projectRoot(for: plain.path) == plain.path)
 }
 
+@Test func organizationProjectsSkipGoneAndTemporaryFolders() throws {
+    let temporary = try tempDir()
+    defer { try? FileManager.default.removeItem(at: temporary) }
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    #expect(organizationProject(for: home) == projectRoot(for: home))
+    #expect(organizationProject(for: home + "/rounds-gone-\(UUID().uuidString)") == nil)
+    #expect(organizationProject(for: temporary.path) == nil)
+    #expect(organizationProject(for: "/tmp") == nil)
+    #expect(organizationProject(for: "/private/tmp/x") == nil)
+}
+
 @Test func projectSectionsPutUrgentProjectsFirst() {
     let rows = [
         row("a-idle", .quiet, cwd: "/p/a", activity: 50),
