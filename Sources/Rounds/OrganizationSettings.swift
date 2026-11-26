@@ -208,7 +208,8 @@ struct OrganizationSettingsView: View {
             if case .directory(let path) = rule.match { return path }
             return nil
         }
-        let known = model.organizationDirectories + state.addedDirectories
+        // A worktree or a subfolder shows as its project: a rule on the main checkout covers its worktrees.
+        let known = model.organizationDirectories.map(projectRoot) + state.addedDirectories
         return Array(Set(known + stored)).sorted()
     }
 
@@ -282,7 +283,7 @@ struct OrganizationSettingsView: View {
     private var organizationsColumn: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack { Text("Organizations").font(.headline); Spacer(); Button("Add Organization…") { state.addingOrganization = true } }
-            Text("Projects inherit their organization's rules.").font(.caption).foregroundStyle(.secondary)
+            Text("Projects and their Git worktrees inherit their organization's rules.").font(.caption).foregroundStyle(.secondary)
             ForEach(state.policy.organizations) { item in
                 GroupBox(item.name) {
                     VStack(alignment: .leading, spacing: 8) {

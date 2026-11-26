@@ -16,3 +16,5 @@ In Settings > Organizations, add an organization and move each project to it. Cl
 Telegram and Bark get a message only when your Mac has had no key or pointer input for the time in Send remote messages after (2 minutes by default; 0 sends at once). A session that you open, or that changes, before then sends no message. Each event sends once. Send for sets the states that send a remote message. Send Test in the row's menu sends a test message; a failure shows in orange in the row until the next message goes through.
 
 Privacy: after the organization and destination checks, Rounds sends the state, the session title, the detail and the folder name to Telegram, or to the Bark server and from there to Apple. Rounds never sends prompt text. The token, chat ID and device key stay in your Keychain.
+
+Keychain approval: after an update that changes the Rounds Keychain helper, macOS can ask for your login password one time for each item. Choose **Always Allow** to keep the approval across ordinary updates.

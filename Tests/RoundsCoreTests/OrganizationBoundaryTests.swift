@@ -33,6 +33,28 @@ import Testing
         #expect(resolveOrganizationBoundary(rules: [directoryRule("all", "/")], sessionDirectory: child.path, gitRemote: .absent) == .classified(organizationID: "all"))
     }
 
+    @Test func linkedWorktreesFollowTheirRepositoryOnlyWithGitsBackLink() throws {
+        let base = try tempDir()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let fm = FileManager.default
+        let repo = base.appending(path: "repo")
+        let worktree = base.appending(path: "worktrees/feature")
+        let forged = base.appending(path: "worktrees/forged")
+        let link = repo.appending(path: ".git/worktrees/feature")
+        for dir in [link, worktree.appending(path: "src"), forged] {
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        // The layout `git worktree add` writes: a .git file in the worktree and a link back in the repository.
+        try "gitdir: \(link.path)\n".write(to: worktree.appending(path: ".git"), atomically: true, encoding: .utf8)
+        try "\(worktree.appending(path: ".git").path)\n".write(to: link.appending(path: "gitdir"), atomically: true, encoding: .utf8)
+        try "gitdir: \(link.path)\n".write(to: forged.appending(path: ".git"), atomically: true, encoding: .utf8)
+        let repoRule = directoryRule("team", repo.path)
+        #expect(resolveOrganizationBoundary(rules: [repoRule], sessionDirectory: worktree.path, gitRemote: .absent) == .classified(organizationID: "team"))
+        #expect(resolveOrganizationBoundary(rules: [repoRule], sessionDirectory: worktree.appending(path: "src").path, gitRemote: .absent) == .classified(organizationID: "team"))
+        #expect(resolveOrganizationBoundary(rules: [repoRule], sessionDirectory: forged.path, gitRemote: .absent) == .localOnly(.unmatched))
+        #expect(resolveOrganizationBoundary(rules: [repoRule, directoryRule("other", worktree.path)], sessionDirectory: worktree.path, gitRemote: .absent) == .localOnly(.conflicting))
+    }
+
     @Test func symlinksResolveBeforeMatchingAndDotDot() throws {
         let base = try tempDir()
         defer { try? FileManager.default.removeItem(at: base) }

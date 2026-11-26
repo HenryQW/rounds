@@ -252,26 +252,15 @@ final class PushStore {
 }
 
 /// The values of each channel in the login Keychain: service `com.henryqw.rounds.push`, account = the channel, data =
-/// JSON of its values. Never in a file or a log.
+/// JSON of its values. Never in a file or a log. Errors are logged by `KeychainItem`.
 private enum PushValues {
-    static func item(_ channel: PushChannel) -> [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: "com.henryqw.rounds.push", kSecAttrAccount as String: channel.rawValue]
-    }
-
     static func read(_ channel: PushChannel) -> [String: String]? {
-        var data: AnyObject?
-        let status = SecItemCopyMatching(item(channel).merging([kSecReturnData as String: true]) { $1 } as CFDictionary, &data)
-        if status != errSecSuccess && status != errSecItemNotFound { log.error("push: Keychain read failed (\(status))") }
-        return (data as? Data).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) }
+        (try? KeychainItem.push(channel).read()).flatMap { $0 }.flatMap { try? JSONDecoder().decode([String: String].self, from: $0) }
     }
 
-    /// Update, then add: a failed write keeps the old value.
     static func save(_ channel: PushChannel, _ values: [String: String]) {
-        let changes = [kSecValueData as String: try! JSONEncoder().encode(values)]
-        var status = SecItemUpdate(item(channel) as CFDictionary, changes as CFDictionary)
-        if status == errSecItemNotFound { status = SecItemAdd(item(channel).merging(changes) { $1 } as CFDictionary, nil) }
-        if status != errSecSuccess { log.error("push: Keychain save failed (\(status))") }
+        try? KeychainItem.push(channel).save(try! JSONEncoder().encode(values))
     }
 
-    static func delete(_ channel: PushChannel) { SecItemDelete(item(channel) as CFDictionary) }
+    static func delete(_ channel: PushChannel) { try? KeychainItem.push(channel).delete() }
 }

@@ -35,7 +35,8 @@ public enum OrganizationBoundaryResult: Equatable, Sendable {
 }
 
 /// Resolve all rules without reading Git configuration or contacting a remote.
-/// Directory paths must be absolute existing directories. Remote strings must be canonical URLs or scp-style Git
+/// Directory paths must be absolute existing directories. A linked Git worktree also matches the directory rules of
+/// its repository's main checkout. Remote strings must be canonical URLs or scp-style Git
 /// remotes and match byte for byte. The caller must supply all remotes from a trusted checkout. A remote string alone
 /// does not prove ownership. A nil directory or unknown remote blocks classification when a rule needs it.
 /// The result is a snapshot; resolve again at the point of use if paths or remotes can change.
@@ -80,8 +81,9 @@ public func resolveOrganizationBoundary(rules: [OrganizationBoundaryRule], sessi
     }
 
     var matches: [[UInt8]: String] = [:]
-    if let directory {
-        for rule in directories where containsDirectory(rule.path, directory) {
+    if let directory, !directories.isEmpty {
+        let paths = [directory] + (linkedWorktreeRepository(directory).map { [$0] } ?? [])
+        for rule in directories where paths.contains(where: { containsDirectory(rule.path, $0) }) {
             matches[Array(rule.id.utf8)] = rule.id
         }
     }
@@ -106,6 +108,35 @@ func canonicalDirectory(_ path: String) -> [UInt8]? {
           originalInfo.st_dev == resolvedInfo.st_dev, originalInfo.st_ino == resolvedInfo.st_ino,
           let value = String(validatingCString: resolved) else { return nil }
     return Array(value.utf8)
+}
+
+/// The main checkout of the linked Git worktree that holds `directory`, else nil. The worktree's `.git` file points
+/// to `<repo>/.git/worktrees/<name>`, and that folder's `gitdir` file must point back to the same `.git` file.
+func linkedWorktreeRepository(_ directory: [UInt8]) -> [UInt8]? {
+    guard var dir = String(bytes: directory, encoding: .utf8).map({ URL(fileURLWithPath: $0) }) else { return nil }
+    while dir.path != "/" {
+        let git = dir.appending(path: ".git")
+        var isDirectory: ObjCBool = false
+        if FileManager.default.fileExists(atPath: git.path, isDirectory: &isDirectory) {
+            guard !isDirectory.boolValue, let text = try? String(contentsOf: git, encoding: .utf8),
+                  text.hasPrefix("gitdir:") else { return nil }
+            let target = text.dropFirst("gitdir:".count).trimmingCharacters(in: .whitespacesAndNewlines)
+            let gitdir = (target.hasPrefix("/") ? URL(fileURLWithPath: target) : dir.appending(path: target)).standardizedFileURL
+            guard let range = gitdir.path.range(of: "/.git/worktrees/"),
+                  let back = try? String(contentsOf: gitdir.appending(path: "gitdir"), encoding: .utf8),
+                  let linked = resolvedPath(back.trimmingCharacters(in: .whitespacesAndNewlines)),
+                  linked == resolvedPath(git.path) else { return nil }
+            return canonicalDirectory(String(gitdir.path[..<range.lowerBound]))
+        }
+        dir.deleteLastPathComponent()
+    }
+    return nil
+}
+
+private func resolvedPath(_ path: String) -> String? {
+    guard path.hasPrefix("/"), let resolved = realpath(path, nil) else { return nil }
+    defer { free(resolved) }
+    return String(validatingCString: resolved)
 }
 
 private func containsDirectory(_ parent: [UInt8], _ path: [UInt8]) -> Bool {
