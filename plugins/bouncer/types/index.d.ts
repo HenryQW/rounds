@@ -5,7 +5,7 @@ export type Pool = {
   bartenders: Record<string, string>
   /** Questions that wait on the user: the n of the Bouncer's own `!<n> Bouncer` title. */
   waiting: number
-  /** Lines in `.context/bouncer-queue.md`. */
+  /** Lines in `queue.md` in the plugin's data folder. */
   queue: number
 }
 

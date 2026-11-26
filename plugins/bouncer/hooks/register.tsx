@@ -5,10 +5,10 @@ import { EMPTY, archived, parseBartender, queueLength, renamed } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
 
-const QUEUE = '.context/bouncer-queue.md'
-
+// The plugin's data folder, the one bouncer-data prints (CLAUDE_PLUGIN_DATA).
 const refreshQueue = async ($: EngineInterface) => {
-  const text = await $.fs.read(`${await $.session.cwd()}/${QUEUE}`).catch(() => '')
+  const data = (await $.process.hookEnv()).CLAUDE_PLUGIN_DATA
+  const text = data ? await $.fs.read(`${data}/queue.md`).catch(() => '') : ''
   await update($, pool, p => ({ ...p, queue: queueLength(String(text)) }))
 }
 

@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# bouncer-queue add <file> "<TICKET> | <repo> | <mode> | <brief source>"   add, or replace the line of the same ticket
-# bouncer-queue pop <file>    print the first line and remove it (exit 1 when the queue is empty)
-# bouncer-queue list <file>   print the queue
+# bouncer-queue add "<TICKET> | <repo> | <mode> | <brief source>"   add, or replace the line of the same ticket
+# bouncer-queue pop    print the first line and remove it (exit 1 when the queue is empty)
+# bouncer-queue list   print the queue
+# The queue is queue.md in the plugin's data folder (bouncer-data), so every Bouncer session sees it, whatever its folder.
 # Exit 2: bad usage or a line that is not 4 fields with a mode Code, Spike or Mechanical.
 set -euo pipefail
 trim() { local s=$1; s=${s#"${s%%[![:space:]]*}"}; printf '%s' "${s%"${s##*[![:space:]]}"}"; }   # not xargs: it fails on quotes
-cmd=${1:-}; f=${2:-}
-[ -n "$cmd" ] && [ -n "$f" ] || { echo "usage: bouncer-queue add|pop|list <file> [line]" >&2; exit 2; }
+cmd=${1:-}
+[ -n "$cmd" ] || { echo "usage: bouncer-queue add|pop|list [line]" >&2; exit 2; }
+f="$("$(dirname "$0")/bouncer-data")/queue.md"
 touch "$f"
 case $cmd in
   add)
-    line=${3:-}
+    line=${2:-}
     IFS='|' read -r t r m b x <<<"$line"
     t=$(trim "$t"); r=$(trim "$r"); m=$(trim "$m"); b=$(trim "${b:-}")
     [ -n "$t" ] && [ -n "$r" ] && [ -n "$b" ] && [ -z "${x:-}" ] || { echo "bad line: want TICKET | repo | mode | brief source" >&2; exit 2; }
@@ -21,5 +23,5 @@ case $cmd in
     [ -s "$f" ] || { echo "queue empty" >&2; exit 1; }
     head -n 1 "$f"; tmp=$(mktemp); tail -n +2 "$f" > "$tmp"; mv "$tmp" "$f" ;;
   list) cat "$f" ;;
-  *) echo "usage: bouncer-queue add|pop|list <file> [line]" >&2; exit 2 ;;
+  *) echo "usage: bouncer-queue add|pop|list [line]" >&2; exit 2 ;;
 esac
