@@ -28,7 +28,7 @@ export type Pool = {
   /** Bartender session id to whether its session runs a turn now (`list_sessions` `isRunning`). */
   running?: Readonly<Record<string, boolean>>
   /** Bartender session id to its linked session (`list_sessions`): folder, last activity, PR, and the PR's URL when its repo is on GitHub. */
-  sessions?: Readonly<Record<string, { cwd?: string; at?: string; pr?: { number: number; state?: string; url?: string } }>>
+  sessions?: Readonly<Record<string, { cwd?: string; branch?: string; at?: string; pr?: { number: number; state?: string; url?: string } }>>
   /** Bartender session id to the sub-line of its last report: the wait reason, else the RESULT. */
   notes?: Readonly<Record<string, string>>
   /** True while the system appearance is dark: the band picks Linear's dark tokens, else the light ones. */

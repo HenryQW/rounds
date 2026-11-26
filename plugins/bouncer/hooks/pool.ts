@@ -57,7 +57,7 @@ export const dots = (bartenders: Readonly<Record<string, string>>, reports: Read
   Object.entries(bartenders).flatMap(([id, t]) => { const b = parseBartender(t); return b ? [{ dot: dot(b, reports[id], running[id]) }] : [] })
     .sort(byDot).map(d => d.dot)
 
-/** Active Bartenders one card each, red first (title `🟡 MIDI-1`, subtitle `ticket · Dev`); all idle ones in one `N idle` card, last. */
+/** Active Bartenders one card each, red first (title `🟡 MIDI-1`, subtitle `Dev`); all idle ones in one `N idle` card, last. */
 export const columns = (bartenders: Readonly<Record<string, string>>, reports: Readonly<Record<string, string>> = {}, running: Readonly<Record<string, boolean>> = {}): Column[] => {
   const active: Column[] = []
   const idle: string[] = []
@@ -67,10 +67,10 @@ export const columns = (bartenders: Readonly<Record<string, string>>, reports: R
     if (b.status === 'Idle' && !b.cta) { idle.push(id); continue }
     const d = dot(b, reports[id], running[id])
     // A task with no ticket shows its repo as the value.
-    active.push({ key: `act:${id}`, dot: d, label: `${b.type.toLowerCase()} · ${b.status}`, value: `${d} ${b.ticket || b.repo}`, ticket: b.ticket, ids: [id] })
+    active.push({ key: `act:${id}`, dot: d, label: b.status, value: `${d} ${b.ticket || b.repo}`, ticket: b.ticket, ids: [id] })
   }
   active.sort(byDot)
-  return idle.length ? [...active, { key: 'idle', dot: '🟢', label: 'idle', value: `🟢 ${idle.length} idle`, ticket: '', ids: idle }] : active
+  return idle.length ? [...active, { key: 'idle', dot: '🟢', label: '', value: `🟢 ${idle.length} idle`, ticket: '', ids: idle }] : active
 }
 
 /** A report's sub-line: the wait reason (its QUESTION) when the Bartender waits on the user, else its RESULT. */
@@ -78,11 +78,11 @@ export const reportLine = (r: Report) =>
   ((r.status === 'NEEDS_INPUT' || r.status === 'BLOCKED') && r.question ? r.question : r.result) ?? ''
 
 /** A linked session as the band uses it (from `list_sessions`). */
-export type SessionRow = { id: string; title: string; isRunning: boolean; cwd?: string; at?: string; pr?: { number: number; state?: string } }
+export type SessionRow = { id: string; title: string; isRunning: boolean; cwd?: string; branch?: string; at?: string; pr?: { number: number; state?: string } }
 
 /**
  * The Bouncer's linked sessions from `list_sessions {linked: true}` (a JSON array, maybe in MCP text blocks or a JSON
- * string): id, title, whether a turn runs, its folder, its last activity and its PR. Undefined when the text is not such a list.
+ * string): id, title, whether a turn runs, its folder and branch, its last activity and its PR. Undefined when the text is not such a list.
  */
 export const sessionRows = (raw: string): SessionRow[] | undefined => {
   const parse = (t: string): unknown => { try { return JSON.parse(t) } catch { return undefined } }
@@ -96,6 +96,7 @@ export const sessionRows = (raw: string): SessionRow[] | undefined => {
   return v.flatMap(r => typeof r?.sessionId === 'string' && typeof r?.title === 'string' ? [{
     id: r.sessionId as string, title: r.title as string, isRunning: r.isRunning === true,
     ...(typeof r.cwd === 'string' ? { cwd: r.cwd } : {}),
+    ...(typeof r.branch === 'string' && r.branch ? { branch: r.branch } : {}),
     ...(typeof r.lastActivityAt === 'string' ? { at: r.lastActivityAt } : {}),
     ...(typeof r.prNumber === 'number' ? { pr: { number: r.prNumber, ...(typeof r.prState === 'string' ? { state: r.prState.toLowerCase() } : {}) } } : {}),
   }] : [])

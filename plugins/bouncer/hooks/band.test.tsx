@@ -470,7 +470,7 @@ test('the band fills from the linked sessions: titles, green when no turn runs, 
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢]+$/u }))?.text).toBe('🟡🟢')
-  expect(await cols(ui)).toEqual([['skill · Dev', '🟡 band', 'working'], ['ticket · InQA', '🟢 MIDI-1', 'PR #12 open']])
+  expect(await cols(ui)).toEqual([['Dev', '🟡 band', 'working'], ['InQA', '🟢 MIDI-1', 'PR #12 open']])
   await ui.unmount()
 })
 
@@ -585,14 +585,12 @@ test('a report line is the wait reason while the Bartender waits on the user, el
   expect(reportLine({ status: 'WORKING', ticket: 'A-1', linear: null })).toBe('')
 })
 
-// Each card as [subtitle, title, sub-line], in band order.
+// Each card as [line 2, title, sub-line], in band order.
 const cols = async (ui: any) => {
-  const texts = (await ui.findAll({ type: 'Text' })).map((t: any) => t.text)
   const out = []
   for (const b of (await ui.findAll({ type: 'Button' })).filter((b: any) => /^(act:|idle$)/.test(b.key ?? ''))) {
-    const title = (await ui.find({ key: `title:${b.key}` }))?.text
-    const i = texts.indexOf(title)
-    out.push([texts[i + 1], title, texts[i + 2]])
+    const line = async (k: string) => (await ui.find({ key: `${k}:${b.key}` }))?.text
+    out.push([await line('line2'), await line('title'), await line('line3')])
   }
   return out
 }
@@ -604,7 +602,7 @@ test('Details: one column an active Bartender, idle ones in one column, at most 
   await title($, 'self', '🚪 Bouncer')
   await title($, 'a', '[QA] 🍸 MIDI-1 rounds')
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' } as any)
-  expect(await cols(ui)).toEqual([['ticket · QA', '🟡 MIDI-1', '']])
+  expect(await cols(ui)).toEqual([['QA', '🟡 MIDI-1', '']])
   expect(await ui.find({ type: 'Text', text: /^│$/ })).toBe(undefined)
   expect((await ui.find({ type: 'Text', text: /^Bouncer$/ }))?.text).toBe('Bouncer')
   expect((await ui.find({ type: 'Text', text: /^rounds$/ }))?.text).toBe('rounds')
@@ -612,7 +610,7 @@ test('Details: one column an active Bartender, idle ones in one column, at most 
   await title($, 'b', '[Dev] 🔧 band rounds')
   await title($, 'c', '[Idle] 🍸 rounds')
   await title($, 'd', '[Idle] 🧹 rounds')
-  expect(await cols(ui)).toEqual([['ticket · QA', '🟡 MIDI-1', ''], ['skill · Dev', '🟡 band', ''], ['idle', '🟢 2 idle', 'free for work']])
+  expect(await cols(ui)).toEqual([['QA', '🟡 MIDI-1', ''], ['Dev', '🟡 band', ''], [undefined, '🟢 2 idle', 'free for work']])
   // Two vertical hairlines of three lines each.
   expect((await ui.findAll({ type: 'Text', text: /^│$/ })).length).toBe(6)
   expect(await ui.find({ type: 'Text', text: /^\+\d/ })).toBe(undefined)
@@ -643,7 +641,7 @@ test('Details: the ask row shows only while a question waits; a report fills the
   expect(await ui.find({ type: 'Text', text: /^🔴 / })).toBe(undefined)
 
   await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: DONE\nTICKET: MIDI-1' } as any)
-  expect(await cols(ui)).toEqual([['ticket · Dev', '🟡 MIDI-1', 'PR 31 open, CI green']])
+  expect(await cols(ui)).toEqual([['Dev', '🟡 MIDI-1', 'PR 31 open, CI green']])
 
   await ui.press({ key: 'act:local_a' })
   expect(await ui.find({ type: 'Text', text: /PR 31/ })).toBe(undefined)
@@ -671,7 +669,7 @@ test("Details off the terminal takes Linear's tokens for the system appearance: 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   const color = async (text: RegExp) => (await ui.find({ type: 'Text', text }))?.props?.color
   expect(await color(/^Bouncer$/)).toBe('#f7f8f8')
-  expect(await color(/^ticket · Dev$/)).toBe('#8a8f98')
+  expect(await color(/^Dev$/)).toBe('#8a8f98')
   const cards = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props?.borderStyle === 'round' && b.props?.backgroundColor === '#0f1011')
   // One card, sized for equal widths (width 0, grow 1); the Compact switch is a quiet plain Button with no box of its own.
   expect(cards.map((b: any) => [b.props.width, b.props.flexGrow])).toEqual([[0, 1]])
@@ -685,7 +683,7 @@ test("Details off the terminal takes Linear's tokens for the system appearance: 
 
 test('a card links its ticket to Linear and its PR to GitHub, with the time since its last activity', { options: { linear_workspace_url: 'https://linear.app/acme' } }, async ($, on) => {
   on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({ result: JSON.stringify([
-    { sessionId: 'local_a', title: '[CR] 🍸 MIDI-1 rounds', isRunning: false, cwd: '/w/.claude/worktrees/midi-1', lastActivityAt: '2026-11-26T10:00:00Z', prNumber: 17, prState: 'MERGED' },
+    { sessionId: 'local_a', title: '[CR] 🍸 MIDI-1 rounds', isRunning: false, cwd: '/w/.claude/worktrees/midi-1', branch: 'henry/midi-1-fix', lastActivityAt: '2026-11-26T10:00:00Z', prNumber: 17, prState: 'MERGED' },
     { sessionId: 'local_b', title: '[Dev] 🔧 band rounds', isRunning: true, cwd: '/x/other', prNumber: 3, prState: 'OPEN' },
   ]) }))
   on('process.run', (_: unknown, e: any) => ({ value: { exitCode: e.argv[2] === '/w/.claude/worktrees/midi-1' ? 0 : 1, stdout: 'git@github.com:acme/rounds.git\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
@@ -700,7 +698,12 @@ test('a card links its ticket to Linear and its PR to GitHub, with the time sinc
   expect(links).toEqual([['MIDI-1', 'https://linear.app/acme/issue/MIDI-1'], ['#17', 'https://github.com/acme/rounds/pull/17']])
   expect((await ui.find({ type: 'Text', text: /^#3$/ }))?.text).toBe('#3')
   expect((await ui.find({ type: 'Text', text: /^14 min ago$/ }))?.text).toBe('14 min ago')
-  expect((await ui.find({ type: 'Text', text: /^ticket · CR · ⎇ midi-1$/ }))?.text).toBe('ticket · CR · ⎇ midi-1')
+  // Line 2 is the status code and the branch (else the folder); the key shows once, as the title's link; the time is not mono.
+  expect((await ui.find({ key: 'line2:act:local_a' }))?.text).toBe('CR · ⎇ henry/midi-1-fix')
+  expect((await ui.find({ key: 'line2:act:local_b' }))?.text).toBe('Dev · ⎇ other')
+  expect(await ui.find({ type: 'Text', text: /MIDI-1$/ })).toBe(undefined)
+  expect((await ui.find({ type: 'Text', text: /^14 min ago$/ }))?.props?.mono).toBe(undefined)
+  expect(await ui.find({ type: 'Text', text: /ticket|skill/ })).toBe(undefined)
   expect((await ui.find({ type: 'Text', text: /^⤵ $/ }))?.props?.color).toBe('merged')
   expect((await ui.find({ type: 'Text', text: /^⑂ $/ }))?.props?.color).toBe('success')
   await ui.unmount()
