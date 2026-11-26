@@ -135,6 +135,18 @@ export const ticketLedger = (lines: readonly string[], ticket: string) =>
 export const ledgerNext = (lines: readonly string[]) =>
   lines.filter(l => l.includes(': - [open] ')).map(l => /\| next: (.*?) \| \d{4}-\d{2}-\d{2}\s*$/.exec(l)?.[1]?.trim()).find(Boolean)
 
+/** The full URLs of a ticket's open `pr` ledger items, in order. */
+export const openPrUrls = (lines: readonly string[], ticket: string) =>
+  prUrls(ticketLedger(lines, ticket).filter(l => /: - \[open\] pr \| /.test(l)))
+
+/** `gh pr view --json state,baseRefName` output as the band's PR state and base; undefined when it does not parse. */
+export const prInfo = (json: string): { state?: string; base?: string } | undefined => {
+  try {
+    const v = JSON.parse(json) as { state?: unknown; baseRefName?: unknown }
+    return { ...(typeof v.state === 'string' ? { state: v.state.toLowerCase() } : {}), ...(typeof v.baseRefName === 'string' ? { base: v.baseRefName } : {}) }
+  } catch { return undefined }
+}
+
 /** Time since `at`, short: `3s`, `14m`, `2h`, `3d`. */
 export const ago = (at: string, now: number) => {
   const s = Math.max(1, Math.floor((now - Date.parse(at)) / 1000))

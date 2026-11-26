@@ -712,6 +712,8 @@ test('a card links its ticket to Linear and its PR to the URL that its ledger li
       + '/r/MIDI-9.md: - [open] pr | https://github.com/acme/web/pull/5 | trigger: merged | check:  | next: review | 2026-11-26\n'
       // A done item still names its PR's URL: band's #3 is found here even without a report.
       + '/r/rounds-bouncer-band.md: - [done] pr | https://github.com/acme/plugins/pull/3 | trigger: merged | check:  | next: merge | 2026-11-26\n')
+    // gh, once a turn, for each open pr item: its state and base.
+    if (cmd === '/bin/bash') return out(String(e.argv[3]).endsWith('/17') ? '{"state":"MERGED","baseRefName":"dev"}' : '{"state":"OPEN","baseRefName":"staging"}')
     if (cmd.endsWith('bouncer-report')) return out('{"status":"WORKING","ticket":"band","linear":null,"result":"PR up","question":null}')
     return { value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
@@ -738,7 +740,10 @@ test('a card links its ticket to Linear and its PR to the URL that its ledger li
   // Row 1 holds the status chip and the PR with the count of the ticket's other PRs; row 2 is the ledger's next step,
   // else the report line. No branch shows. The key shows once, as the title's link; the time is short and not mono.
   expect((await ui.find({ key: 'chip:act:local_a' }))?.text).toBe('CR')
-  expect((await ui.find({ key: 'pr:act:local_a' }))?.text).toContain('+1')
+  // Details lists each open PR of the ticket with its state colour and base, not `+1`.
+  expect((await ui.find({ key: 'pr:act:local_a:17' }))?.text).toBe('⤵ #17 → dev')
+  expect((await ui.find({ key: 'pr:act:local_a:18' }))?.text).toBe('⑂ #18 → staging')
+  expect((await ui.find({ key: 'prs:act:local_a' }))?.text).not.toContain('+1')
   expect((await ui.find({ key: 'line:act:local_a' }))?.text).toBe('review, then merge #17')
   expect((await ui.find({ key: 'line:act:local_b' }))?.text).toBe('PR up')
   expect(await ui.find({ type: 'Text', text: /⎇|henry\/midi-1-fix/ })).toBe(undefined)
@@ -748,8 +753,9 @@ test('a card links its ticket to Linear and its PR to the URL that its ledger li
   expect((await ui.find({ type: 'Text', text: /^⤵ $/ }))?.props?.color).toBe('merged')
   expect((await ui.find({ type: 'Text', text: /^⑂ $/ }))?.props?.color).toBe('success')
   expect(await linkInButton(ui)).toBe(false)
-  // Compact draws the same links, none inside a Button.
+  // Compact draws the same links, none inside a Button, and keeps `+1`.
   await ui.press({ key: 'details' })
+  expect((await ui.find({ key: 'pr:act:local_a' }))?.text).toContain('+1')
   expect((await ui.findAll({ type: 'Link' })).map((l: any) => l.props.label)).toEqual(expect.arrayContaining(['MIDI-1', '#17', '#3']))
   expect(await linkInButton(ui)).toBe(false)
   await ui.unmount()

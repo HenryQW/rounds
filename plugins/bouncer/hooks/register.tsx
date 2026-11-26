@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { EMPTY, ago, archived, columns, dots, ledgerItem, parseBartender, ledgerNext, prMark, prUrl, prUrls, ticketLedger, queueLines, queueSummary, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
+import { EMPTY, ago, archived, columns, dots, ledgerItem, parseBartender, ledgerNext, openPrUrls, prInfo, prMark, prUrl, prUrls, ticketLedger, queueLines, queueSummary, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
 import type { Column, Report } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
@@ -87,6 +87,14 @@ const refreshData = async ($: EngineInterface, records = '') => {
 const refreshDue = async ($: EngineInterface, records = '') => {
   const due = await ledgerList($, records, 'due')
   if (due) await update($, pool, p => ({ ...p, due }))
+  // Each open pr item's state and base for Details; a login shell finds gh where the app's PATH may not.
+  const p = await read($, pool)
+  const urls = [...new Set(Object.values(p.bartenders).flatMap(t => openPrUrls(p.ledgerLines ?? [], parseBartender(t)?.ticket ?? '')))]
+  for (const url of urls) {
+    const ran = await $.process.run(['/bin/bash', '-lc', 'gh pr view "$0" --json state,baseRefName', url]).catch(() => undefined)
+    const info = ran?.exitCode === 0 ? prInfo(ran.stdout) : undefined
+    if (info) await update($, pool, p => ({ ...p, prs: { ...p.prs, [url]: info } }))
+  }
 }
 
 // Make the titles match the open questions and, given a report, its status code; set_session_title is the Bouncer's own call.
@@ -330,6 +338,38 @@ export const register: Register = (on, options) => {
       }
     }
 
+    // Details lists every open PR of the ticket (its open pr ledger items, and the session's own PR), each a link in the
+    // PR state colour with its base (`#17860 → dev`), on a row of its own under row 1. Compact keeps `#17860 +1`.
+    const prsOf = (c: Column) => {
+      const id = c.ids.length === 1 ? c.ids[0]! : undefined
+      const s = id ? p.sessions?.[id] : undefined
+      const urls = openPrUrls(p.ledgerLines ?? [], c.ticket)
+      const own = s?.pr?.number
+      const ownHref = own ? prUrl(own, [id ? p.reportTexts?.[id] ?? '' : '', ...ticketLedger(p.ledgerLines ?? [], c.ticket)]) : undefined
+      const list = [
+        ...(own && !(ownHref && urls.includes(ownHref)) ? [{ n: own, href: ownHref, state: s?.pr?.state }] : []),
+        ...urls.map(u => ({ n: Number(/\d+$/.exec(u)?.[0] ?? 0), href: u as string | undefined, state: u === ownHref ? s?.pr?.state : undefined })),
+      ]
+      return list.map(x => ({ ...x, state: (x.href && p.prs?.[x.href]?.state) || x.state, base: x.href ? p.prs?.[x.href]?.base : undefined }))
+    }
+    const prRow = (c: Column) => {
+      const prs = prsOf(c)
+      return prs.length > 0 && (
+        <Box key={`prs:${c.key}`} flexDirection="row" flexWrap="wrap" gap="md">
+          {prs.map(x => {
+            const [glyph, color] = prMark(x.state)
+            return (
+              <Box key={`pr:${c.key}:${x.n}`} flexDirection="row" flexShrink={0}>
+                <Text color={color}>{`${glyph} `}</Text>
+                {x.href ? <Link href={x.href} label={`#${x.n}`} /> : <Text color={t?.muted}>{`#${x.n}`}</Text>}
+                {x.base && <Text color={t?.muted}>{` → ${x.base}`}</Text>}
+              </Box>
+            )
+          })}
+        </Box>
+      )
+    }
+
     if (!p.details) {
       // Compact: one row, as ponytail's compact band. Each Bartender is one pill (dot and key, status code, PR; the code is
       // plain text, so pills do not nest); on the right what waits on the user, the due count and the switch. It wraps only when narrow.
@@ -373,7 +413,9 @@ export const register: Register = (on, options) => {
     // when row 1 is too long the time goes first, then the chip. Measure the card once the engine gives its width.
     const room = Math.floor((e.props.bodyColumns ?? 120) / Math.max(1, shown.length)) - 3
     const card = (c: Column) => {
-      const { cells: prCells, time, el: prEl } = prOf(c)
+      const { time } = prOf(c)
+      // Row 1 does not hold the PR in Details: the PRs have a row of their own.
+      const prCells = 0
       const showChip = !!c.label && c.value.length + c.label.length + 3 + prCells <= room
       // The time also needs room for `⋯` and the gaps (4 cells), so it shows only when row 1 is short.
       const showTime = !!time && c.value.length + (showChip ? c.label.length + 3 : 0) + prCells + time.length + 5 <= room
@@ -386,10 +428,10 @@ export const register: Register = (on, options) => {
             {/* A Link wraps instead of truncating: a linked key keeps its width. */}
             <Box key={`title:${c.key}`} flexGrow={1} flexShrink={isLinked(c) ? 0 : 1} minWidth={0}>{titleOf(c)}</Box>
             {showChip && chipOf(c)}
-            {prEl}
             {showTime && <Text size="footnote" color={t?.muted}>{time}</Text>}
             <Button key={c.key} plain dimColor label="⋯" onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))} />
           </Box>
+          {prRow(c)}
           {line && <Box key={`line:${c.key}`}><Text size="footnote" color={t?.muted} wrap="truncate-end">{line}</Text></Box>}
           {/* The menu is a row of its own under the next step: secondary buttons on one row; the card grows to fit.
               The terminal keeps plain ones. */}

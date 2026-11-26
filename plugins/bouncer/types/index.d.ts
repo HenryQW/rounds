@@ -21,6 +21,8 @@ export type Pool = {
   reportTexts?: Readonly<Record<string, string>>
   /** The `bouncer-ledger due` lines: open items whose check says the user must act now. Read once a turn. */
   due?: readonly string[]
+  /** A PR's full URL to its GitHub state (lower case) and base branch, read with `gh` once a turn for the open pr ledger items. */
+  prs?: Readonly<Record<string, { state?: string; base?: string }>>
   /** True while the band lists the due items. */
   ledgerOpen?: boolean
   /** True while another session holds the Bouncer (`bouncer` in the plugin's data folder names it). */
