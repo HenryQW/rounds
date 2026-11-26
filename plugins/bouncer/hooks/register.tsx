@@ -331,31 +331,28 @@ export const register: Register = (on, options) => {
     }
 
     if (!p.details) {
-      // Compact: one line a Bartender (dot and key, status chip, PR); the first line also holds what waits on the user,
-      // the due count and the switch on the right. The dots are in the lines, so there is no dot strip.
+      // Compact: one row, as ponytail's compact band. Each Bartender inline (dot and key, status chip, PR), a wider gap
+      // between Bartenders; on the right what waits on the user, the due count and the switch. It wraps only when narrow.
       const n = p.waiting
-      const controls = [
-        n > 0 && (waits?.b
-          ? <Button key="waits" plain onPress={() => open(waits.b!.id, waits.name)}><Text color="error">{`${n} waits on you`}</Text></Button>
-          : <Text key="waits" color="error">{`${n} waits on you`}</Text>),
-        dueButton,
-        detailsButton,
-      ]
-      const rows = all.length === 0 ? [undefined] : all
       const mine = (
-        <Box flexDirection="column" width={width} gap={isTerminal ? 0 : 'xs'}>
-          {rows.map((c, i) => (
-            <Box key={`row:${c?.key ?? 'none'}`} flexDirection="row" alignItems="center" gap={isTerminal ? 1 : 'sm'}>
-              {c ? <Box key={`title:${c.key}`} flexShrink={1} minWidth={0}>{titleOf(c)}</Box> : strip}
-              {c?.label && chipOf(c)}
-              {c && prOf(c).el}
-              {i === 0 && <Box flexGrow={1} />}
-              {i === 0 && controls}
+        <Box flexDirection="row" alignItems="center" flexWrap="wrap" gap={isTerminal ? 2 : 'lg'} width={width}>
+          {all.length === 0 && strip}
+          {all.map(c => (
+            <Box key={`row:${c.key}`} flexDirection="row" alignItems="center" gap={isTerminal ? 1 : 'sm'}>
+              <Box key={`title:${c.key}`} flexShrink={isLinked(c) ? 0 : 1} minWidth={0}>{titleOf(c)}</Box>
+              {c.label && chipOf(c)}
+              {prOf(c).el}
             </Box>
           ))}
-          {dueRows}
+          <Box flexGrow={1} />
+          {n > 0 && (waits?.b
+            ? <Button key="waits" plain onPress={() => open(waits.b!.id, waits.name)}><Text color="error">{`${n} waits on you`}</Text></Button>
+            : <Text key="waits" color="error">{`${n} waits on you`}</Text>)}
+          {dueButton}
+          {detailsButton}
         </Box>
       )
+      if (dueLines.length > 0) return <Box flexDirection="column" gap={isTerminal ? 0 : 'xs'}>{mine}{dueRows}{below}</Box>
       return below ? <Box flexDirection="column">{mine}{below}</Box> : mine
     }
 
