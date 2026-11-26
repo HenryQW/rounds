@@ -1,20 +1,43 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { EMPTY, archived, parseBartender, queueLines, questionsBySession, renamed } from './pool'
+import { EMPTY, archived, parseBartender, queueLines, questionsBySession, renamed, synced } from './pool'
+import type { Report } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
 
 // A Linear-shaped key (ABC-123) links to the tracker; a GitHub issue number does not.
 const LINEAR_KEY = /^[A-Z][A-Z0-9]*-\d+$/
 
-// The queue and the open questions in the plugin's data folder, the one bouncer-data prints (CLAUDE_PLUGIN_DATA).
-const refreshData = async ($: EngineInterface) => {
+// The queue, the open questions and the ledger in the plugin's data folder, the one bouncer-data prints (CLAUDE_PLUGIN_DATA).
+const dataFile = async ($: EngineInterface, name: string) => {
   const data = (await $.process.hookEnv()).CLAUDE_PLUGIN_DATA
-  const file = async (name: string) => String(data ? await $.fs.read(`${data}/${name}`).catch(() => '') : '')
-  const lines = queueLines(await file('queue.md'))
-  const questions = questionsBySession(await file('questions.md'))
-  await update($, pool, p => ({ ...p, queue: lines.length, queueLines: lines, questions }))
+  return String(data ? await $.fs.read(`${data}/${name}`).catch(() => '') : '')
+}
+const refreshData = async ($: EngineInterface) => {
+  const lines = queueLines(await dataFile($, 'queue.md'))
+  const questions = questionsBySession(await dataFile($, 'questions.md'))
+  const ledger = queueLines(await dataFile($, 'ledger.md')).length
+  await update($, pool, p => ({ ...p, queue: lines.length, queueLines: lines, questions, ledger }))
+}
+
+// Make the titles match the open questions and, given a report, its status code; set_session_title is the Bouncer's own call.
+const syncTitles = async ($: EngineInterface, report?: Report) => {
+  for (const [session_id, title] of synced(await read($, pool), await dataFile($, 'questions.md'), report)) {
+    const ran = await $.tool.call({ tool: 'mcp__ccd_session_mgmt__set_session_title', session_id, title } as any).catch(() => undefined)
+    if (ran && ran.deny === undefined && ran.isError !== true) await update($, pool, p => renamed(p, session_id, title))
+  }
+}
+
+// A Bartender's turn-end note reaches the Bouncer as a delivery or a prompt: parse it with bouncer-report, then set titles.
+const onNote = async ($: EngineInterface, text: string) => {
+  if (!(await read($, pool)).isOn || !/^\s*STATUS:/m.test(text) || !/^\s*TICKET:/m.test(text)) return
+  const env = await $.process.hookEnv()
+  if (!env.CLAUDE_PLUGIN_ROOT) return
+  const ran = await $.process.run([`${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-report`], { stdin: text, env })
+    .catch(() => undefined)
+  if (!ran || ran.exitCode !== 0) return
+  try { await syncTitles($, JSON.parse(ran.stdout) as Report) } catch { /* not a report */ }
 }
 
 export const register: Register = (on, options) => {
@@ -42,10 +65,20 @@ export const register: Register = (on, options) => {
       if (id && initiation !== 'offer' && typeof title === 'string') await update($, pool, p => renamed(p, id, title))
     } else if (tool.endsWith('__archive_session')) {
       await update($, pool, p => archived(p, String((e as { session_id?: unknown }).session_id)))
-    } else if (tool === 'Bash' && /bouncer-(queue|questions)/.test(String((e as { command?: unknown }).command))) {
+    } else if (tool === 'Bash' && /bouncer-(queue|questions|ledger)/.test(String((e as { command?: unknown }).command))) {
       await refreshData($)
+      if (/bouncer-questions/.test(String((e as { command?: unknown }).command))) await syncTitles($)
     }
     return ran
+  })
+
+  on('session.receive', async ($, e, next) => {
+    if (!e.agentId) await onNote($, e.text).catch(() => undefined)
+    return next(e)
+  })
+  on('prompt.submit', async ($, e, next) => {
+    await onNote($, e.text).catch(() => undefined)
+    return next(e)
   })
 
   // A band prompt's turn ended (main's, not a subagent's): the band may send the next one.
@@ -113,6 +146,7 @@ export const register: Register = (on, options) => {
                 {`queue ${p.queue}`}
               </Button>
             : <Text dimColor>queue 0</Text>}
+          {(p.ledger ?? 0) > 0 && <Text key="ledger">{`ledger ${p.ledger}`}</Text>}
         </Box>
         {bartenders.filter(b => b.cta).map(b => (
           <Box flexDirection="row" alignItems="center" gap={1}>

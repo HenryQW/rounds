@@ -173,8 +173,11 @@ test('a Bartender that waits shows its question and opens its conversation', asy
   const { prompts } = record(on)
   await title($, 'local_a', '![Wont] 🍸 MIDI-1616 aspire')
   await title($, 'local_b', '[Dev] 🍸 MIDI-2 web')
-  await title($, 'local_c', '![Dev] 🍸 MIDI-3 web')
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-questions add "MIDI-1616 | local_a | x"' } as any)
+  // Set after the questions sync, which would clear a `!` that has no line in questions.md.
+  await title($, 'local_c', '![Dev] 🍸 MIDI-3 web')
+  // The sync set the Bouncer to !1; at 0 the band may send its fallback prompt.
+  await title($, 'self', '🚪 Bouncer')
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect((await ui.find({ type: 'Text', text: /MIDI-1616:/ }))?.text).toBe('! MIDI-1616: Post the draft yourself? Default: yes')
@@ -242,5 +245,63 @@ test('the band sends one prompt at a time, and none while the Bouncer works', as
   await endTurn($)
   await ui.select({ key: 'act:local_a', value: 'stop' })
   expect(prompts).toEqual(['MIDI-1: status', 'MIDI-1: stop'])
+  await ui.unmount()
+})
+
+test('a turn-end note sets the status code, and the CTA follows questions.md', async ($, on) => {
+  const renames: string[] = []
+  let questions = ''
+  on('tool.call', (_: unknown, e: any) => {
+    if (String(e.tool).endsWith('set_session_title')) renames.push(`${e.session_id}=${e.title}`)
+    return { result: {} }
+  })
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
+  on('fs.read', (_: unknown, e: { path?: string }) => {
+    if (e.path === '/data/questions.md') return { value: questions }
+    throw new Error('missing')
+  })
+  on('session.receive', (_: unknown, e: any) => ({ text: e.text }))
+  const runs: string[] = []
+  on('process.run', (_: unknown, e: any) => {
+    runs.push(e.argv[0])
+    const isReport = /STATUS: NEEDS_INPUT/.test(e.init?.stdin ?? '')
+    return { value: isReport
+      ? { exitCode: 0, stdout: '{"status":"NEEDS_INPUT","ticket":"MIDI-1","linear":"CR"}', stderr: '' }
+      : { exitCode: 2, stdout: '', stderr: 'bad' } }
+  })
+  await title($, 'self', '🚪 Bouncer')
+  await title($, 'local_a', '[Dev] 🍸 MIDI-1 aspire')
+  await title($, 'local_b', '[Dev] 🔧 band web')
+  renames.length = 0
+
+  await $.session.receive({ origin: { kind: 'task-notification' }, text: 'note\nSTATUS: NEEDS_INPUT\nTICKET: MIDI-1' } as any)
+  expect(runs).toEqual(['/plugin/skills/bouncer/scripts/bouncer-report'])
+  expect(renames).toEqual(['local_a=[CR] 🍸 MIDI-1 aspire'])
+
+  await $.session.receive({ origin: { kind: 'task-notification' }, text: 'no report here' } as any)
+  expect(runs.length).toBe(1)
+
+  questions = 'MIDI-1 | local_a | Ship it? Default: yes\n'
+  renames.length = 0
+  await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-questions add "MIDI-1 | local_a | Ship it?"' } as any)
+  expect(renames).toEqual(['local_a=![CR] 🍸 MIDI-1 aspire', 'self=!1 🚪 Bouncer'])
+
+  questions = ''
+  renames.length = 0
+  await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-questions done MIDI-1' } as any)
+  expect(renames).toEqual(['local_a=[CR] 🍸 MIDI-1 aspire', 'self=🚪 Bouncer'])
+})
+
+test('the band shows the open ledger count', async ($, on) => {
+  on('tool.call', () => ({ result: {} }))
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
+  on('fs.read', (_: unknown, e: { path?: string }) => {
+    if (e.path === '/data/ledger.md') return { value: 'L1 | pr | u | t |  | 2026-11-26 | n\nL2 | verify | K | t | true | 2026-11-26 | n\n' }
+    throw new Error('missing')
+  })
+  await title($, 'self', '🚪 Bouncer')
+  await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-ledger list' } as any)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect((await ui.find({ type: 'Text', text: /ledger/ }))?.text).toBe('ledger 2')
   await ui.unmount()
 })
