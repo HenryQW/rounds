@@ -57,6 +57,9 @@ const actions = async (ui: any, key: string) => {
   return labels
 }
 
+// A Link's drawn text: its label, else its Text child's (the desktop's accent-coloured link).
+const linkText = (l: any) => l.props.label ?? (l.children as any[]).find(c => c?.type === 'Text')?.children?.join('')
+
 // True when a Link sits inside a Button: the Button would take the click, and the link would not open.
 const linkInButton = async (ui: any) => {
   const has = (n: any): boolean => n && typeof n === 'object' && (n.type === 'Link' || (n.children ?? []).some(has))
@@ -347,7 +350,7 @@ test('the band shows only the due ledger items as a count to act on, each a link
   expect((await ui.find({ key: 'ledger' }))?.text).toBe('2 to act')
   expect(await ui.find({ type: 'Text', text: /post the QA reply/ })).toBe(undefined)
   await ui.press({ key: 'ledger' })
-  const links = (await ui.findAll({ type: 'Link' })).map((l: any) => [l.props.label, l.props.href])
+  const links = (await ui.findAll({ type: 'Link' })).map((l: any) => [linkText(l), l.props.href])
   expect(links).toEqual(expect.arrayContaining([['#17', 'https://github.com/acme/backend/pull/17'], ['MIDI-2', 'https://linear.app/acme/issue/MIDI-2']]))
   expect((await ui.find({ type: 'Text', text: /post the QA reply/ }))?.text).toBe('post the QA reply')
   expect(await ui.find({ type: 'Text', text: /check prod|K-2/ })).toBe(undefined)
@@ -731,7 +734,7 @@ test('a card links its ticket to Linear and its PR to the URL that its ledger li
   // A report whose EVIDENCE names the full PR URL.
   await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: WORKING\nTICKET: band' } as any)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
-  const links = (await ui.findAll({ type: 'Link' })).map((l: any) => [l.props.label, l.props.href])
+  const links = (await ui.findAll({ type: 'Link' })).map((l: any) => [linkText(l), l.props.href])
   expect(links).toEqual(expect.arrayContaining([['MIDI-1', 'https://linear.app/acme/issue/MIDI-1'], ['#17', 'https://github.com/acme/backend/pull/17'], ['#3', 'https://github.com/acme/plugins/pull/3']]))
   expect(links.some(([, h]: any) => /acme\/rounds|pull\/5$/.test(h))).toBe(false)
   // No source names PR 5 for MIDI-2 (the ledger's #5 belongs to MIDI-9): plain text, no link.
@@ -741,22 +744,28 @@ test('a card links its ticket to Linear and its PR to the URL that its ledger li
   // else the report line. No branch shows. The key shows once, as the title's link; the time is short and not mono.
   expect((await ui.find({ key: 'chip:act:local_a' }))?.text).toBe('CR')
   // Details lists each open PR of the ticket with its state colour and base, not `+1`.
-  expect((await ui.find({ key: 'pr:act:local_a:17' }))?.text).toBe('⤵ #17 → dev')
-  expect((await ui.find({ key: 'pr:act:local_a:18' }))?.text).toBe('⑂ #18 → staging')
+  expect((await ui.find({ key: 'pr:act:local_a:17' }))?.text).toMatch(/^⤵ .*#17 → dev$/)
+  expect((await ui.find({ key: 'pr:act:local_a:18' }))?.text).toMatch(/^⑂ .*#18 → staging$/)
   expect((await ui.find({ key: 'prs:act:local_a' }))?.text).not.toContain('+1')
   expect((await ui.find({ key: 'line:act:local_a' }))?.text).toBe('review, then merge #17')
   expect((await ui.find({ key: 'line:act:local_b' }))?.text).toBe('PR up')
   expect(await ui.find({ type: 'Text', text: /⎇|henry\/midi-1-fix/ })).toBe(undefined)
-  expect(await ui.find({ type: 'Text', text: /MIDI-1$/ })).toBe(undefined)
+  expect((await ui.findAll({ type: 'Text', text: /MIDI-1$/ })).map((x: any) => x.props.color)).toEqual(['#5e6ad2'])
   expect((await ui.find({ type: 'Text', text: /^14m$/ }))?.props?.mono).toBe(undefined)
   expect(await ui.find({ type: 'Text', text: /ticket|skill/ })).toBe(undefined)
   expect((await ui.find({ type: 'Text', text: /^⤵ $/ }))?.props?.color).toBe('merged')
   expect((await ui.find({ type: 'Text', text: /^⑂ $/ }))?.props?.color).toBe('success')
   expect(await linkInButton(ui)).toBe(false)
+  // Each Details link draws in the accent, keys and PRs alike.
+  const accent = (await ui.findAll({ type: 'Link' })).map((l: any) => (l.children as any[]).find(c => c?.type === 'Text')?.props?.color)
+  expect(accent.length).toBeGreaterThanOrEqual(4)
+  expect(new Set(accent)).toEqual(new Set(['#5e6ad2']))
+  // The next step wraps to two lines.
+  expect(((await ui.find({ key: 'line:act:local_a' }))?.children?.[0] as any)?.props).toMatchObject({ maxLines: 2 })
   // Compact draws the same links, none inside a Button, and keeps `+1`.
   await ui.press({ key: 'details' })
   expect((await ui.find({ key: 'pr:act:local_a' }))?.text).toContain('+1')
-  expect((await ui.findAll({ type: 'Link' })).map((l: any) => l.props.label)).toEqual(expect.arrayContaining(['MIDI-1', '#17', '#3']))
+  expect((await ui.findAll({ type: 'Link' })).map((l: any) => linkText(l))).toEqual(expect.arrayContaining(['MIDI-1', '#17', '#3']))
   expect(await linkInButton(ui)).toBe(false)
   await ui.unmount()
 })
@@ -790,6 +799,25 @@ test('a Bartender turn-end note turns its dot from yellow to green at once', asy
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect(chip(await ui.find({ key: 'title:act:local_a' }))).toBe('🟡 MIDI-1')
   await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: DONE\nTICKET: MIDI-1\nRESULT: shipped' } as any)
+  expect(chip(await ui.find({ key: 'title:act:local_a' }))).toBe('🟢 MIDI-1')
+  await ui.unmount()
+})
+
+test('a prompt into the Bouncer reads list_sessions again, so a Bartender that ended its turn turns green', async ($, on) => {
+  let isRunning = true
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({ result: JSON.stringify([
+    { sessionId: 'local_a', title: '🍸 [MIDI-1] [Dev] Fix it', isRunning, cwd: '/w' },
+  ]) }))
+  on('tool.call', () => ({ result: {} }))
+  on('prompt.submit', (_: unknown, e: { text: string }) => ({ text: e.text }))
+  base(on)
+  on('fs.read', () => { throw new Error('missing') })
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
+  await $.tool.call({ tool: 'Skill', skill: 'bouncer' } as any)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect(chip(await ui.find({ key: 'title:act:local_a' }))).toBe('🟡 MIDI-1')
+  isRunning = false
+  await $.prompt.submit({ text: '<side-sessions-event>local_a ended its turn</side-sessions-event>' } as any)
   expect(chip(await ui.find({ key: 'title:act:local_a' }))).toBe('🟢 MIDI-1')
   await ui.unmount()
 })

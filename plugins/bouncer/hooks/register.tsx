@@ -160,8 +160,11 @@ export const register: Register = (on, options) => {
     if (!e.agentId) await onNote($, e.text).catch(() => undefined)
     return next(e)
   })
+  // A Bartender's turn-end note reaches the Bouncer inside its next turn (a side-sessions event), not always as a
+  // report that onNote parses: read list_sessions there too, so a finished Bartender's dot leaves 🟡 at once.
   on('prompt.submit', async ($, e, next) => {
     await onNote($, e.text).catch(() => undefined)
+    if ((await read($, pool)).isOn) await refreshSessions($).catch(() => undefined)
     return next(e)
   })
 
@@ -284,6 +287,9 @@ export const register: Register = (on, options) => {
     // A quiet switch: no fill, dim text that turns full strength under the pointer.
     const detailsButton = <Button key="details" plain dimColor label={detailsLabel} onPress={flip} />
     const { Link } = $.ui.resolve(e)
+    // Every link in the accent: a bare Link takes the surface's own colour, which drew grey in Details.
+    const link = (href: string, label: string) =>
+      t ? <Link href={href}><Text color={t.accent}>{label}</Text></Link> : <Link href={href} label={label} />
     // Only the ledger items due now (`bouncer-ledger due`), as what the user must do; open items that are not due are in
     // their card's row 2. Each row: the key as a link (the PR, else the Linear issue) and its next step.
     const dueButton = due.length > 0 && (
@@ -297,7 +303,7 @@ export const register: Register = (on, options) => {
       const href = pr ? it.key : linear && LINEAR_KEY.test(label) ? `${linear}/issue/${label}` : undefined
       return (
         <Box key={`due:${line}`} flexDirection="row" alignItems="center" gap="sm">
-          <Box flexShrink={0}>{href ? <Link href={href} label={label} /> : <Text color={t?.ink}>{label}</Text>}</Box>
+          <Box flexShrink={0}>{href ? link(href, label) : <Text color={t?.ink}>{label}</Text>}</Box>
           <Box flexShrink={1} minWidth={0}><Text color={t?.muted} wrap="truncate-end">{it.next}</Text></Box>
         </Box>
       )
@@ -309,7 +315,7 @@ export const register: Register = (on, options) => {
     // inset, so the rows would not align.
     const isLinked = (c: Column) => !!c.ticket && !!linear && LINEAR_KEY.test(c.ticket)
     const titleOf = (c: Column) => isLinked(c)
-      ? <Box flexDirection="row"><Text>{`${c.dot} `}</Text><Link href={`${linear}/issue/${c.ticket}`} label={c.ticket} /></Box>
+      ? <Box flexDirection="row"><Text>{`${c.dot} `}</Text>{link(`${linear}/issue/${c.ticket}`, c.ticket)}</Box>
       : <Text weight="medium" color={t?.ink} wrap="truncate-end">{c.value}</Text>
     const chipOf = (c: Column) => (
       <Box key={`chip:${c.key}`} flexShrink={0} paddingX="xs" {...(t ? { backgroundColor: t.hairline } : {})}>
@@ -331,7 +337,7 @@ export const register: Register = (on, options) => {
         el: n > 0 && (
           <Box key={`pr:${c.key}`} flexDirection="row" flexShrink={0}>
             <Text color={glyphColor}>{`${glyph} `}</Text>
-            {href ? <Link href={href} label={`#${n}`} /> : <Text color={t?.muted}>{`#${n}`}</Text>}
+            {href ? link(href, `#${n}`) : <Text color={t?.muted}>{`#${n}`}</Text>}
             {others > 0 && <Text color={t?.muted}>{` +${others}`}</Text>}
           </Box>
         ),
@@ -361,7 +367,7 @@ export const register: Register = (on, options) => {
             return (
               <Box key={`pr:${c.key}:${x.n}`} flexDirection="row" flexShrink={0}>
                 <Text color={color}>{`${glyph} `}</Text>
-                {x.href ? <Link href={x.href} label={`#${x.n}`} /> : <Text color={t?.muted}>{`#${x.n}`}</Text>}
+                {x.href ? link(x.href, `#${x.n}`) : <Text color={t?.muted}>{`#${x.n}`}</Text>}
                 {x.base && <Text color={t?.muted}>{` → ${x.base}`}</Text>}
               </Box>
             )
@@ -432,7 +438,7 @@ export const register: Register = (on, options) => {
             <Button key={c.key} plain dimColor label="⋯" onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))} />
           </Box>
           {prRow(c)}
-          {line && <Box key={`line:${c.key}`}><Text size="footnote" color={t?.muted} wrap="truncate-end">{line}</Text></Box>}
+          {line && <Box key={`line:${c.key}`}><Text size="footnote" color={t?.muted} wrap="wrap" maxLines={2}>{line}</Text></Box>}
           {/* The menu is a row of its own under the next step: secondary buttons on one row; the card grows to fit.
               The terminal keeps plain ones. */}
           {p.menu === c.key && (
