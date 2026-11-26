@@ -57,7 +57,7 @@ export const dots = (bartenders: Readonly<Record<string, string>>, reports: Read
   Object.entries(bartenders).flatMap(([id, t]) => { const b = parseBartender(t); return b ? [{ dot: dot(b, reports[id], running[id]) }] : [] })
     .sort(byDot).map(d => d.dot)
 
-/** Active Bartenders one column each, red first (`ticket · Dev` over `🟡 MIDI-1`); all idle ones in one `N idle` column, last. */
+/** Active Bartenders one card each, red first (title `🟡 MIDI-1`, subtitle `ticket · Dev`); all idle ones in one `N idle` card, last. */
 export const columns = (bartenders: Readonly<Record<string, string>>, reports: Readonly<Record<string, string>> = {}, running: Readonly<Record<string, boolean>> = {}): Column[] => {
   const active: Column[] = []
   const idle: string[] = []
@@ -77,11 +77,14 @@ export const columns = (bartenders: Readonly<Record<string, string>>, reports: R
 export const reportLine = (r: Report) =>
   ((r.status === 'NEEDS_INPUT' || r.status === 'BLOCKED') && r.question ? r.question : r.result) ?? ''
 
+/** A linked session as the band uses it (from `list_sessions`). */
+export type SessionRow = { id: string; title: string; isRunning: boolean; cwd?: string; at?: string; pr?: { number: number; state?: string } }
+
 /**
- * The Bouncer's linked sessions from `list_sessions {linked: true}` (a JSON array, maybe in MCP text blocks):
- * id, title, whether a turn runs and its PR (`PR 12 open`). Undefined when the text is not such a list.
+ * The Bouncer's linked sessions from `list_sessions {linked: true}` (a JSON array, maybe in MCP text blocks or a JSON
+ * string): id, title, whether a turn runs, its folder, its last activity and its PR. Undefined when the text is not such a list.
  */
-export const sessionRows = (raw: string): Array<{ id: string; title: string; isRunning: boolean; pr?: string }> | undefined => {
+export const sessionRows = (raw: string): SessionRow[] | undefined => {
   const parse = (t: string): unknown => { try { return JSON.parse(t) } catch { return undefined } }
   let v = parse(raw)
   // A tool result that is a string arrives JSON-encoded once more.
@@ -90,9 +93,27 @@ export const sessionRows = (raw: string): Array<{ id: string; title: string; isR
   if (v && typeof v === 'object' && !Array.isArray(v) && blocks((v as { content?: unknown }).content)) v = (v as { content: unknown }).content
   if (blocks(v)) v = parse((v as Array<{ text: string }>).map(b => b.text).join(''))
   if (!Array.isArray(v)) return undefined
-  return v.flatMap(r => typeof r?.sessionId === 'string' && typeof r?.title === 'string' ? [{ id: r.sessionId as string, title: r.title as string, isRunning: r.isRunning === true,
-      ...(typeof r.prNumber === 'number' ? { pr: `PR ${r.prNumber}${typeof r.prState === 'string' ? ` ${r.prState.toLowerCase()}` : ''}` } : {}) }] : [])
+  return v.flatMap(r => typeof r?.sessionId === 'string' && typeof r?.title === 'string' ? [{
+    id: r.sessionId as string, title: r.title as string, isRunning: r.isRunning === true,
+    ...(typeof r.cwd === 'string' ? { cwd: r.cwd } : {}),
+    ...(typeof r.lastActivityAt === 'string' ? { at: r.lastActivityAt } : {}),
+    ...(typeof r.prNumber === 'number' ? { pr: { number: r.prNumber, ...(typeof r.prState === 'string' ? { state: r.prState.toLowerCase() } : {}) } } : {}),
+  }] : [])
 }
+
+/** The GitHub `owner/repo` of a remote URL (`git@github.com:o/r.git`, `https://github.com/o/r`); undefined for another host. */
+export const githubRepo = (remote: string) => /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\s*$/.exec(remote.trim())?.[1]
+
+/** Time since `at`, in the Rounds row's format: `3 sec ago`, `14 min ago`, `2 hr ago`, `3 days ago`. */
+export const ago = (at: string, now: number) => {
+  const s = Math.max(1, Math.floor((now - Date.parse(at)) / 1000))
+  return s < 60 ? `${s} sec ago` : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? `${Math.floor(s / 3600)} hr ago`
+    : `${Math.floor(s / 86400)} ${Math.floor(s / 86400) === 1 ? 'day' : 'days'} ago`
+}
+
+/** A PR's glyph and colour by its GitHub state, as the Rounds row: green open, purple merged, grey closed. */
+export const prMark = (state?: string): [string, string] =>
+  state === 'merged' ? ['⤵', 'merged'] : state === 'closed' ? ['×', 'inactive'] : ['⑂', state === 'open' ? 'success' : 'inactive']
 
 /** A queue line (`KEY | repo | mode | note`) as `KEY · repo · mode`. */
 export const queueSummary = (line: string) => line.split('|').slice(0, 3).map(s => s.trim()).filter(Boolean).join(' · ')

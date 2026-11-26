@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { EMPTY, archived, columns, dots, ledgerSummary, parseBartender, queueLines, queueSummary, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
+import { EMPTY, ago, archived, columns, dots, githubRepo, ledgerSummary, parseBartender, prMark, queueLines, queueSummary, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
 import type { Column, Report } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
@@ -42,18 +42,31 @@ const isOtherBouncer = async ($: EngineInterface) => {
   if (!owner) await writeOwner($, me)
   return owner !== '' && owner !== me
 }
-// The Bouncer's linked sessions: the Bartenders' current titles, whether each runs a turn, and its PR.
+// A folder's GitHub repo (`owner/repo`) for PR links, once a folder: `git remote get-url origin`.
+const repos = new Map<string, string | undefined>()
+const repoOfFolder = async ($: EngineInterface, cwd: string) => {
+  if (!repos.has(cwd)) {
+    const ran = await $.process.run(['git', '-C', cwd, 'remote', 'get-url', 'origin']).catch(() => undefined)
+    repos.set(cwd, ran?.exitCode === 0 ? githubRepo(ran.stdout) : undefined)
+  }
+  return repos.get(cwd)
+}
+// The Bouncer's linked sessions: the Bartenders' current titles, whether each runs a turn, their folder, last activity and PR.
 // They also fill the pool after a reload, before the Bouncer renames anything.
 const refreshSessions = async ($: EngineInterface) => {
   const ran = await $.tool.call({ tool: 'mcp__ccd_session_mgmt__list_sessions', linked: true, limit: 100 } as any).catch(() => undefined)
   if (!ran || ran.deny !== undefined || ran.isError === true) return
   const rows = sessionRows(ran.text ?? JSON.stringify(ran.result ?? ''))?.filter(r => parseBartender(r.title))
   if (!rows) return
+  const sessions = Object.fromEntries(await Promise.all(rows.map(async r => {
+    const repo = r.pr && r.cwd ? await repoOfFolder($, r.cwd) : undefined
+    return [r.id, { cwd: r.cwd, at: r.at, pr: r.pr && { ...r.pr, ...(repo ? { url: `https://github.com/${repo}/pull/${r.pr.number}` } : {}) } }] as const
+  })))
   await update($, pool, p => ({
     ...p,
     bartenders: Object.fromEntries(rows.map(r => [r.id, r.title])),
     running: Object.fromEntries(rows.map(r => [r.id, r.isRunning])),
-    prs: Object.fromEntries(rows.flatMap(r => (r.pr ? [[r.id, r.pr]] : []))),
+    sessions,
   }))
 }
 // Linear's tokens (its DESIGN.md), dark and the light inverse. Its light hairline and inks are not in the spec: derived.
@@ -252,7 +265,8 @@ export const register: Register = (on, options) => {
     const sub = (c: Column) => {
       const id = c.ids.length === 1 ? c.ids[0]! : undefined
       if (!id) return c.ids.length > 1 ? 'free for work' : ''
-      return p.notes?.[id] || (p.running?.[id] ? 'working' : p.prs?.[id] ?? (p.running?.[id] === false ? 'waiting' : ''))
+      const pr = p.sessions?.[id]?.pr
+      return p.notes?.[id] || (p.running?.[id] ? 'working' : pr ? `PR #${pr.number}${pr.state ? ` ${pr.state}` : ''}` : p.running?.[id] === false ? 'waiting' : '')
     }
     const isTerminal = e.surface === 'terminal'
     // Linear's look off the terminal; the terminal keeps its own colours.
@@ -296,24 +310,51 @@ export const register: Register = (on, options) => {
     }
     const bar = (i: number) => <Box key={`bar:${i}`} flexDirection="column">{['a', 'b', 'c'].map(k => <Text key={k} dimColor>│</Text>)}</Box>
     const colWidth = width === undefined ? undefined : Math.max(10, Math.floor(width / Math.max(1, shown.length)) - 3)
-    const card = (c: Column) => (
-      <Box key={`col:${c.key}`} flexDirection="column" minWidth={0} {...(t
-        ? { flexGrow: 1, gap: 'xs' as const, borderStyle: 'round', borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'lg' as const, paddingY: 'md' as const }
-        : colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
-        {/* Linear's eyebrow (13px, weight 500, ink-subtle), card title (weight 500, larger, ink) and status line (ink-muted). */}
-        <Text size="footnote" weight="medium" color={t?.subtle} wrap="truncate-end">{c.label}</Text>
-        <Button key={c.key} plain onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))}>
-          <Text size="title" weight="medium" color={t?.ink}>{c.value}</Text>
-        </Button>
-        {p.menu === c.key
-          ? <Box flexDirection="row" gap={1} flexWrap="wrap">
-              {actions(c).map(o => <Button key={`${c.key}:${o.value}`} plain onPress={() => pick(c, o.value)}>
-                <Text color={o.value === 'linear' ? t?.accent : t?.muted}>{o.label}</Text>
-              </Button>)}
+    const { Link } = $.ui.resolve(e)
+    // The clock only when a card shows a time.
+    const now = Object.values(p.sessions ?? {}).some(x => x.at) ? await $.clock.now() : 0
+    // One card a Bartender, as a Rounds session row: a title line (dot and key) and a subtitle; on the right the time and,
+    // under it, the ticket and PR links. Linear's tokens give the colours and the card.
+    const card = (c: Column) => {
+      const id = c.ids.length === 1 ? c.ids[0]! : undefined
+      const s = id ? p.sessions?.[id] : undefined
+      const folder = s?.cwd?.split('/').pop()
+      const [glyph, glyphColor] = prMark(s?.pr?.state)
+      const ticket = c.ticket && (linear && LINEAR_KEY.test(c.ticket)
+        ? <Link key={`ticket:${c.key}`} href={`${linear}/issue/${c.ticket}`} label={c.ticket} />
+        : <Text color={t?.subtle}>{c.ticket}</Text>)
+      const pr = s?.pr && (
+        <Box key={`pr:${c.key}`} flexDirection="row" gap={0}>
+          <Text color={glyphColor}>{`${glyph} `}</Text>
+          {s.pr.url ? <Link href={s.pr.url} label={`#${s.pr.number}`} /> : <Text color={t?.subtle}>{`#${s.pr.number}`}</Text>}
+        </Box>
+      )
+      return (
+        <Box key={`col:${c.key}`} flexDirection="row" gap="sm" minWidth={0} {...(t
+          ? { flexGrow: 1, borderStyle: 'round', borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'lg' as const, paddingY: 'md' as const }
+          : colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
+          <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
+            <Button key={c.key} plain onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))}>
+              <Text weight="medium" color={t?.ink} wrap="truncate-end">{c.value}</Text>
+            </Button>
+            <Text size="footnote" color={t?.subtle} wrap="truncate-end">{[c.label, folder && `⎇ ${folder}`].filter(Boolean).join(' · ')}</Text>
+            {p.menu === c.key
+              ? <Box flexDirection="row" gap={1} flexWrap="wrap">
+                  {actions(c).map(o => <Button key={`${c.key}:${o.value}`} plain onPress={() => pick(c, o.value)}>
+                    <Text color={o.value === 'linear' ? t?.accent : t?.muted}>{o.label}</Text>
+                  </Button>)}
+                </Box>
+              : <Text size="footnote" color={t?.muted} wrap="truncate-end">{sub(c)}</Text>}
+          </Box>
+          {(s?.at || ticket || pr) && (
+            <Box flexDirection="column" alignItems="flex-end" flexShrink={0}>
+              {s?.at && <Text size="footnote" mono color={t?.subtle}>{ago(s.at, now)}</Text>}
+              {(ticket || pr) && <Box flexDirection="row" gap="sm">{ticket}{pr}</Box>}
             </Box>
-          : <Text size="footnote" color={t?.muted} wrap="truncate-end">{sub(c)}</Text>}
-      </Box>
-    )
+          )}
+        </Box>
+      )
+    }
     const mine = (
       <Box flexDirection="column" width={width} gap={isTerminal ? 0 : 'md'} paddingY={isTerminal ? 0 : 'xs'}>
         <Box flexDirection="row" alignItems="center" gap={isTerminal ? 1 : 'sm'}>

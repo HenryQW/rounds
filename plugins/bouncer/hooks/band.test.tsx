@@ -449,7 +449,7 @@ test('dots: red needs the user, yellow works or waits on others, green is idle',
 
 test('linked sessions parse from list_sessions JSON, bare or in text blocks', () => {
   const rows = '[{"sessionId":"local_a","title":"[InQA] 🍸 A-1 r","isRunning":false,"prNumber":12,"prState":"OPEN"},{"sessionId":"local_b","title":"x","isRunning":true}]'
-  const want = [{ id: 'local_a', title: '[InQA] 🍸 A-1 r', isRunning: false, pr: 'PR 12 open' }, { id: 'local_b', title: 'x', isRunning: true }]
+  const want = [{ id: 'local_a', title: '[InQA] 🍸 A-1 r', isRunning: false, pr: { number: 12, state: 'open' } }, { id: 'local_b', title: 'x', isRunning: true }]
   expect(sessionRows(rows)).toEqual(want)
   expect(sessionRows(JSON.stringify([{ type: 'text', text: rows }]))).toEqual(want)
   expect(sessionRows(JSON.stringify({ content: [{ type: 'text', text: rows }] }))).toEqual(want)
@@ -470,7 +470,7 @@ test('the band fills from the linked sessions: titles, green when no turn runs, 
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢]+$/u }))?.text).toBe('🟡🟢')
-  expect(await cols(ui)).toEqual([['skill · Dev', '🟡 band', 'working'], ['ticket · InQA', '🟢 MIDI-1', 'PR 12 open']])
+  expect(await cols(ui)).toEqual([['skill · Dev', '🟡 band', 'working'], ['ticket · InQA', '🟢 MIDI-1', 'PR #12 open']])
   await ui.unmount()
 })
 
@@ -585,12 +585,12 @@ test('a report line is the wait reason while the Bartender waits on the user, el
   expect(reportLine({ status: 'WORKING', ticket: 'A-1', linear: null })).toBe('')
 })
 
-// Each column as [label, value, sub-line], in band order.
+// Each card as [subtitle, title, sub-line], in band order.
 const cols = async (ui: any) => {
   const texts = (await ui.findAll({ type: 'Text' })).map((t: any) => t.text)
   return (await ui.findAll({ type: 'Button' })).filter((b: any) => /^(act:|idle$)/.test(b.key ?? '')).map((b: any) => {
     const i = texts.indexOf(b.text)
-    return [texts[i - 1], b.text, texts[i + 1]]
+    return [texts[i + 1], b.text, texts[i + 2]]
   })
 }
 
@@ -675,5 +675,28 @@ test("Details off the terminal takes Linear's tokens for the system appearance: 
   await endTurn($)
   expect(await color(/^Bouncer$/)).toBe('#000000')
   expect(await ui.find({ type: 'Text', text: /│/ })).toBe(undefined)
+  await ui.unmount()
+})
+
+test('a card links its ticket to Linear and its PR to GitHub, with the time since its last activity', { options: { linear_workspace_url: 'https://linear.app/acme' } }, async ($, on) => {
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({ result: JSON.stringify([
+    { sessionId: 'local_a', title: '[CR] 🍸 MIDI-1 rounds', isRunning: false, cwd: '/w/.claude/worktrees/midi-1', lastActivityAt: '2026-11-26T10:00:00Z', prNumber: 17, prState: 'MERGED' },
+    { sessionId: 'local_b', title: '[Dev] 🔧 band rounds', isRunning: true, cwd: '/x/other', prNumber: 3, prState: 'OPEN' },
+  ]) }))
+  on('process.run', (_: unknown, e: any) => ({ value: { exitCode: e.argv[2] === '/w/.claude/worktrees/midi-1' ? 0 : 1, stdout: 'git@github.com:acme/rounds.git\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('clock.now', () => ({ value: Date.parse('2026-11-26T10:14:30Z') }))
+  engine(on, { details: true })
+  on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  await title($, 'self', '🚪 Bouncer')
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  const links = (await ui.findAll({ type: 'Link' })).map((l: any) => [l.props.label, l.props.href])
+  // A folder whose remote is not on GitHub shows its PR number with no link.
+  expect(links).toEqual([['MIDI-1', 'https://linear.app/acme/issue/MIDI-1'], ['#17', 'https://github.com/acme/rounds/pull/17']])
+  expect((await ui.find({ type: 'Text', text: /^#3$/ }))?.text).toBe('#3')
+  expect((await ui.find({ type: 'Text', text: /^14 min ago$/ }))?.text).toBe('14 min ago')
+  expect((await ui.find({ type: 'Text', text: /^ticket · CR · ⎇ midi-1$/ }))?.text).toBe('ticket · CR · ⎇ midi-1')
+  expect((await ui.find({ type: 'Text', text: /^⤵ $/ }))?.props?.color).toBe('merged')
+  expect((await ui.find({ type: 'Text', text: /^⑂ $/ }))?.props?.color).toBe('success')
   await ui.unmount()
 })
