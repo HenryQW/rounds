@@ -54,7 +54,7 @@ The pool is in the session titles, so it needs no file. Every Bouncer session se
 
 ## Known limits
 
-- The Bouncer must be a session that you open. With Remote Control on, a session that another session started cannot start Bartenders.
+- The Bouncer must be a session that you open, in the main checkout of the repo it routes. With Remote Control on, a session that another session started cannot start Bartenders, and `start_session` refuses another folder, so tickets of another repo wait in the queue.
 - Never detach a Bartender: its reports then do not reach the Bouncer.
 - Outside `bypassPermissions` mode, the app asks you before each Bartender reset (`clear_session`) and before a model or effort above the Bouncer's own.
 
