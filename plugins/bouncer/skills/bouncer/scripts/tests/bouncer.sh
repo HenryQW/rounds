@@ -121,6 +121,28 @@ ok "grants: a new grant of the same ticket replaces the old" "$(./bouncer-grants
 ./bouncer-grants has ABC-2 pu; ok "grants: has matches whole actions only" $? 1
 ok "grants: get" "$(./bouncer-grants get ABC-1)" "ABC-1 | close, link, comment | yes, close it"
 ./bouncer-grants done ABC-2; ok "grants: done removes only that ticket" "$(cat "$tmp/q/grants.md")" "ABC-1 | close, link, comment | yes, close it"
+
+# bouncer-ledger (in the data folder; a fake gh answers PR states)
+mkdir -p "$tmp/bin"; printf '#!/bin/sh\ncase "$3" in *merged*) echo MERGED;; *open*) echo OPEN;; *) exit 1;; esac\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
+export BOUNCER_TODAY=2026-11-26
+ok "ledger: due on empty prints nothing" "$(./bouncer-ledger due)" ""
+./bouncer-ledger add "memo | K-1 | t | | n" 2>/dev/null; ok "ledger: unknown kind exits 2" $? 2
+./bouncer-ledger add "pr |  | t | | n" 2>/dev/null; ok "ledger: no key exits 2" $? 2
+./bouncer-ledger done L9 2>/dev/null; ok "ledger: done of a missing id exits 1" $? 1
+./bouncer-ledger nope 2>/dev/null; ok "ledger: bad command exits 2" $? 2
+ok "ledger: add prints the id" "$(./bouncer-ledger add "pr | https://x/pull/1-merged | | | dev PR")" L1
+./bouncer-ledger add "pr | https://x/pull/2-open | | | staging PR" >/dev/null
+./bouncer-ledger add "held-message | K-1 | PR 2 merged | true | QA reply | draft in record" >/dev/null
+./bouncer-ledger add "follow-up | K-2 | K-1 accepted | false | waits" >/dev/null
+./bouncer-ledger add "verify | K-3 | staging | exit 3 | odd" >/dev/null
+./bouncer-ledger add "follow-up | K-4 | by hand | | no check" >/dev/null
+ok "ledger: a pr line gets the default trigger and the date" "$(sed -n 1p "$tmp/q/ledger.md")" "L1 | pr | https://x/pull/1-merged | merged or closed |  | 2026-11-26 | dev PR"
+ok "ledger: the note keeps |" "$(sed -n 3p "$tmp/q/ledger.md" | cut -d'|' -f7-)" " QA reply | draft in record"
+ok "ledger: due prints merged PRs and fired checks only" "$(PATH="$tmp/bin:$PATH" ./bouncer-ledger due 2>/dev/null | cut -d' ' -f1 | tr '\n' ' ')" "L1 L3 "
+ok "ledger: a check with another exit code is unsure" "$(PATH="$tmp/bin:$PATH" ./bouncer-ledger due 2>&1 >/dev/null | cut -d' ' -f1-2)" "unsure L5"
+./bouncer-ledger done L1; ok "ledger: done removes only that item" "$(./bouncer-ledger list | cut -d' ' -f1 | tr '\n' ' ')" "L2 L3 L4 L5 L6 "
+ok "ledger: ids keep counting after a done" "$(./bouncer-ledger add "verify | K-9 | x | false | y")" L7
+unset BOUNCER_TODAY
 unset BOUNCER_DATA
 
 # bouncer-report
