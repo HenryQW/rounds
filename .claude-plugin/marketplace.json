@@ -1,0 +1,12 @@
+{
+  "name": "rounds",
+  "owner": { "name": "Henry Wang", "url": "https://github.com/HenryQW" },
+  "metadata": { "description": "Claude Code plugins from the Rounds repository" },
+  "plugins": [
+    {
+      "name": "bouncer",
+      "source": "./plugins/bouncer",
+      "description": "Bouncer mode for the Claude desktop app: one Bouncer session routes tickets to Bartender sessions in their own worktrees."
+    }
+  ]
+}

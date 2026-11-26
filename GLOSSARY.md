@@ -61,7 +61,7 @@ _Avoid_: repo, workspace, folder
 
 ## Bouncer mode roles
 
-Bouncer mode runs as the `henry` skill in Claude desktop. Rounds reads the session titles (spec 2.1).
+Bouncer mode runs as the `bouncer` plugin (`plugins/bouncer`) in Claude desktop. Rounds reads the session titles (spec 2.1).
 
 **Bouncer**:
 The user-facing agent that assigns repository tasks to Bartenders and coordinates their results. It makes routine decisions and decides which results need the user's attention.

@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# bartender-branch <ticket> [base]   run first on each ticket: new branch from <base> (default main), named from the
+# ticket in lower case (TEST-1 -> test-1). Prints the branch. Exit 1: dirty tree (tracked changes). Exit 2: bad usage.
+set -euo pipefail
+t=${1:-}; base=${2:-main}
+[ -n "$t" ] && [ $# -le 2 ] || { echo "usage: bartender-branch <ticket> [base]" >&2; exit 2; }
+# untracked files stay out of the check: they survive a switch (keep ticket records outside the repo)
+[ -z "$(git status --porcelain --untracked-files=no)" ] || { echo "dirty tree: commit or remove the changes of the last ticket first" >&2; exit 1; }
+b=$(printf '%s' "$t" | tr '[:upper:]' '[:lower:]')
+git switch -q -c "$b" "$base"
+echo "$b"
