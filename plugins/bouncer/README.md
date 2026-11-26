@@ -19,7 +19,15 @@ Start a new session that you open yourself, then say "bouncer mode" or run `/bou
 
 Set it with `/plugin configure bouncer@rounds`, then start a new session.
 
-Approvals, models for Barbacks and the place of decision records come from your own rules (`CLAUDE.md`). The plugin adds no approval rules of its own.
+Models for Barbacks and the place of decision records come from your own rules (`CLAUDE.md`).
+
+## Questions and approvals
+The Bouncer asks you only before an outward action (a message other people read, a push, PR or merge, a delete that cannot be undone, money or access) or when no rule or default covers a choice. Your own rules can add actions. It does reversible steps, such as starting a Bartender or a spike, with no question and reports them in one line.
+
+- **One yes for each ticket.** At routing, the Bouncer asks once for the ticket's closing chain, for example `push, pr, merge`. A request that already says it ("fix it and merge") is the yes. The grant is a line in `grants.md`. The chain stops and asks again when a check fails, the scope changes, an action is outside the grant, or an approved text changed.
+- **The Bouncer runs outward actions.** Bartenders only prepare them: a committed branch, and the PR text and comment drafts in the ticket record. Auto mode refuses an approval that one session relays to another, so the session where you said yes runs the push, the PR, the merge and the comment.
+- **"What should I work on"** names only tickets that can be worked now, and lists the others with a one-line reason (blocked, waiting for a release or another ticket).
+- If a hook rewrites Bash commands (rtk runs `git push` as `rtk git push`), an allow rule must name the rewritten form.
 
 ## Band
 A Bouncer session shows a band above the prompt: each Bartender with its status code, ticket and repo, the number of questions that wait on you, and the queue length. A Bartender with `!` waits on you. The band appears once the session loads the `bouncer` skill or sets a Bouncer title, and only in that session. It learns the pool from the Bouncer's own `start_session`, `set_session_title` and `archive_session` calls, so a Bartender renamed elsewhere shows its old title until the Bouncer renames it again.
@@ -38,9 +46,11 @@ The plugin keeps its state in the data folder that Claude Code gives it: `~/.cla
 | File | Holds |
 |---|---|
 | `queue.md` | Tickets above the Bartender cap, one line each |
+| `questions.md` | Bartender questions that wait on you, one line each |
+| `grants.md` | Your one yes for each ticket's closing chain, one line each |
 | `tickets/<TICKET>.md` | Ticket records, unless your rules name another place |
 
-The pool and the questions that wait on you are in the session titles, so they need no file. Every Bouncer session sees the same folder, whatever folder it runs in. Plugin updates keep the folder. `claude plugin uninstall bouncer@rounds` deletes it unless you add `--keep-data`.
+The pool is in the session titles, so it needs no file. Every Bouncer session sees the same folder, whatever folder it runs in. Plugin updates keep the folder. `claude plugin uninstall bouncer@rounds` deletes it unless you add `--keep-data`.
 
 ## Known limits
 
