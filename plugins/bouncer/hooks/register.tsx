@@ -279,15 +279,16 @@ export const register: Register = (on, options) => {
               ...(i > 0 ? [bar(i)] : []),
               // Off the terminal the columns share the row; a width in cells would leave most of it empty and cut the text.
               <Box key={`col:${c.key}`} flexDirection="column" minWidth={0} {...(colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
-                <Text dimColor wrap="truncate-end">{c.label}</Text>
+                {/* Ponytail's desktop sizes: a 12px label and sub-line, a 16px semibold value. */}
+                <Text dimColor size="footnote" wrap="truncate-end">{c.label}</Text>
                 <Button key={c.key} plain onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))}>
-                  <Text bold>{c.value}</Text>
+                  <Text size="heading" weight="semibold">{c.value}</Text>
                 </Button>
                 {p.menu === c.key
                   ? <Box flexDirection="row" gap={1} flexWrap="wrap">
                       {actions(c).map(o => <Button key={`${c.key}:${o.value}`} plain dimColor onPress={() => pick(c, o.value)}>{o.label}</Button>)}
                     </Box>
-                  : <Text dimColor wrap="truncate-end">{c.ids.length === 1 ? p.notes?.[c.ids[0]!] ?? '' : ''}</Text>}
+                  : <Text dimColor size="footnote" wrap="truncate-end">{c.ids.length === 1 ? p.notes?.[c.ids[0]!] ?? '' : ''}</Text>}
               </Box>,
             ])}
             {more > 0 && <Text key="more" dimColor>{`+${more}`}</Text>}
