@@ -64,11 +64,12 @@ test('a ticket key links to the Linear workspace of the option', { options: { li
   await ui.unmount()
 })
 
-test('the Link uses the default workspace when the option is unset', async ($, on) => {
+test('a ticket key is plain text while the option is unset', async ($, on) => {
   engine(on)
   await title($, 'a', '[Dev] MIDI-1 - Bartender - aspire')
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
-  expect((await ui.find({ type: 'Link' }))?.props.href).toBe('https://linear.app/sleekflowplatform/issue/MIDI-1')
+  expect(await ui.find({ type: 'Link' })).toBe(undefined)
+  expect((await ui.find({ type: 'Text', text: /MIDI-1/ }))?.text).toBe('MIDI-1')
   await ui.unmount()
 })
 
@@ -128,8 +129,8 @@ test('a Bartender shows in the band when the Bouncer starts it', async ($, on) =
   await start('[Todo] MIDI-7 - Bartender - web', 'offer')
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
-  expect((await ui.find({ type: 'Link' }))?.props.label).toBe('MIDI-1616')
-  expect(await ui.findAll({ type: 'Link' })).toHaveLength(1)
+  expect((await ui.find({ type: 'Text', text: /MIDI-1616/ }))?.text).toBe('MIDI-1616')
+  expect(await ui.find({ type: 'Text', text: /MIDI-7/ })).toBe(undefined)
   expect(await ui.find({ type: 'Text', text: /Fix the band/ })).toBe(undefined)
   await ui.unmount()
 })

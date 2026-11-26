@@ -25,7 +25,7 @@ Approvals, models for Barbacks and the place of decision records come from your 
 A Bouncer session shows a band above the prompt: each Bartender with its status code, ticket and repo, the number of questions that wait on you, and the queue length. A Bartender with `!` waits on you. The band appears once the session loads the `bouncer` skill or sets a Bouncer title, and only in that session. It learns the pool from the Bouncer's own `start_session`, `set_session_title` and `archive_session` calls, so a Bartender renamed elsewhere shows its old title until the Bouncer renames it again.
 
 The band also lets you act:
-- A ticket key opens the ticket in Linear. Set the workspace with the `linear_workspace_url` plugin option.
+- A ticket key opens the ticket in Linear when you set the `linear_workspace_url` plugin option (for example `https://linear.app/<workspace>`). Unset, keys are plain text.
 - The menu on each Bartender (Status, Stop, Reset) sends the Bouncer a prompt such as `ABC-123: stop`. The band never talks to a Bartender.
 - When the number of questions that wait on you goes up, you get a notification.
 - Click the queue length to show the queued tickets. Pop and Remove send the Bouncer `queue: pop` or `queue: remove ABC-123`; the Bouncer runs `bouncer-queue`.
