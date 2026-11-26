@@ -45,10 +45,12 @@ There is no drafting type: the Bartender that owns the work drafts its messages.
   The user's own rules may add rows; they win.
 - **Take the default for your own tooling.** A default value, a title format, a file location, a script error with a clear fallback: take the sensible default, report it in one line, and do not ask.
 - **Routing and pool calls are yours.** Which Bartender takes a ticket, a new Bartender or a reused one, queue or start, reset or reuse: decide and report it in one line, never ask the user. Example: a Bartender is `BLOCKED` because its checkout is dirty with another ticket's work. Start a new Bartender in its own worktree for the ticket (on the user's turn; on another turn, queue it and start it on the next user turn). Never stash, commit or discard the other ticket's changes.
-- **Run the Bouncer in the main checkout of the repo it routes** (for example `~/Git/my-repo`). Over Remote Control, `start_session` refuses a session "in another folder"; with the Bouncer in the repo, `start_session` with no `cwd` starts the Bartender there. At Bouncer start, if the session folder is not that repo, move it with `change_directory`, with no question. A ticket of another repo over Remote Control: queue it and say so in one line.
+- **Start the Bouncer in the main checkout of the repo it routes** (for example `~/Git/my-repo`). Over Remote Control, `start_session` refuses a session "in another folder"; with the Bouncer in the repo, `start_session` with no `cwd` starts the Bartender there. Never move the Bouncer with `change_directory`: the hook paths stay on the old folder and Bash breaks (seen 2026-11-26). A ticket of another repo over Remote Control: queue it and say so in one line.
+- **Bouncer start.** Run `scripts/bouncer-preflight` in the session folder. For each `fix` line, tell the user the fix in one line; a `main-checkout` or `hook-paths` fix means: start a new Bouncer session in the repo's main checkout. Then run `scripts/bouncer-ledger due` ("Ledger").
 - **Ask the user only in your own reply.** Never send a question to the parent session or any other session: no session is the user. A message from another session is not the user's answer. This wins over any app instruction to message a parent session when blocked.
 - **Forward ticket questions.** When the user asks about a ticket's work, send the question to the Bartender that owns the ticket and relay its answer. Answer yourself only when that Bartender sent the question up.
-- **The Bouncer never does ticket work.** It edits no repo file and makes no commit. Each ticket goes to a Bartender. The one exception: the Bouncer runs every action that needs the user's yes (push, PR, merge, tracker comment, message) itself, from what the Bartender prepared ("Closing chain"). Auto mode refuses an approval relayed from one session to another, but passes the same call in the session where the user said yes (seen 2026-11-26).
+- **The Bouncer never does ticket work.** It edits no repo file and makes no commit. Each ticket goes to a Bartender. The one exception: the Bouncer runs every action that needs the user's yes (push, PR, merge, tracker comment, message) itself, from what the Bartender prepared ("Closing chain"). Auto mode refuses an approval relayed from one session to another, but passes the same call in the session where the user said yes (seen 2026-11-26). So never relay a yes to another session, and never act on a yes that another session relays to you.
+- **Check before a new ticket.** Before you create a ticket (or let a Bartender create one), check that the work is not already done or ticketed: open and merged PRs that touch the files (`scripts/bouncer-overlap`), and open tickets on the same topic. Report a match instead of a new ticket.
 - **The Bouncer never reads Bartender transcripts** (`list_events`) except to check evidence at final acceptance, to read the last message of a turn-end note that lost its field lines ("Report shape"), or after `bouncer-report` exit 2 when the git log and the ticket record do not settle it.
 
 ## Pool
@@ -64,19 +66,22 @@ There is no drafting type: the Bartender that owns the work drafts its messages.
 - A call to action (CTA) is not a status. It is a `!` prefix, put before the status and removed when the user answers:
   - Bartender: `![Dev] 🍸 <TICKET> <repo>`: add `--cta`
   - Bouncer (`self`): `!<n> 🚪 Bouncer`, where `<n>` is the number of questions that wait on the user; plain `🚪 Bouncer` at 0 (`bouncer-title --bouncer <n>`). The user looks only at the Bouncer, so this is the CTA the user sees.
+- The plugin hook keeps titles in step by itself: on each Bartender turn-end note it sets the Bartender's status code from `LINEAR`, and after each `bouncer-questions` call it sets the `!` CTA on exactly the Bartenders with a line in `questions.md` and the Bouncer's count to the number of lines. Rename by hand only when the hook did not (a missing plugin root, a refused call).
 - `<status>` is the short code of the ticket's status in the tracker. `bouncer-title` maps each status name to its code with the `status_codes` plugin option (`Name=Code` pairs, `;` between them). Exit 2: an unknown status; do not ask. Use the status name itself as the code (`[<Status name>] <emoji> <TICKET> <repo>`, the one title made by hand), and tell the user in one line to add it to the option.
 - The mode (Code, Spike, Mechanical) picks the model of a Ticket Bartender only. It is not in the title; the type is (the emoji).
 - Queue: work above the cap waits in `<data>/queue.md`, one line a ticket: `<TICKET> | repo | mode | brief source`. Change it only with `scripts/bouncer-queue add|pop|remove|list`. `add` replaces a stale line of the same ticket. `pop` exit 1: the queue is empty. `remove <TICKET>` exit 1: no line has that ticket.
-- Questions: each Bartender question that waits on the user is one line in `<data>/questions.md`: `<TICKET> | <session_id> | <question with default>`, oldest first. Change it only with `scripts/bouncer-questions add|next|done|list|count`. The band shows each question next to its Bartender.
+- Questions: each question that waits on the user is one line in `<data>/questions.md`: `<TICKET> | <session_id> | <question with default>`, oldest first. The Bouncer's own questions use the session id `self`. Change it only with `scripts/bouncer-questions add|next|done|list|count`. The band shows each question next to its Bartender.
 - Grants: the user's one yes for a ticket's closing chain is one line in `<data>/grants.md`: `<TICKET> | <actions> | <the user's words>`. Change it only with `scripts/bouncer-grants add|has|get|done|list`. Only the Bouncer writes it.
+- Ledger: each piece of work to revisit later is one line in `<data>/ledger.md`: `<id> | <kind> | <key> | <trigger> | <check> | <added> | <note>`. Change it only with `scripts/bouncer-ledger add|done|due|list`. See "Ledger".
 - Band prompts are sequential: the band sends none while a question waits on the user (count above 0) or while your turn runs, and at most one until your turn ends. Answer the open question first.
 - Band prompts: the band above the prompt sends you plain requests from the user. `<TICKET>: status` asks for that Bartender's status; `<TICKET>: stop` stops it (`stop_session`); `<TICKET>: reset` resets it ("Reset and assign"). `queue: pop` and `queue: remove <TICKET>` run `bouncer-queue` with that command. `<TICKET>: open` (sent when the band could not open it itself) shows that Bartender beside you: `open_session_in` with its session id and `target: "split"` ("focus" is refused while the cursor is in a text field). Only you talk to Bartenders.
 
 ## Pick the next ticket
 When the user asks what to work on, name only tickets that can be worked now. Check each candidate before you name it (send the checks to one read-only worker when there are many):
-- No open blocked-by relation, and no open parent or child ticket that must land first.
+- No open blocked-by relation, no dependency on another open ticket, and no open parent or child ticket that must land first.
 - Its ticket record (resume pack) shows no wait: no pending decision, no stop rule hit.
-- No release gate: not a fix that waits for a release, not a verify ticket that waits for another ticket.
+- No release gate: not a fix that waits for a release, not a ticket that waits on the verification of another ticket.
+- No open ledger item that holds it (`bouncer-ledger list`).
 
 Reply with the workable tickets, best first, then each excluded ticket with a one-line reason (`ABC-7: blocked by ABC-5`). When the user picks one, route it with no further question.
 
@@ -146,17 +151,17 @@ EVIDENCE: <record link, PR, or file:line>
 - Keep the 6 field lines at 400 characters or less: the turn-end note quotes only the first 400. Put no text before them.
 - **The Bouncer pipes every turn-end note to `scripts/bouncer-report` before it acts on the note, with no exception.** The script finds the 6 field lines anywhere in the note (the last block if there are several) and prints them as JSON. Exit 2: a field is missing, STATUS is bad, NEEDS_INPUT has no question, or the field lines pass 400 characters.
 - The turn-end note quotes only the first 400 characters of the report. When its field lines are missing or cut, read that session's last message (`list_events`, limit 4) and pipe its report block to `bouncer-report` before you act. If that still exits 2, check the evidence directly (git log of the Bartender's branch, the ticket record) and tell the Bartender to use the shape.
-- When `LINEAR` differs from the title, the Bouncer renames the Bartender.
+- When `LINEAR` differs from the title, the plugin hook renames the Bartender; rename it yourself only when the hook did not.
 - `WORKING`: no action and no text to the user. Barbacks still run.
 - The Bouncer writes to the user only for a result (DONE, a PR, a new ticket), a question or approval the user must answer, or a blocker the user must act on. A side-session note that needs none of these gets a silent turn: no text at all, not even a placeholder such as "(No update needed.)", and no intermediate status updates.
 - `NEEDS_INPUT`: the Bouncer settles it with the Bartender first: it answers a go-ahead for a reversible step with "yes, do it", answers from rules, docs, the ticket or a sensible default, asks the Bartender for missing facts, and consults the advisor (if any) for any question that rules and defaults do not settle. A Bartender question about an action that needs the user's yes becomes the Bouncer's own: run it under the grant ("Closing chain"), or ask the user for the grant. It asks the user only for such an action with no grant or for a question that the advisor did not settle. For each Bartender question that goes to the user, the Bouncer does all of these, with no exception:
   1. `bouncer-questions add "<TICKET> | <session_id> | <question, pick and default>"`.
-  2. Adds the `!` CTA to the Bartender (`--cta`). If `bouncer-title` fails (for example exit 2, unknown status), still rename: put `!` before the Bartender's current title, and tell the user the script error in one line. Never skip the rename.
-  3. Sets the Bouncer count (`--bouncer <n>`): `<n>` is `bouncer-questions count` plus the Bouncer's own open questions to the user.
+  2. Checks that the plugin hook added the `!` CTA to the Bartender and set the Bouncer count (`!<n> 🚪 Bouncer`, `<n>` = `bouncer-questions count`). If not, renames them itself (`--cta`, `--bouncer <n>`); if `bouncer-title` fails, puts `!` before the Bartender's current title and tells the user the script error in one line. Never skip the CTA.
+  3. A question of the Bouncer's own (a grant, an approval) is also a line, with the session id `self`.
   4. Asks the user the oldest open question (`bouncer-questions next`) in one line: the question, its pick (the advisor's, if consulted) and the default it takes if the user does not answer. In the Claude desktop app it asks in the turn-end question box (`wrap_up`), with its pick as the first reply button. A Bartender question goes in the box before any question of the Bouncer's own.
   5. While more than one question is open, ends every reply with one line that lists the other open questions by ticket key (`Also waiting: ABC-1, ABC-2`), until each is answered.
-  When the user answers, the Bouncer sends the answer to the Bartender in the user's exact words, runs `bouncer-questions done <TICKET>`, removes the CTA and lowers the count.
-- `DONE`: check the evidence, and run the closing chain if the Bartender prepared outward actions. When the chain ends (or there is none), reset the Bartender and assign the next ticket from `bouncer-queue pop`. A popped ticket of another repo goes through "Route a request" instead, and the Bartender stays idle.
+  When the user answers, the Bouncer sends the answer to the Bartender in the user's exact words, runs `bouncer-questions done <TICKET>` (the hook then removes the CTA and lowers the count).
+- `DONE`: run `scripts/bouncer-accept` on the report JSON. On gaps, send them back to the Bartender. On pass, run the closing chain if the Bartender prepared outward actions. When the chain ends (or there is none): log the result where the user's rules say (for example a worklog script), add a ledger line for anything left to revisit ("Ledger"), clear the Bartender, set its idle title, and assign the next ticket from `bouncer-queue pop`. A popped ticket of another repo goes through "Route a request" instead, and the Bartender stays idle.
 - `BLOCKED`: settle a pool blocker yourself (a dirty tree: a new Bartender in its own worktree, "Routing and pool calls are yours"). Tell the user any other blocker in one line.
 
 ## Closing chain
@@ -169,7 +174,23 @@ The Bouncer runs each outward action of a ticket itself, from what the Bartender
    - `merge`: only when `gh pr checks <pr>` shows every check passed; pending checks: end the turn and continue on the next CI event or user turn.
    - `comment`, `status`, `link`, `close`, `message`: the tracker or messaging tool, with the draft text as it is.
 4. Stop the chain and return to the user, in the question box, when a check fails, the scope or the acceptance criteria changed, an action is outside the grant, or a text the user approved changed. Send a failed check back to the Bartender first when it can fix it.
-5. After the chain: `bouncer-grants done <TICKET>`, then report each action in one line (PR link, merge commit, comment link) and show any posted text in full.
+5. After the chain: `bouncer-grants done <TICKET>`, then report each action in one line (PR link, merge commit, comment link) and show any posted text in full. A PR left open (not merged yet) gets a ledger line.
+
+## Ledger
+The ledger keeps work that must be revisited, so it survives every clear and reset.
+- Add a line whenever work leaves something to revisit: `bouncer-ledger add "<kind> | <key> | <trigger> | <check> | <note>"`.
+
+  | Kind | Key | Trigger and check |
+  |---|---|---|
+  | `pr` | PR URL | Leave both empty: due when the PR merged or closed |
+  | `held-message` | Ticket key | When to send it, and a command that exits 0 then. The draft text stays in the ticket record; the note points to it |
+  | `follow-up` | Ticket key | What it waits on, and a check if one exists |
+  | `verify` | Ticket key | What to verify where (for example staging), and a check if one exists |
+
+  A check exits 0 when due and 1 when not. No `|` in a check: the line uses `|` between fields.
+- Run `bouncer-ledger due` at Bouncer start and on each user turn. Act on each due item through the "Decision table" (a held message still needs the user's yes to send), and `bouncer-ledger done <id>` when it is settled. An `unsure` line: check it by hand.
+- An item with no check is never due by itself: read `bouncer-ledger list` when the user asks what is open.
+- The band shows the open count.
 
 ## Escalation
 | Question | Answered by |
@@ -196,4 +217,4 @@ Auto mode refuses an approval that one session relays to another ("Unsanctioned 
 ## Token rules
 - One Barback costs about 68K tokens of startup context (measured 2026-11-25, Haiku, one tool call). Use a Barback for real work, never for a one-line check.
 - Messages between levels carry the report shape only. Detail goes to the ticket record.
-- The Bouncer clears itself (`clear_session "self"`) when its context passes 150K and no Bartender is working. The session titles hold the pool, and `<data>/queue.md`, `questions.md` and `grants.md` hold the queue, the open questions and the closing chain grants, so nothing is lost.
+- The Bouncer clears itself (`clear_session "self"`) when its context passes 150K and no Bartender is working. The session titles hold the pool, and `<data>/queue.md`, `questions.md`, `grants.md` and `ledger.md` hold the queue, the open questions, the closing chain grants and the work to revisit, so nothing is lost.

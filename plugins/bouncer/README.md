@@ -36,7 +36,8 @@ The band also lets you act:
 - A ticket key opens the ticket in Linear when you set the `linear_workspace_url` plugin option (for example `https://linear.app/<workspace>`). Unset, keys are plain text.
 - The menu on each Bartender (Status, Stop, Reset) sends the Bouncer a prompt such as `ABC-123: stop`. The band never talks to a Bartender.
 - The band sends one prompt at a time: none while a question waits on you or while the Bouncer works. Open still works then.
-- When the number of questions that wait on you goes up, you get a notification.
+- When the number of questions that wait on you goes up, you get a notification. The plugin sets the `!` and the count itself from `questions.md`, and each Bartender's status code from its turn-end report.
+- `ledger N` shows the open items in `ledger.md`.
 - A Bartender that waits on you (`!`) shows its question under the band, from `questions.md` in the plugin data folder. Open shows that Bartender's conversation in split view beside the Bouncer; if the app refuses, the band asks the Bouncer to open it. You still answer the Bouncer.
 - Click the queue length to show the queued tickets. Pop and Remove send the Bouncer `queue: pop` or `queue: remove ABC-123`; the Bouncer runs `bouncer-queue`.
 
@@ -48,6 +49,7 @@ The plugin keeps its state in the data folder that Claude Code gives it: `~/.cla
 | `queue.md` | Tickets above the Bartender cap, one line each |
 | `questions.md` | Bartender questions that wait on you, one line each |
 | `grants.md` | Your one yes for each ticket's closing chain, one line each |
+| `ledger.md` | Work to revisit later (an open PR, a held message, a follow-up, a staging check), one line each; `bouncer-ledger due` lists what is due |
 | `decision-table.md` | Rows that the Bouncer adds to its decision table when you answer a question that no row covered |
 | `tickets/<TICKET>.md` | Ticket records, unless your rules name another place |
 
@@ -55,7 +57,7 @@ The pool is in the session titles, so it needs no file. Every Bouncer session se
 
 ## Known limits
 
-- The Bouncer must be a session that you open, in the main checkout of the repo it routes. With Remote Control on, a session that another session started cannot start Bartenders, and `start_session` refuses another folder, so tickets of another repo wait in the queue.
+- The Bouncer must be a session that you open, in the main checkout of the repo it routes. Do not move it with `change_directory`: hook paths stay on the old folder and Bash breaks. `bouncer-preflight` checks the folder, the hook paths, the plugin version and the `clear_session` allow rule. With Remote Control on, a session that another session started cannot start Bartenders, and `start_session` refuses another folder, so tickets of another repo wait in the queue.
 - Never detach a Bartender: its reports then do not reach the Bouncer.
 - Outside `bypassPermissions` mode, the app asks you before each Bartender reset (`clear_session`) and before a model or effort above the Bouncer's own.
 

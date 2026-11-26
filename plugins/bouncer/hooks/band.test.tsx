@@ -266,8 +266,8 @@ test('a turn-end note sets the status code, and the CTA follows questions.md', a
     runs.push(e.argv[0])
     const isReport = /STATUS: NEEDS_INPUT/.test(e.init?.stdin ?? '')
     return { value: isReport
-      ? { exitCode: 0, stdout: '{"status":"NEEDS_INPUT","ticket":"MIDI-1","linear":"CR"}', stderr: '' }
-      : { exitCode: 2, stdout: '', stderr: 'bad' } }
+      ? { exitCode: 0, stdout: '{"status":"NEEDS_INPUT","ticket":"MIDI-1","linear":"CR"}', stderr: '', isStdoutTruncated: false, isStderrTruncated: false }
+      : { exitCode: 2, stdout: '', stderr: 'bad', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   await title($, 'self', '🚪 Bouncer')
   await title($, 'local_a', '[Dev] 🍸 MIDI-1 aspire')
