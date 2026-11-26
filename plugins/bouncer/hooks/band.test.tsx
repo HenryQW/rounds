@@ -457,7 +457,7 @@ test('linked sessions parse from list_sessions JSON, bare or in text blocks', ()
   expect(sessionRows('not json')).toBe(undefined)
 })
 
-test('the band fills from the linked sessions: titles, green when no turn runs, the PR as the sub-line', async ($, on) => {
+test('the band fills from the linked sessions: titles, green when no turn runs, the PR never as the sub-line', async ($, on) => {
   on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({ result: JSON.stringify([
     { sessionId: 'local_a', title: '[InQA] 🍸 MIDI-1 rounds', isRunning: false, prNumber: 12, prState: 'OPEN' },
     { sessionId: 'local_b', title: '[Dev] 🔧 band rounds', isRunning: true },
@@ -470,7 +470,7 @@ test('the band fills from the linked sessions: titles, green when no turn runs, 
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢]+$/u }))?.text).toBe('🟡🟢')
-  expect(await cols(ui)).toEqual([['Dev', '🟡 band', 'working'], ['InQA', '🟢 MIDI-1', 'PR #12 open']])
+  expect(await cols(ui)).toEqual([['Dev', '🟡 band', 'working'], ['InQA', '🟢 MIDI-1', 'waiting']])
   await ui.unmount()
 })
 
@@ -669,7 +669,7 @@ test("Details off the terminal takes Linear's tokens for the system appearance: 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   const color = async (text: RegExp) => (await ui.find({ type: 'Text', text }))?.props?.color
   expect(await color(/^Bouncer$/)).toBe('#f7f8f8')
-  expect(await color(/^Dev$/)).toBe('#8a8f98')
+  expect(await color(/^Dev$/)).toBe('#d0d6e0')
   const cards = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props?.borderStyle === 'round' && b.props?.backgroundColor === '#0f1011')
   // One card, sized for equal widths (width 0, grow 1); the Compact switch is a quiet plain Button with no box of its own.
   expect(cards.map((b: any) => [b.props.width, b.props.flexGrow])).toEqual([[0, 1]])

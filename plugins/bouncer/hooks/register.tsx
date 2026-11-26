@@ -261,12 +261,12 @@ export const register: Register = (on, options) => {
     const strip = bartenders.length === 0
       ? <Text>no Bartenders yet</Text>
       : <Text key="dots">{dots(p.bartenders, p.reports, p.running).join('')}</Text>
-    // The sub-line: the last report's RESULT or wait reason; before any report, what the session shows (a turn, its PR).
+    // The sub-line: the last report's RESULT or wait reason; before any report, whether a turn runs.
     const sub = (c: Column) => {
       const id = c.ids.length === 1 ? c.ids[0]! : undefined
       if (!id) return c.ids.length > 1 ? 'free for work' : ''
-      const pr = p.sessions?.[id]?.pr
-      return p.notes?.[id] || (p.running?.[id] ? 'working' : pr ? `PR #${pr.number}${pr.state ? ` ${pr.state}` : ''}` : p.running?.[id] === false ? 'waiting' : '')
+      // The PR shows once, as the card's link, never in the sub-line.
+      return p.notes?.[id] || (p.running?.[id] ? 'working' : p.running?.[id] === false ? 'waiting' : '')
     }
     const isTerminal = e.surface === 'terminal'
     // Linear's look off the terminal; the terminal keeps its own colours.
@@ -306,8 +306,8 @@ export const register: Register = (on, options) => {
     // The clock only when a card shows a time.
     const now = Object.values(p.sessions ?? {}).some(x => x.at) ? await $.clock.now() : 0
     // One card a Bartender, as a Rounds session row, in three rows so no line squeezes another: the title (dot and key, the
-    // key a link to its Linear issue) with the time and `⋯` (the menu) on the right; the status code and branch with the
-    // PR link on the right; the sub-line. Linear's tokens give the colours and the card. Width 0 and grow 1 give equal cards
+    // key a link to its Linear issue) with `⋯` (the menu) on the right; the status code and branch (it truncates first)
+    // with the time and the PR link on the right; the sub-line. Linear's tokens give the colours and the card. Width 0 and grow 1 give equal cards
     // (no flexBasis prop). The title is not a Button: a desktop Button adds its own inset, so the lines would not align.
     const card = (c: Column) => {
       const id = c.ids.length === 1 ? c.ids[0]! : undefined
@@ -324,18 +324,18 @@ export const register: Register = (on, options) => {
           : colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
           <Box flexDirection="row" alignItems="center" gap="sm">
             <Box key={`title:${c.key}`} flexGrow={1} flexShrink={1} minWidth={0}>{title}</Box>
-            {s?.at && <Text size="footnote" color={t?.subtle}>{ago(s.at, now)}</Text>}
             <Button key={c.key} plain dimColor label="⋯" onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))} />
           </Box>
-          {(line2 || s?.pr) && (
+          {(line2 || s?.pr || s?.at) && (
             <Box flexDirection="row" alignItems="center" gap="sm">
               <Box key={`line2:${c.key}`} flexGrow={1} flexShrink={1} minWidth={0}>
-                <Text size="footnote" color={t?.subtle} wrap="truncate-end">{line2}</Text>
+                <Text size="footnote" color={t?.muted} wrap="truncate-end">{line2}</Text>
               </Box>
+              {s?.at && <Box flexShrink={0}><Text size="footnote" color={t?.muted} wrap="truncate">{ago(s.at, now)}</Text></Box>}
               {s?.pr && (
                 <Box key={`pr:${c.key}`} flexDirection="row" flexShrink={0}>
                   <Text size="footnote" color={glyphColor}>{`${glyph} `}</Text>
-                  {s.pr.url ? <Link href={s.pr.url} label={`#${s.pr.number}`} /> : <Text size="footnote" color={t?.subtle}>{`#${s.pr.number}`}</Text>}
+                  {s.pr.url ? <Link href={s.pr.url} label={`#${s.pr.number}`} /> : <Text size="footnote" color={t?.muted}>{`#${s.pr.number}`}</Text>}
                 </Box>
               )}
             </Box>
