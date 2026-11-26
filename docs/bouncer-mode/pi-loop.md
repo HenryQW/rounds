@@ -52,7 +52,7 @@ The owner creates the labels in each repository. The Bouncer only adds and remov
 
 1. The owner types one word. This is always available.
 2. A `bouncer-wait` script under `background_command` ends when the reconcile output changes. Its completion arrives as a `followUp` message with `triggerTurn`.
-3. A small extension with a timer that starts in `session_start`. Use it only if step 2 is too coarse.
+3. A timer that starts in `session_start`, in the Bouncer extension (see Safety). Use it only if step 2 is too coarse.
 
 A wake fires only on a difference, one wake at a time, with a 60 second minimum. The Bouncer's own label write must not wake it again.
 
@@ -77,6 +77,7 @@ The `bouncer-reconcile` script reads the issues, `herdr agent list`, `git worktr
 - Claim only an issue that the owner wrote. The brief holds the issue body and the owner's comments only, because anyone can write on a public repository.
 - Cap: 2 Bartenders in total, 1 for each repository.
 - A `tool_call` handler blocks `herdr_handoff`, `git push` and `gh` in a Bartender session, so a Bartender cannot start workers or write to GitHub. This stops a mistake, not a hostile model. The decision "Authority and approval enforcement" stays not met.
+- The gate is the only new Pi extension code. It is an internal module of `@henryqw/pi-herdr-tools` in `HenryQW/pi-harness`, not a new package. ADR 021 of that repository puts each Herdr workflow in that one package, and the package already owns `herdr_handoff` and loads in every Pi session in Herdr, Bartenders included. Its config moves to the extension config home (pi-harness ADR 018) in slice 4, and `bouncer-reconcile` reads it there.
 - One Bouncer on one Mac. Two Bouncers on one GitHub account can claim the same issue.
 
 ## Slices
