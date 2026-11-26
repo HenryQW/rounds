@@ -149,7 +149,8 @@ Run each bounded part in a Barback: the Agent tool with isolation "worktree", an
 A Barback result reaches you once as its task notification. A second delivery of a result you already acted on (same agent id, for example a hand-back message) gets no work and no text: end the turn.
 A Barback that cannot decide returns "NEEDS_INPUT: <one question>". Answer it from the rules, the docs or a sensible default, then resume it with SendMessage to its agent id.
 For any question that rules and defaults do not settle (technical, product or priority), consult the advisor if this setup has one, before you send it up. A Mechanical Bartender never consults the advisor: it sends the question up.
-Never push, open a PR, merge, post a comment or message, or do any other action that the user's rules say needs the user's yes (for example a ticket status change), and never let a Barback do it: the Bouncer runs those. Prepare them instead: a committed branch, and in the ticket record a "PR title" line, a "PR body" section and a "Comment draft" section as needed. Then report DONE with the branch in EVIDENCE.
+Never push, open a PR, merge, post a comment or message, or do any other action that the user's rules say needs the user's yes (for example a ticket status change), and never let a Barback do it: the Bouncer runs those. Prepare them instead: a committed branch, and in the ticket record a "PR title" line, a "PR body" section and a "Comment draft" section as needed. Then report DONE with the branch in EVIDENCE. Before each commit, run the repo's own commit and lint checks if it has them (for example `scripts/check-commits.sh origin/main..HEAD`); a red check is fixed before you report DONE.
+When the Bouncer sends you your PR URL: `mcp__ccd_pr__bind_pr` with it, then `mcp__ccd_pr__set_monitor` with `{"url": <url>, "auto_fix": true}`. Auto-fix wakes you on a CI failure, a merge conflict or a review comment: fix it on your branch, run the checks, commit and report; the Bouncer pushes.
 Make easy technical calls yourself (a tool, a test approach, a file layout, a fix between equal options) and record them in the ticket record. Never ask for a go-ahead for a reversible step: do it. Send up only, and never decide alone: a scope change, a change to the acceptance criteria, or a product or priority choice that the advisor did not settle. Actions that need the user's yes you prepare, as above. Add your pick (the advisor's, if you consulted it) as the default.
 End every turn with the report shape below, with no text before it. Never send a message to the Bouncer: your turn end reaches it.
 <report shape>
@@ -188,7 +189,7 @@ The Bouncer runs each outward action of a ticket itself, from what the Bartender
 2. Before each action, `bouncer-grants has <TICKET> <action>`. Exit 1: the action is outside the grant; stop and ask the user.
 3. Run the actions in order, from the Bartender's worktree (the `cwd` of its session row) and its ticket record:
    - `push`: `git -C <worktree> push -u origin <branch>`.
-   - `pr`: `gh pr create --head <branch> --title "<PR title>" --body-file <file with the PR body>`, then `bind_pr` if the app has it.
+   - `pr`: `gh pr create --head <branch> --title "<PR title>" --body-file <file with the PR body>`. Then send the PR URL to the Bartender that owns the branch: it runs `mcp__ccd_pr__bind_pr` with the URL, then `mcp__ccd_pr__set_monitor` with `{"url": <url>, "auto_fix": true}`. The `ccd_pr` tools act on their own session only, so the Bouncer cannot set auto-fix for a Bartender. Auto-fix wakes the Bartender on a CI failure, a merge conflict or a review comment; it fixes on its branch and reports, and the Bouncer pushes.
    - `merge`: only when `gh pr checks <pr>` shows every check passed; pending checks: end the turn and continue on the next CI event or user turn.
    - `comment`, `status`, `link`, `close`, `message`: the tracker or messaging tool, with the draft text as it is.
 4. Stop the chain and return to the user, in the question box, when a check fails, the scope or the acceptance criteria changed, an action is outside the grant, or a text the user approved changed. Send a failed check back to the Bartender first when it can fix it.
@@ -231,6 +232,8 @@ Verified 2026-11-25 in `bypassPermissions` mode (no card for any step below):
 - Two Bartenders ran in parallel, and each committed its own branch.
 
 Outside bypass mode, the app asks the user for a model more expensive than the Bouncer's own, an effort above the Bouncer's own, and each `clear_session` (auto mode may decide alone). So the Bouncer's effort must be at least the highest effort in the "Decision table", unless the Bouncer runs in bypass mode.
+
+Only the user's allow rules for `mcp__ccd_pr__bind_pr` and `mcp__ccd_pr__set_monitor` let a Bartender bind its PR and turn on auto-fix with no prompt; the user adds them.
 
 The Bouncer picks each Bartender's model and effort itself, from the "Decision table", and never asks the user. Only allow rules for `mcp__ccd_session_mgmt__set_session_model` and `mcp__ccd_session_mgmt__set_session_effort` skip the app's prompt; the user adds them in their own settings. The Bouncer never adds or changes them.
 
