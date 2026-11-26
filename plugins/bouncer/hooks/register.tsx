@@ -56,6 +56,18 @@ const refreshSessions = async ($: EngineInterface) => {
     prs: Object.fromEntries(rows.flatMap(r => (r.pr ? [[r.id, r.pr]] : []))),
   }))
 }
+// Linear's tokens (its DESIGN.md), dark and the light inverse. Its light hairline and inks are not in the spec: derived.
+const LINEAR = {
+  dark: { ink: '#f7f8f8', muted: '#d0d6e0', subtle: '#8a8f98', surface: '#0f1011', hairline: '#23252a', accent: '#5e6ad2' },
+  light: { ink: '#000000', muted: '#3c4149', subtle: '#6b6f76', surface: '#f5f6f6', hairline: '#e1e3e6', accent: '#5e6ad2' },
+}
+// The band's elements cannot read the app theme, so the band reads the system appearance.
+// shortcut: an app theme set apart from the system's gets the other palette; read the app theme once the engine offers it.
+const refreshLook = async ($: EngineInterface) => {
+  const ran = await $.process.run(['/usr/bin/defaults', 'read', '-g', 'AppleInterfaceStyle']).catch(() => undefined)
+  const dark = ran?.exitCode === 0 && /Dark/.test(ran.stdout)
+  await update($, pool, p => (p.dark === dark ? p : { ...p, dark }))
+}
 const refreshData = async ($: EngineInterface, records = '') => {
   const isOther = await isOtherBouncer($)
   await update($, pool, p => (p.isOther === isOther ? p : { ...p, isOther }))
@@ -140,6 +152,7 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const details = (await $.store.get('details').catch(() => undefined)) === true
     await update($, pool, p => (p.details === details ? p : { ...p, details }))
+    await refreshLook($).catch(() => undefined)
     if ((await read($, pool)).isOn) await refreshData($, records).catch(() => undefined)
     return next(e)
   })
@@ -152,6 +165,7 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     if (!e.agentId) {
       await update($, pool, p => (p.pending ? { ...p, pending: false } : p))
+      await refreshLook($).catch(() => undefined)
       if ((await read($, pool)).isOn) await refreshData($, records).catch(() => undefined)
     }
     return next(e)
@@ -240,18 +254,28 @@ export const register: Register = (on, options) => {
       if (!id) return c.ids.length > 1 ? 'free for work' : ''
       return p.notes?.[id] || (p.running?.[id] ? 'working' : p.prs?.[id] ?? (p.running?.[id] === false ? 'waiting' : ''))
     }
-    const detailsButton = <Button key="details" plain label={p.details ? 'Compact' : 'Details'} onPress={flip} />
+    const isTerminal = e.surface === 'terminal'
+    // Linear's look off the terminal; the terminal keeps its own colours.
+    const t = isTerminal ? undefined : LINEAR[p.dark ? 'dark' : 'light']
+    const detailsLabel = p.details ? 'Compact' : 'Details'
+    // A secondary button: surface, hairline border, round corners.
+    const detailsButton = t
+      ? <Box borderStyle="round" borderColor={t.hairline} backgroundColor={t.surface} paddingX="sm">
+          <Button key="details" plain label={detailsLabel} onPress={flip} />
+        </Box>
+      : <Button key="details" plain label={detailsLabel} onPress={flip} />
 
     if (!p.details) {
       // Compact: one line, laid out as ponytail's compact band (gap 2, a spacer, the switch on the right).
       const n = p.waiting
+      const keys = all.filter(c => c.ticket).map(c => c.ticket).join(' ')
       const mine = (
         <Box flexDirection="row" alignItems="center" gap={2} width={width}>
           {strip}
           {n > 0 && (waits?.b
             ? <Button key="waits" plain onPress={() => open(waits.b!.id, waits.name)}><Text color="error">{`${n} waits on you`}</Text></Button>
             : <Text key="waits" color="error">{`${n} waits on you`}</Text>)}
-          {all.filter(c => c.ticket).length > 0 && <Text wrap="truncate">{all.filter(c => c.ticket).map(c => c.ticket).join(' ')}</Text>}
+          {keys && <Text color={t?.muted} wrap="truncate">{keys}</Text>}
           <Box flexGrow={1} />
           {detailsButton}
         </Box>
@@ -259,61 +283,62 @@ export const register: Register = (on, options) => {
       return below ? <Box flexDirection="column">{mine}{below}</Box> : mine
     }
 
-    // Details: ponytail's layout. A header row, a hairline, then equal columns split by vertical hairlines.
-    // Text that says something uses the normal colour; only the lines are dim. Steps from the surface: `sm` between rows, `xs` inside.
+    // Details. Terminal: ponytail's columns split by `│`. Elsewhere Linear's look: one card a Bartender
+    // (surface, hairline border, round corners, padding), a hairline under the header, nothing below ink-subtle.
     // shortcut: the hidden columns are only counted (`+N`); a fifth active Bartender has no menu until one ends.
     const shown = all.slice(0, 4)
     const more = all.length - shown.length
     let rule = <Text dimColor wrap="truncate-end">{'─'.repeat(e.props.bodyColumns)}</Text>
-    let bar = (i: number) => <Box key={`bar:${i}`} flexDirection="column">{['a', 'b', 'c'].map(k => <Text key={k} dimColor>│</Text>)}</Box>
-    if (e.surface === 'desktop') {
-      // Text glyphs make broken lines in the desktop's proportional font; an SVG draws real ones, with ponytail's line colours.
+    if (t && e.surface === 'desktop') {
+      // A Box draws a border on all four sides only; an SVG draws the one line, in the hairline colour.
       const { Svg } = $.ui.resolve(e)
-      const line = (w: number, h: number, xy: string) => `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><style>.d{stroke:#1f1e1d;stroke-opacity:.12}@media (prefers-color-scheme:dark){.d{stroke:#fff;stroke-opacity:.14}}</style><line class="d" ${xy}/></svg>`
-      rule = <Svg source={line(4000, 1, 'x1="0" y1="0.5" x2="4000" y2="0.5"')} alt="divider" height={1} />
-      bar = i => <Svg key={`bar:${i}`} source={line(1, 64, 'x1="0.5" y1="0" x2="0.5" y2="64"')} alt="divider" width={1} height={64} />
+      rule = <Svg source={`<svg xmlns="http://www.w3.org/2000/svg" width="4000" height="1"><line stroke="${t.hairline}" x1="0" y1="0.5" x2="4000" y2="0.5"/></svg>`} alt="divider" height={1} />
     }
+    const bar = (i: number) => <Box key={`bar:${i}`} flexDirection="column">{['a', 'b', 'c'].map(k => <Text key={k} dimColor>│</Text>)}</Box>
     const colWidth = width === undefined ? undefined : Math.max(10, Math.floor(width / Math.max(1, shown.length)) - 3)
+    const card = (c: Column) => (
+      <Box key={`col:${c.key}`} flexDirection="column" minWidth={0} {...(t
+        ? { flexGrow: 1, gap: 'xs' as const, borderStyle: 'round', borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'lg' as const, paddingY: 'md' as const }
+        : colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
+        {/* Linear's eyebrow (13px, weight 500, ink-subtle), card title (weight 500, larger, ink) and status line (ink-muted). */}
+        <Text size="footnote" weight="medium" color={t?.subtle} wrap="truncate-end">{c.label}</Text>
+        <Button key={c.key} plain onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))}>
+          <Text size="title" weight="medium" color={t?.ink}>{c.value}</Text>
+        </Button>
+        {p.menu === c.key
+          ? <Box flexDirection="row" gap={1} flexWrap="wrap">
+              {actions(c).map(o => <Button key={`${c.key}:${o.value}`} plain onPress={() => pick(c, o.value)}>
+                <Text color={o.value === 'linear' ? t?.accent : t?.muted}>{o.label}</Text>
+              </Button>)}
+            </Box>
+          : <Text size="footnote" color={t?.muted} wrap="truncate-end">{sub(c)}</Text>}
+      </Box>
+    )
     const mine = (
-      <Box flexDirection="column" width={width} gap={e.surface === 'terminal' ? 0 : 'sm'} paddingY={e.surface === 'terminal' ? 0 : 'xs'}>
-        <Box flexDirection="row" alignItems="center" gap={e.surface === 'terminal' ? 1 : 'sm'}>
+      <Box flexDirection="column" width={width} gap={isTerminal ? 0 : 'md'} paddingY={isTerminal ? 0 : 'xs'}>
+        <Box flexDirection="row" alignItems="center" gap={isTerminal ? 1 : 'sm'}>
           {strip}
-          <Text bold>Bouncer</Text>
-          <Text>{ownRepo}</Text>
+          <Text bold weight="semibold" color={t?.ink}>Bouncer</Text>
+          <Text color={t?.muted}>{ownRepo}</Text>
           <Box flexGrow={1} />
-          {p.queue > 0 && <Button key="queue" plain label={`Queue ${p.queue}`} onPress={() => toggle('queueOpen')} />}
-          {(p.ledger ?? 0) > 0 && <Button key="ledger" plain label={`Due ${p.ledger}`} onPress={() => toggle('ledgerOpen')} />}
+          {p.queue > 0 && <Button key="queue" plain onPress={() => toggle('queueOpen')}><Text color={t?.muted}>{`Queue ${p.queue}`}</Text></Button>}
+          {(p.ledger ?? 0) > 0 && <Button key="ledger" plain onPress={() => toggle('ledgerOpen')}><Text color={t?.muted}>{`Due ${p.ledger}`}</Text></Button>}
           {detailsButton}
         </Box>
+        {rule}
         {waits && (
-          <Box backgroundColor="diffRemovedDimmed" paddingX="sm" paddingY="xs">
+          <Box backgroundColor="diffRemovedDimmed" paddingX={isTerminal ? 'xs' : 'lg'} paddingY={isTerminal ? 0 : 'sm'} {...(t ? { borderStyle: 'round', borderColor: t.hairline } : {})}>
             {waits.b
               ? <Button key={`open:${waits.b.id}`} plain onPress={() => open(waits.b!.id, waits.name)}>
-                  <Text wrap="truncate">{`🔴 ${waits.name}: ${waits.question}`}</Text>
+                  <Text wrap="truncate" color={t?.ink}>{`🔴 ${waits.name}: ${waits.question}`}</Text>
                 </Button>
-              : <Text wrap="truncate">{`🔴 ${waits.name}: ${waits.question}`}</Text>}
+              : <Text wrap="truncate" color={t?.ink}>{`🔴 ${waits.name}: ${waits.question}`}</Text>}
           </Box>
         )}
-        {shown.length > 0 && rule}
         {shown.length > 0 && (
-          <Box flexDirection="row" gap={e.surface === 'terminal' ? 2 : 'md'}>
-            {shown.flatMap((c, i) => [
-              ...(i > 0 ? [bar(i)] : []),
-              // Off the terminal the columns share the row; a width in cells would leave most of it empty and cut the text.
-              <Box key={`col:${c.key}`} flexDirection="column" minWidth={0} gap={e.surface === 'terminal' ? 0 : 'xs'} {...(colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
-                {/* The mockup's sizes: a 12px label and sub-line, a 20px semibold value. */}
-                <Text size="footnote" wrap="truncate-end">{c.label}</Text>
-                <Button key={c.key} plain onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))}>
-                  <Text size="title" weight="semibold">{c.value}</Text>
-                </Button>
-                {p.menu === c.key
-                  ? <Box flexDirection="row" gap={1} flexWrap="wrap">
-                      {actions(c).map(o => <Button key={`${c.key}:${o.value}`} plain onPress={() => pick(c, o.value)}>{o.label}</Button>)}
-                    </Box>
-                  : <Text size="footnote" wrap="truncate-end">{sub(c)}</Text>}
-              </Box>,
-            ])}
-            {more > 0 && <Text key="more">{`+${more}`}</Text>}
+          <Box flexDirection="row" gap={isTerminal ? 2 : 'md'}>
+            {shown.flatMap((c, i) => [...(isTerminal && i > 0 ? [bar(i)] : []), card(c)])}
+            {more > 0 && <Text key="more" color={t?.muted}>{`+${more}`}</Text>}
           </Box>
         )}
         {lines.map((line, i) => {

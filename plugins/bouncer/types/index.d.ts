@@ -31,6 +31,8 @@ export type Pool = {
   prs?: Readonly<Record<string, string>>
   /** Bartender session id to the sub-line of its last report: the wait reason, else the RESULT. */
   notes?: Readonly<Record<string, string>>
+  /** True while the system appearance is dark: the band picks Linear's dark tokens, else the light ones. */
+  dark?: boolean
   /** True when the band shows the columns (Details); false is Compact. Kept across sessions in `$.store` `details`. */
   details?: boolean
   /** The column whose actions show in place of its sub-line (its key). */

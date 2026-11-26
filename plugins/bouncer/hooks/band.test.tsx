@@ -654,3 +654,26 @@ test('Details: the ask row shows only while a question waits; a report fills the
   expect(await ui.find({ key: 'open:local_a' })).not.toBe(undefined)
   await ui.unmount()
 })
+
+test("Details off the terminal takes Linear's tokens for the system appearance: dark, or the light inverse", async ($, on) => {
+  let style = 'Dark\n'
+  on('process.run', (_: unknown, e: any) => ({ value: e.argv[0] === '/usr/bin/defaults'
+    ? { exitCode: style ? 0 : 1, stdout: style, stderr: '', isStdoutTruncated: false, isStderrTruncated: false }
+    : { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  engine(on, { details: true })
+  on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  await title($, 'self', '🚪 Bouncer')
+  await title($, 'a', '[Dev] 🍸 MIDI-1 rounds')
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  const color = async (text: RegExp) => (await ui.find({ type: 'Text', text }))?.props?.color
+  expect(await color(/^Bouncer$/)).toBe('#f7f8f8')
+  expect(await color(/^ticket · Dev$/)).toBe('#8a8f98')
+  const cards = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props?.borderStyle === 'round' && b.props?.backgroundColor === '#0f1011')
+  expect(cards.length).toBe(2)
+  style = ''
+  await endTurn($)
+  expect(await color(/^Bouncer$/)).toBe('#000000')
+  expect(await ui.find({ type: 'Text', text: /│/ })).toBe(undefined)
+  await ui.unmount()
+})
