@@ -60,8 +60,8 @@ const refreshSessions = async ($: EngineInterface) => {
 }
 // Linear's tokens (its DESIGN.md), dark and the light inverse. Its light hairline and inks are not in the spec: derived.
 const LINEAR = {
-  dark: { ink: '#f7f8f8', muted: '#d0d6e0', subtle: '#8a8f98', surface: '#0f1011', hairline: '#23252a', accent: '#5e6ad2' },
-  light: { ink: '#000000', muted: '#3c4149', subtle: '#6b6f76', surface: '#f5f6f6', hairline: '#e1e3e6', accent: '#5e6ad2' },
+  dark: { ink: '#f7f8f8', muted: '#d0d6e0', subtle: '#8a8f98', surface: '#0f1011', hairline: '#23252a', hover: '#34363c', accent: '#5e6ad2' },
+  light: { ink: '#000000', muted: '#3c4149', subtle: '#6b6f76', surface: '#f5f6f6', hairline: '#e1e3e6', hover: '#d4d6da', accent: '#5e6ad2' },
 }
 // The band's elements cannot read the app theme, so the band reads the system appearance.
 // shortcut: an app theme set apart from the system's gets the other palette; read the app theme once the engine offers it.
@@ -459,12 +459,13 @@ export const register: Register = (on, options) => {
           {p.menu === c.key && (
             <Box key={`menu:${c.key}`} flexDirection="row" gap="sm" flexWrap="nowrap">
               {/* A desktop Button keeps its label's width (no width prop), so each cell draws the button: equal (width 0, grow 1, as the cards),
-                  a plain Button centred in it, in a Box that never shrinks, so the label never truncates. Stop and Reset ask first. */}
+                  a plain Button centred in it, in a Box that never shrinks, so the label never truncates. The keyed cell is the hover scope, so the
+                  whole cell lights; only the label takes the click (a Box has no onPress, a Button holds only text). Stop and Reset ask first. */}
               {menuCells(c).map(o => (
                 <Box key={`cell:${c.key}:${o.value}`} flexDirection="row" width={0} flexGrow={1} alignItems="center" justifyContent="center"
-                  {...(t ? { backgroundColor: t.hairline, borderStyle: 'round', borderColor: o.red ? 'error' : t.hairline, paddingX: 0 as const, paddingY: 'xs' as const } : {})}>
+                  {...(t ? { backgroundColor: t.hairline, borderStyle: 'round', borderColor: o.red ? 'error' : t.hairline, paddingX: 0 as const, paddingY: 'xs' as const, hover: { backgroundColor: t.hover } } : {})}>
                   <Box flexShrink={0}>
-                    <Button key={`${c.key}:${o.value}`} plain onPress={o.press}>
+                    <Button key={`${c.key}:${o.value}`} plain onPress={o.press} {...(t ? { hover: { backgroundColor: t.hover } } : {})}>
                       {o.red ? <Text color="error">{o.label}</Text> : o.label}
                     </Button>
                   </Box>

@@ -115,6 +115,8 @@ test('the menu has only Status, Stop and Reset (the key is the Linear link), on 
   // Three equal cells, each a plain Button centred.
   const cells = (await ui.find({ key: 'menu:act:a' }))?.children ?? []
   expect(cells.map((x: any) => [x.props?.width, x.props?.flexGrow, x.props?.justifyContent])).toEqual(Array(3).fill([0, 1, 'center']))
+  // The whole cell lights under the pointer, not only the label.
+  expect(cells.map((x: any) => [x.props?.key?.startsWith("cell:"), !!x.hover?.backgroundColor])).toEqual(Array(3).fill([true, true]))
   await ui.unmount()
 })
 
