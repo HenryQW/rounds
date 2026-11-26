@@ -48,6 +48,7 @@ The plugin keeps its state in the data folder that Claude Code gives it: `~/.cla
 | `queue.md` | Tickets above the Bartender cap, one line each |
 | `questions.md` | Bartender questions that wait on you, one line each |
 | `grants.md` | Your one yes for each ticket's closing chain, one line each |
+| `decision-table.md` | Rows that the Bouncer adds to its decision table when you answer a question that no row covered |
 | `tickets/<TICKET>.md` | Ticket records, unless your rules name another place |
 
 The pool is in the session titles, so it needs no file. Every Bouncer session sees the same folder, whatever folder it runs in. Plugin updates keep the folder. `claude plugin uninstall bouncer@rounds` deletes it unless you add `--keep-data`.
