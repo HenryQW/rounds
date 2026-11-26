@@ -31,16 +31,16 @@ The Bouncer asks you only before an outward action (a message other people read,
 - If a hook rewrites Bash commands (rtk runs `git push` as `rtk git push`), an allow rule must name the rewritten form.
 
 ## Band
-A Bouncer session shows a band above the prompt: each Bartender with its status code, type (🍸 Ticket, 🔧 Skill, 🧹 Cleanup), ticket or task name and repo, the number of questions that wait on you, and the queue length. A Bartender with `!` waits on you. The band appears once the session loads the `bouncer` skill or sets a Bouncer title, and only in that session. It learns the pool from the Bouncer's own `start_session`, `set_session_title` and `archive_session` calls, so a Bartender renamed elsewhere shows its old title until the Bouncer renames it again.
+A Bouncer session shows a one-line band above the prompt. `!N waiting` comes first, only when questions wait on you. Each active Bartender is one chip with its type (🍸 Ticket, 🔧 Skill, 🧹 Cleanup), status code and ticket or task name, such as `🍸 Dev MIDI-123`; a `!` before it in the warning colour means it waits on you. Idle Bartenders of one type and repo share one chip, such as `🍸 2 idle · aspire`. `queue N` and `ledger N` show only above zero. The band appears once the session loads the `bouncer` skill or sets a Bouncer title, and only in that session. It learns the pool from the Bouncer's own `start_session`, `set_session_title` and `archive_session` calls, so a Bartender renamed elsewhere shows its old title until the Bouncer renames it again. It reads the queue, the questions and the ledger again at session start and after each of the Bouncer's turns.
 
 The band also lets you act:
-- A ticket key opens the ticket in Linear when you set the `linear_workspace_url` plugin option (for example `https://linear.app/<workspace>`). Unset, keys are plain text.
-- The menu on each Bartender (Status, Stop, Reset) sends the Bouncer a prompt such as `ABC-123: stop`. The band never talks to a Bartender.
+- Each chip is its own menu: Status, Stop and Reset send the Bouncer a prompt such as `ABC-123: stop`. On a grouped idle chip, each item names one session (`Reset 01585d74`) and the prompt names its session id (`local_…: reset`). The band never talks to a Bartender.
+- With the `linear_workspace_url` plugin option set (for example `https://linear.app/<workspace>`), the menu of a chip with a ticket key has Open in Linear.
 - The band sends one prompt at a time: none while a question waits on you or while the Bouncer works. Open still works then.
 - When the number of questions that wait on you goes up, you get a notification. The plugin sets the `!` and the count itself from `questions.md`, and each Bartender's status code from its turn-end report.
-- `ledger N` shows the open items in the records' `LEDGER` sections.
+- Click `ledger N` to list the open items in the records' `LEDGER` sections, one line each (`KEY · kind · next`).
 - A Bartender that waits on you (`!`) shows its question under the band, from `questions.md` in the plugin data folder. Open shows that Bartender's conversation in split view beside the Bouncer; if the app refuses, the band asks the Bouncer to open it. You still answer the Bouncer.
-- Click the queue length to show the queued tickets. Pop and Remove send the Bouncer `queue: pop` or `queue: remove ABC-123`; the Bouncer runs `bouncer-queue`.
+- Click `queue N` to list the queued tickets, one line each (`KEY · repo · mode`). Pop and Remove send the Bouncer `queue: pop` or `queue: remove ABC-123`; the Bouncer runs `bouncer-queue`.
 
 ## Data
 The plugin keeps its state in the data folder that Claude Code gives it: `~/.claude/plugins/data/bouncer-rounds/` (`bouncer-inline` for a `--plugin-dir` checkout). `skills/bouncer/scripts/bouncer-data` prints the path.

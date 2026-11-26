@@ -1,10 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { EMPTY, archived, parseBartender, queueLines, questionsBySession, renamed, synced } from './pool'
-import type { Report } from './pool'
+import { EMPTY, archived, chips, ledgerSummary, parseBartender, queueLines, queueSummary, questionsBySession, renamed, synced } from './pool'
+import type { Chip, Report } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
+const ACTIONS = [['status', 'Status'], ['stop', 'Stop'], ['reset', 'Reset']] as const
 
 // A Linear-shaped key (ABC-123) links to the tracker; a GitHub issue number does not.
 const LINEAR_KEY = /^[A-Z][A-Z0-9]*-\d+$/
@@ -15,18 +16,21 @@ const dataFile = async ($: EngineInterface, name: string) => {
   return String(data ? await $.fs.read(`${data}/${name}`).catch(() => '') : '')
 }
 // Open ledger items live in the ticket records; bouncer-ledger list prints one line each.
-const ledgerCount = async ($: EngineInterface, records: string) => {
+const ledgerList = async ($: EngineInterface, records: string) => {
   const env = await $.process.hookEnv()
   if (!env.CLAUDE_PLUGIN_ROOT) return undefined
   const ran = await $.process.run([`${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-ledger`, 'list'],
     { env: records ? { ...env, BOUNCER_RECORDS: records } : env }).catch(() => undefined)
-  return ran?.exitCode === 0 ? queueLines(ran.stdout).length : undefined
+  return ran?.exitCode === 0 ? queueLines(ran.stdout) : undefined
 }
 const refreshData = async ($: EngineInterface, records = '') => {
   const lines = queueLines(await dataFile($, 'queue.md'))
   const questions = questionsBySession(await dataFile($, 'questions.md'))
-  const ledger = await ledgerCount($, records)
-  await update($, pool, p => ({ ...p, queue: lines.length, queueLines: lines, questions, ledger: ledger ?? p.ledger }))
+  const ledger = await ledgerList($, records)
+  await update($, pool, p => ({
+    ...p, queue: lines.length, queueLines: lines, questions,
+    ledger: ledger?.length ?? p.ledger, ledgerLines: ledger ?? p.ledgerLines,
+  }))
 }
 
 // Make the titles match the open questions and, given a report, its status code; set_session_title is the Bouncer's own call.
@@ -90,9 +94,18 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // The queue, questions and ledger change outside the Bouncer's own calls (a Bartender, a shell, the last session):
+  // read them again when the session starts and after each of the Bouncer's turns.
+  on('session.start', async ($, e, next) => {
+    if ((await read($, pool)).isOn) await refreshData($, records).catch(() => undefined)
+    return next(e)
+  })
   // A band prompt's turn ended (main's, not a subagent's): the band may send the next one.
   on('turn.complete', async ($, e, next) => {
-    if (!e.agentId) await update($, pool, p => (p.pending ? { ...p, pending: false } : p))
+    if (!e.agentId) {
+      await update($, pool, p => (p.pending ? { ...p, pending: false } : p))
+      if ((await read($, pool)).isOn) await refreshData($, records).catch(() => undefined)
+    }
     return next(e)
   })
 
@@ -102,7 +115,7 @@ export const register: Register = (on, options) => {
     // Other mods share this slot (ponytail's band): draw theirs below ours.
     const below = await next(e).catch(() => undefined)
 
-    const { Box, Text, Link, Button, Select } = $.ui.resolve(e)
+    const { Box, Text, Button, Select } = $.ui.resolve(e)
     const width = e.surface === 'terminal' ? e.props.bodyColumns : undefined
     const bartenders = Object.entries(p.bartenders).flatMap(([id, t]) => {
       const b = parseBartender(t)
@@ -119,6 +132,24 @@ export const register: Register = (on, options) => {
       await $.prompt.submit({ text }).catch(() => update($, pool, q => ({ ...q, pending: false })))
     }
     const lines = p.queueOpen ? p.queueLines ?? [] : []
+    const ledgerLines = p.ledgerOpen ? p.ledgerLines ?? [] : []
+    // The chip is its own menu: the first option draws the chip and does nothing. Each other option names one
+    // session (a ticket key, else its session id), so an action on a grouped idle chip is never ambiguous.
+    const menu = (c: Chip) => [
+      { value: 'chip', label: c.text },
+      ...c.ids.flatMap(id => ACTIONS.map(([a, label]) =>
+        ({ value: `${a} ${id}`, label: c.ids.length > 1 ? `${label} ${id.replace(/^local_/, '').slice(0, 8)}` : label }))),
+      ...(linear && LINEAR_KEY.test(c.ticket) ? [{ value: 'linear', label: 'Open in Linear' }] : []),
+    ]
+    const pick = async (c: Chip, v: string) => {
+      if (v === 'linear') return void await $.process.run(['/usr/bin/open', `${linear}/issue/${c.ticket}`]).catch(() => undefined)
+      const [a, id] = v.split(' ')
+      if (a && id) await ask(`${c.ticket || id}: ${a}`)
+    }
+    const toggle = async (k: 'queueOpen' | 'ledgerOpen') => {
+      await update($, pool, q => ({ ...q, [k]: !q[k] }))
+      await refreshData($, records)
+    }
     // `open claude://…` does not switch the app (tried 2026-11-26), so show the Bartender in split view.
     // The window tool takes only sessions the Bouncer started; when the call fails, the Bouncer opens it.
     const open = async (id: string, name: string) => {
@@ -130,32 +161,17 @@ export const register: Register = (on, options) => {
     const mine = (
       <Box flexDirection="column" width={width}>
         <Box flexDirection="row" alignItems="center" gap={2} flexWrap="wrap">
+          {p.waiting > 0 && <Text color="warning">!{p.waiting} waiting</Text>}
           <Text bold>Bouncer</Text>
-          {p.waiting > 0 ? <Text color="warning">! {p.waiting} waiting on you</Text> : <Text dimColor>nothing waits on you</Text>}
           {bartenders.length === 0 && <Text dimColor>no Bartenders yet</Text>}
-          {bartenders.map(b => (
+          {chips(p.bartenders).map(c => (
             <Box flexDirection="row" alignItems="center" gap={1}>
-              <Text color={b.cta ? 'warning' : undefined} dimColor={b.status === 'Idle'}>
-                {b.cta ? '!' : ''}[{b.status}]
-              </Text>
-              <Text>{b.emoji}</Text>
-              {b.ticket && (linear && LINEAR_KEY.test(b.ticket)
-                ? <Link href={`${linear}/issue/${b.ticket}`} label={b.ticket} />
-                : <Text>{b.ticket}</Text>)}
-              <Text dimColor={b.status === 'Idle'}>{b.repo}</Text>
-              <Select
-                key={`act:${b.id}`}
-                options={[{ value: 'status', label: 'Status' }, { value: 'stop', label: 'Stop' }, { value: 'reset', label: 'Reset' }]}
-                onSelect={v => ask(`${b.ticket || b.repo}: ${v}`)}
-              />
+              {c.cta && <Text color="warning">!</Text>}
+              <Select key={c.key} value="chip" options={menu(c)} onSelect={v => pick(c, v)} />
             </Box>
           ))}
-          {p.queue > 0
-            ? <Button key="queue" onPress={async () => { await update($, pool, q => ({ ...q, queueOpen: !q.queueOpen })); await refreshData($, records) }}>
-                {`queue ${p.queue}`}
-              </Button>
-            : <Text dimColor>queue 0</Text>}
-          {(p.ledger ?? 0) > 0 && <Text key="ledger">{`ledger ${p.ledger}`}</Text>}
+          {p.queue > 0 && <Button key="queue" dimColor onPress={() => toggle('queueOpen')}>{`queue ${p.queue}`}</Button>}
+          {(p.ledger ?? 0) > 0 && <Button key="ledger" dimColor onPress={() => toggle('ledgerOpen')}>{`ledger ${p.ledger}`}</Button>}
         </Box>
         {bartenders.filter(b => b.cta).map(b => (
           <Box flexDirection="row" alignItems="center" gap={1}>
@@ -167,12 +183,13 @@ export const register: Register = (on, options) => {
           const ticket = line.split('|')[0]?.trim() ?? ''
           return (
             <Box flexDirection="row" alignItems="center" gap={1}>
-              <Text dimColor>{line}</Text>
-              {i === 0 && <Button key="queue:pop" onPress={() => ask('queue: pop')}>Pop</Button>}
-              <Button key={`queue:remove:${ticket}`} onPress={() => ask(`queue: remove ${ticket}`)}>Remove</Button>
+              <Box flexShrink={1} minWidth={0}><Text dimColor wrap="truncate">{queueSummary(line)}</Text></Box>
+              {i === 0 && <Button key="queue:pop" plain dimColor onPress={() => ask('queue: pop')}>Pop</Button>}
+              <Button key={`queue:remove:${ticket}`} plain dimColor onPress={() => ask(`queue: remove ${ticket}`)}>Remove</Button>
             </Box>
           )
         })}
+        {ledgerLines.map(line => <Text dimColor wrap="truncate">{ledgerSummary(line)}</Text>)}
       </Box>
     )
     return below ? <Box flexDirection="column">{mine}{below}</Box> : mine

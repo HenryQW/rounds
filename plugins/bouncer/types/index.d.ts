@@ -17,6 +17,10 @@ export type Pool = {
   questions?: Readonly<Record<string, string>>
   /** Open items in the records' LEDGER sections (`bouncer-ledger list`); absent in a value an earlier version stored. */
   ledger?: number
+  /** The `bouncer-ledger list` lines; absent in a value an earlier version stored. */
+  ledgerLines?: readonly string[]
+  /** True while the band lists the ledger's open items. */
+  ledgerOpen?: boolean
 }
 
 declare module 'claude-code' {

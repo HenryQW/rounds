@@ -28,6 +28,36 @@ export const archived = (pool: Pool, sessionId: string): Pool => {
   return { ...pool, bartenders: rest }
 }
 
+/** One band chip: an active Bartender, or the idle Bartenders of one type and repo. */
+export type Chip = { key: string; cta: boolean; text: string; ticket: string; ids: string[] }
+
+/** Active Bartenders one chip each (`🍸 Dev MIDI-1`); idle ones grouped by type and repo (`🍸 2 idle · aspire`), after them. */
+export const chips = (bartenders: Readonly<Record<string, string>>): Chip[] => {
+  const active: Chip[] = []
+  const idle = new Map<string, { emoji: string; repo: string; ids: string[] }>()
+  for (const [id, title] of Object.entries(bartenders)) {
+    const b = parseBartender(title)
+    if (!b) continue
+    if (b.status === 'Idle' && !b.cta) {
+      const key = `idle:${b.emoji}:${b.repo}`
+      idle.set(key, { emoji: b.emoji, repo: b.repo, ids: [...(idle.get(key)?.ids ?? []), id] })
+    } else {
+      active.push({ key: `act:${id}`, cta: b.cta, text: `${b.emoji} ${b.status} ${b.ticket || b.repo}`, ticket: b.ticket, ids: [id] })
+    }
+  }
+  return [...active, ...[...idle].map(([key, g]) =>
+    ({ key, cta: false, text: `${g.emoji} ${g.ids.length} idle · ${g.repo}`, ticket: '', ids: g.ids }))]
+}
+
+/** A queue line (`KEY | repo | mode | note`) as `KEY · repo · mode`. */
+export const queueSummary = (line: string) => line.split('|').slice(0, 3).map(s => s.trim()).filter(Boolean).join(' · ')
+
+/** A `bouncer-ledger list` line (`/r/KEY.md: - [open] kind | key | ... | next: x | date`) as `KEY · kind · x`. */
+export const ledgerSummary = (line: string) => {
+  const m = /([^/]+)\.md: - \[open\] (\S+) \|.*\| next: (.*?) \| \d{4}-\d{2}-\d{2}\s*$/.exec(line)
+  return m ? `${m[1]} · ${m[2]} · ${m[3]}` : line
+}
+
 export const queueLines = (text: string) => text.split('\n').filter(l => l.trim() !== '')
 
 /** `questions.md` lines (`<TICKET> | <session_id> | <question>`) as session id to question. */
