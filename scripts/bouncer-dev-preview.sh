@@ -5,6 +5,7 @@
 # Usage: scripts/bouncer-dev-preview.sh <dev-mods folder of the Bouncer session>
 #   (~/.claude/dev-mods/<session uuid>; the session loads the plugin-authoring skill first, which starts its watch.)
 # Remove the folder <dir>/bouncer-dev to end the preview.
+# The copy takes the installed plugin's linear_workspace_url option from Claude Code's settings (read only).
 # BOUNCER_RECORDS=<folder> gives the copy the ticket records (the records_dir option), for the Due count and PR links.
 set -euo pipefail
 dir=${1:?usage: bouncer-dev-preview.sh <dev-mods folder>}
@@ -23,6 +24,12 @@ sed -i '' "s/atom({ plugin: 'bouncer', key: 'pool' }/atom({ plugin: 'bouncer-dev
 sed -i '' "s|const data = (await \$.process.hookEnv()).CLAUDE_PLUGIN_DATA|const data = '$data'|" "$r"
 # bouncer-ledger runs from the copy, with the installed data folder and, given BOUNCER_RECORDS, those records.
 sed -i '' "/^const ledgerList = /,/^}/s|const env = await \$.process.hookEnv()|const env = { ...(await \$.process.hookEnv()), CLAUDE_PLUGIN_ROOT: '$dst', CLAUDE_PLUGIN_DATA: '$data' }|" "$r"
+# The installed plugin's linear_workspace_url option (bouncer@<marketplace> in Claude Code's settings), for the Linear links.
+linear=$(python3 -c 'import json,os,sys
+p=os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"),"settings.json")
+c=json.load(open(p)).get("pluginConfigs",{})
+print(next((str(v.get("options",{}).get("linear_workspace_url","")) for k,v in c.items() if k.startswith("bouncer@")),""))' 2>/dev/null || true)
+[ -n "$linear" ] && sed -i '' "s|const linear = String(options.linear_workspace_url ?? '')|const linear = String('$linear')|" "$r"
 [ -n "${BOUNCER_RECORDS:-}" ] && sed -i '' "s|const records = String(options.records_dir ?? '').trim()|const records = '$BOUNCER_RECORDS'|" "$r"
 # The copy starts with an empty pool: it turns on at load when the installed owner file names this session,
 # and only then hides the installed plugin's row, so the band is never empty. Bartenders show once renamed.

@@ -299,7 +299,8 @@ export const register: Register = (on, options) => {
     // A Bartender as Rounds row pieces: the title (dot and key, the key a link to its Linear issue), the status code as a
     // chip, the PR (`#17860 +1`, glyph in the PR state colour). The title is not a Button: a desktop Button adds its own
     // inset, so the rows would not align.
-    const titleOf = (c: Column) => c.ticket && linear && LINEAR_KEY.test(c.ticket)
+    const isLinked = (c: Column) => !!c.ticket && !!linear && LINEAR_KEY.test(c.ticket)
+    const titleOf = (c: Column) => isLinked(c)
       ? <Box flexDirection="row"><Text>{`${c.dot} `}</Text><Link href={`${linear}/issue/${c.ticket}`} label={c.ticket} /></Box>
       : <Text weight="medium" color={t?.ink} wrap="truncate-end">{c.value}</Text>
     const chipOf = (c: Column) => (
@@ -375,14 +376,16 @@ export const register: Register = (on, options) => {
     const card = (c: Column) => {
       const { cells: prCells, time, el: prEl } = prOf(c)
       const showChip = !!c.label && c.value.length + c.label.length + 3 + prCells <= room
-      const showTime = !!time && c.value.length + (showChip ? c.label.length + 3 : 0) + prCells + time.length + 1 <= room
+      // The time also needs room for `⋯` and the gaps (4 cells), so it shows only when row 1 is short.
+      const showTime = !!time && c.value.length + (showChip ? c.label.length + 3 : 0) + prCells + time.length + 5 <= room
       const line = sub(c)
       return (
         <Box key={`col:${c.key}`} flexDirection="column" minWidth={0} {...(t
           ? { flexGrow: 1, flexShrink: 1, width: 0, minWidth: 24, borderStyle: 'round', borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'lg' as const, paddingY: 'md' as const }
           : colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
           <Box flexDirection="row" alignItems="center" gap="sm">
-            <Box key={`title:${c.key}`} flexGrow={1} flexShrink={1} minWidth={0}>{titleOf(c)}</Box>
+            {/* A Link wraps instead of truncating: a linked key keeps its width. */}
+            <Box key={`title:${c.key}`} flexGrow={1} flexShrink={isLinked(c) ? 0 : 1} minWidth={0}>{titleOf(c)}</Box>
             {showChip && chipOf(c)}
             {prEl}
             {showTime && <Text size="footnote" color={t?.muted}>{time}</Text>}
