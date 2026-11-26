@@ -68,6 +68,11 @@ ok "queue: list keeps order, stale line replaced" "$(./bouncer-queue list | tr '
 ok "queue: the file is queue.md in the data folder" "$(head -n 1 "$tmp/data/queue.md")" "ABC-2 | b | Spike | notion"
 ok "queue: pop prints the first line" "$(./bouncer-queue pop)" "ABC-2 | b | Spike | notion"
 ok "queue: pop removes it" "$(./bouncer-queue list)" "ABC-1 | a | Mechanical | doc"
+./bouncer-queue remove 2>/dev/null; ok "queue: remove without a ticket exits 2" $? 2
+./bouncer-queue remove ABC-7 2>/dev/null; ok "queue: remove of a missing ticket exits 1" $? 1
+./bouncer-queue add "ABC-3 | c | Code | x"
+./bouncer-queue remove ABC-1; ok "queue: remove drops only that line" "$(./bouncer-queue list)" "ABC-3 | c | Code | x"
+./bouncer-queue remove ABC-3
 BOUNCER_DATA="$tmp/data2" ./bouncer-queue add "T | r | Spike | user's msg" 2>/dev/null; ok "queue: apostrophe is kept" "$(cat "$tmp/data2/queue.md")" "T | r | Spike | user's msg"
 unset BOUNCER_DATA
 

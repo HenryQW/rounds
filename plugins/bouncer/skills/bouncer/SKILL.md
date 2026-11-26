@@ -41,7 +41,8 @@ The steps that need no judgment are scripts in `scripts/` next to this file (`${
   - Bouncer (`self`): `!<n> Bouncer`, where `<n>` is the number of questions that wait on the user; plain `Bouncer` at 0 (`bouncer-title --bouncer <n>`). The user looks only at the Bouncer, so this is the CTA the user sees.
 - `<status>` is the short code of the ticket's status in the tracker. `bouncer-title` maps each status name to its code with the `status_codes` plugin option (`Name=Code` pairs, `;` between them). Exit 2: an unknown status; ask the user, then tell the user to add it to the option.
 - The mode (Code, Spike, Mechanical) picks the model only. It is not in the title.
-- Queue: work above the cap waits in `<data>/queue.md`, one line a ticket: `<TICKET> | repo | mode | brief source`. Change it only with `scripts/bouncer-queue add|pop|list`. `add` replaces a stale line of the same ticket. `pop` exit 1: the queue is empty.
+- Queue: work above the cap waits in `<data>/queue.md`, one line a ticket: `<TICKET> | repo | mode | brief source`. Change it only with `scripts/bouncer-queue add|pop|remove|list`. `add` replaces a stale line of the same ticket. `pop` exit 1: the queue is empty. `remove <TICKET>` exit 1: no line has that ticket.
+- Band prompts: the band above the prompt sends you plain requests from the user. `<TICKET>: status` asks for that Bartender's status; `<TICKET>: stop` stops it (`stop_session`); `<TICKET>: reset` resets it ("Reset and assign"). `queue: pop` and `queue: remove <TICKET>` run `bouncer-queue` with that command. Only you talk to Bartenders.
 
 ## Route a request
 1. Find the ticket, its status, the repo and the mode (`Code`, `Spike`, `Mechanical`). Ask the user only if the request names no ticket and no repo.

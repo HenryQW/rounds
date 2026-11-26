@@ -7,6 +7,10 @@ export type Pool = {
   waiting: number
   /** Lines in `queue.md` in the plugin's data folder. */
   queue: number
+  /** The lines of `queue.md`; absent in a value an earlier version stored. */
+  queueLines?: readonly string[]
+  /** True while the band lists the queue's lines. */
+  queueOpen?: boolean
 }
 
 declare module 'claude-code' {

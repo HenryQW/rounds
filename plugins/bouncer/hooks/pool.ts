@@ -26,4 +26,4 @@ export const archived = (pool: Pool, sessionId: string): Pool => {
   return { ...pool, bartenders: rest }
 }
 
-export const queueLength = (text: string) => text.split('\n').filter(l => l.trim() !== '').length
+export const queueLines = (text: string) => text.split('\n').filter(l => l.trim() !== '')
