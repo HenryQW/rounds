@@ -1,37 +1,62 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { EMPTY, archived, parseBartender, queueLines, questionsBySession, renamed, synced } from './pool'
-import type { Report } from './pool'
+import { EMPTY, archived, chips, dots, ledgerSummary, parseBartender, queueLines, queueSummary, questionsBySession, renamed, synced } from './pool'
+import type { Chip, Report } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
+const ACTIONS = [['status', 'Status'], ['stop', 'Stop'], ['reset', 'Reset']] as const
 
 // A Linear-shaped key (ABC-123) links to the tracker; a GitHub issue number does not.
 const LINEAR_KEY = /^[A-Z][A-Z0-9]*-\d+$/
 
 // The queue, the open questions and the ledger in the plugin's data folder, the one bouncer-data prints (CLAUDE_PLUGIN_DATA).
-const dataFile = async ($: EngineInterface, name: string) => {
+// One Bouncer a repo: its repo is the folder name of its folder (the main checkout), and its queue, questions and
+// owner file live in <data>/<repo>/ (bouncer-data --repo). Another repo's Bouncer has its own.
+const repoOf = async ($: EngineInterface) => (await $.session.cwd()).split('/').pop() ?? ''
+const repoDir = async ($: EngineInterface) => {
   const data = (await $.process.hookEnv()).CLAUDE_PLUGIN_DATA
-  return String(data ? await $.fs.read(`${data}/${name}`).catch(() => '') : '')
+  return data ? `${data}/${await repoOf($)}` : undefined
+}
+const dataFile = async ($: EngineInterface, name: string) => {
+  const dir = await repoDir($)
+  return String(dir ? await $.fs.read(`${dir}/${name}`).catch(() => '') : '')
 }
 // Open ledger items live in the ticket records; bouncer-ledger list prints one line each.
-const ledgerCount = async ($: EngineInterface, records: string) => {
+const ledgerList = async ($: EngineInterface, records: string) => {
   const env = await $.process.hookEnv()
   if (!env.CLAUDE_PLUGIN_ROOT) return undefined
   const ran = await $.process.run([`${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-ledger`, 'list'],
     { env: records ? { ...env, BOUNCER_RECORDS: records } : env }).catch(() => undefined)
-  return ran?.exitCode === 0 ? queueLines(ran.stdout).length : undefined
+  return ran?.exitCode === 0 ? queueLines(ran.stdout) : undefined
+}
+// One Bouncer a repo: `bouncer` in <data>/<repo>/ holds the engine session id of that repo's Bouncer.
+// A session claims it when it is free; another one takes it over only on the user's Take Over.
+const writeOwner = async ($: EngineInterface, id: string) => {
+  const dir = await repoDir($)
+  if (dir) await $.fs.write(`${dir}/bouncer`, id).catch(() => undefined)
+}
+const isOtherBouncer = async ($: EngineInterface) => {
+  const me = await $.session.id()
+  const owner = (await dataFile($, 'bouncer')).trim()
+  if (!owner) await writeOwner($, me)
+  return owner !== '' && owner !== me
 }
 const refreshData = async ($: EngineInterface, records = '') => {
+  const isOther = await isOtherBouncer($)
+  await update($, pool, p => (p.isOther === isOther ? p : { ...p, isOther }))
   const lines = queueLines(await dataFile($, 'queue.md'))
   const questions = questionsBySession(await dataFile($, 'questions.md'))
-  const ledger = await ledgerCount($, records)
-  await update($, pool, p => ({ ...p, queue: lines.length, queueLines: lines, questions, ledger: ledger ?? p.ledger }))
+  const ledger = await ledgerList($, records)
+  await update($, pool, p => ({
+    ...p, queue: lines.length, queueLines: lines, questions,
+    ledger: ledger?.length ?? p.ledger, ledgerLines: ledger ?? p.ledgerLines,
+  }))
 }
 
 // Make the titles match the open questions and, given a report, its status code; set_session_title is the Bouncer's own call.
 const syncTitles = async ($: EngineInterface, report?: Report) => {
-  for (const [session_id, title] of synced(await read($, pool), await dataFile($, 'questions.md'), report)) {
+  for (const [session_id, title] of synced(await read($, pool), await dataFile($, 'questions.md'), report, await repoOf($))) {
     const ran = await $.tool.call({ tool: 'mcp__ccd_session_mgmt__set_session_title', session_id, title } as any).catch(() => undefined)
     if (ran && ran.deny === undefined && ran.isError !== true) await update($, pool, p => renamed(p, session_id, title))
   }
@@ -45,7 +70,12 @@ const onNote = async ($: EngineInterface, text: string) => {
   const ran = await $.process.run([`${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-report`], { stdin: text, env })
     .catch(() => undefined)
   if (!ran || ran.exitCode !== 0) return
-  try { await syncTitles($, JSON.parse(ran.stdout) as Report) } catch { /* not a report */ }
+  let report: Report
+  try { report = JSON.parse(ran.stdout) as Report } catch { return /* not a report */ }
+  // Keep the STATUS for the band's dot, on the session whose title has the report's ticket.
+  const id = Object.entries((await read($, pool)).bartenders).find(([, t]) => report.ticket && parseBartender(t)?.ticket === report.ticket)?.[0]
+  if (id) await update($, pool, p => ({ ...p, reports: { ...p.reports, [id]: report.status } }))
+  await syncTitles($, report)
 }
 
 export const register: Register = (on, options) => {
@@ -90,9 +120,25 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
+  // The queue, questions and ledger change outside the Bouncer's own calls (a Bartender, a shell, the last session):
+  // read them again when the session starts and after each of the Bouncer's turns.
+  on('session.start', async ($, e, next) => {
+    const details = (await $.store.get('details').catch(() => undefined)) === true
+    await update($, pool, p => (p.details === details ? p : { ...p, details }))
+    if ((await read($, pool)).isOn) await refreshData($, records).catch(() => undefined)
+    return next(e)
+  })
+  // The Bouncer's session ends (or a /clear gives it a new id): free the Bouncer for the next session.
+  on('session.end', async ($, e, next) => {
+    if ((await read($, pool)).isOn && (await dataFile($, 'bouncer')).trim() === e.sessionId) await writeOwner($, '')
+    return next(e)
+  })
   // A band prompt's turn ended (main's, not a subagent's): the band may send the next one.
   on('turn.complete', async ($, e, next) => {
-    if (!e.agentId) await update($, pool, p => (p.pending ? { ...p, pending: false } : p))
+    if (!e.agentId) {
+      await update($, pool, p => (p.pending ? { ...p, pending: false } : p))
+      if ((await read($, pool)).isOn) await refreshData($, records).catch(() => undefined)
+    }
     return next(e)
   })
 
@@ -102,7 +148,7 @@ export const register: Register = (on, options) => {
     // Other mods share this slot (ponytail's band): draw theirs below ours.
     const below = await next(e).catch(() => undefined)
 
-    const { Box, Text, Link, Button, Select } = $.ui.resolve(e)
+    const { Box, Text, Button } = $.ui.resolve(e)
     const width = e.surface === 'terminal' ? e.props.bodyColumns : undefined
     const bartenders = Object.entries(p.bartenders).flatMap(([id, t]) => {
       const b = parseBartender(t)
@@ -118,7 +164,52 @@ export const register: Register = (on, options) => {
       await update($, pool, q => ({ ...q, pending: true }))
       await $.prompt.submit({ text }).catch(() => update($, pool, q => ({ ...q, pending: false })))
     }
+    const ownRepo = await repoOf($)
+    if (p.isOther) {
+      const take = async () => { await writeOwner($, await $.session.id()); await refreshData($, records) }
+      const row = (
+        <Box flexDirection="row" alignItems="center" gap={2} flexWrap="wrap" width={width}>
+          <Text bold>Bouncer</Text>
+          <Text dimColor>{`another session is the Bouncer of ${ownRepo}`}</Text>
+          <Button key="takeover" dimColor onPress={take}>Take Over</Button>
+        </Box>
+      )
+      return below ? <Box flexDirection="column">{row}{below}</Box> : row
+    }
+    // Questions block in order: the band shows only the oldest (the head of questions.md); the next shows once it is answered.
+    const [headId, headQuestion] = Object.entries(p.questions ?? {})[0] ?? []
+    const headB = bartenders.find(b => b.id === headId)
+    const ctaB = bartenders.find(b => b.cta)
+    const waits = headQuestion !== undefined
+      ? { b: headB, name: headB ? headB.ticket || headB.repo : headId === 'self' ? 'Bouncer' : headId ?? '', question: headQuestion }
+      : ctaB && { b: ctaB, name: ctaB.ticket || ctaB.repo, question: 'waits on you' }
     const lines = p.queueOpen ? p.queueLines ?? [] : []
+    const ledgerLines = p.ledgerOpen ? p.ledgerLines ?? [] : []
+    const all = chips(p.bartenders, p.reports, ownRepo)
+    const opened = p.details ? all.find(c => c.key === p.menu) : undefined
+    // Compact (the default) shows the dots, the ask pill and the counts; Details adds the chips. Kept across sessions.
+    const flip = async () => {
+      const details = !(await read($, pool)).details
+      await update($, pool, q => ({ ...q, details }))
+      await $.store.set('details', details).catch(() => undefined)
+    }
+    // A chip opens its action row. Each action names one session (a ticket key, else its session id),
+    // so an action on the grouped idle chip is never ambiguous.
+    const actions = (c: Chip) => [
+      ...c.ids.flatMap(id => ACTIONS.map(([a, label]) =>
+        ({ value: `${a} ${id}`, label: c.ids.length > 1 ? `${label} ${id.replace(/^local_/, '').slice(0, 8)}` : label }))),
+      ...(linear && LINEAR_KEY.test(c.ticket) ? [{ value: 'linear', label: 'Open in Linear' }] : []),
+    ]
+    const pick = async (c: Chip, v: string) => {
+      await update($, pool, q => ({ ...q, menu: undefined }))
+      if (v === 'linear') return void await $.process.run(['/usr/bin/open', `${linear}/issue/${c.ticket}`]).catch(() => undefined)
+      const [a, id] = v.split(' ')
+      if (a && id) await ask(`${c.ticket || id}: ${a}`)
+    }
+    const toggle = async (k: 'queueOpen' | 'ledgerOpen') => {
+      await update($, pool, q => ({ ...q, [k]: !q[k] }))
+      await refreshData($, records)
+    }
     // `open claude://…` does not switch the app (tried 2026-11-26), so show the Bartender in split view.
     // The window tool takes only sessions the Bouncer started; when the call fails, the Bouncer opens it.
     const open = async (id: string, name: string) => {
@@ -127,52 +218,51 @@ export const register: Register = (on, options) => {
       if (!ran || ran.deny !== undefined || ran.isError === true) await ask(`${name}: open`)
     }
 
+    // One row: dot strip, the head question, chips, then the counts on the right. Steps: `lg` between chips, `xs` inside.
     const mine = (
       <Box flexDirection="column" width={width}>
-        <Box flexDirection="row" alignItems="center" gap={2} flexWrap="wrap">
-          <Text bold>Bouncer</Text>
-          {p.waiting > 0 ? <Text color="warning">! {p.waiting} waiting on you</Text> : <Text dimColor>nothing waits on you</Text>}
-          {bartenders.length === 0 && <Text dimColor>no Bartenders yet</Text>}
-          {bartenders.map(b => (
-            <Box flexDirection="row" alignItems="center" gap={1}>
-              <Text color={b.cta ? 'warning' : undefined} dimColor={b.status === 'Idle'}>
-                {b.cta ? '!' : ''}[{b.status}]
-              </Text>
-              <Text>{b.emoji}</Text>
-              {b.ticket && (linear && LINEAR_KEY.test(b.ticket)
-                ? <Link href={`${linear}/issue/${b.ticket}`} label={b.ticket} />
-                : <Text>{b.ticket}</Text>)}
-              <Text dimColor={b.status === 'Idle'}>{b.repo}</Text>
-              <Select
-                key={`act:${b.id}`}
-                options={[{ value: 'status', label: 'Status' }, { value: 'stop', label: 'Stop' }, { value: 'reset', label: 'Reset' }]}
-                onSelect={v => ask(`${b.ticket || b.repo}: ${v}`)}
-              />
+        <Box flexDirection="row" alignItems="center" columnGap="lg" rowGap="xs" flexWrap="wrap">
+          {bartenders.length === 0
+            ? <Text dimColor>no Bartenders yet</Text>
+            : <Text key="dots">{dots(p.bartenders, p.reports).join('')}</Text>}
+          {waits && (
+            <Box backgroundColor="diffRemovedDimmed" paddingX="xs" flexShrink={1} minWidth={0}>
+              {waits.b
+                ? <Button key={`open:${waits.b.id}`} plain onPress={() => open(waits.b!.id, waits.name)}>
+                    <Text wrap="truncate">{`🔴 ${waits.name}: ${waits.question} →`}</Text>
+                  </Button>
+                : <Text wrap="truncate">{`🔴 ${waits.name}: ${waits.question}`}</Text>}
             </Box>
+          )}
+          {p.details && waits && <Text dimColor>│</Text>}
+          {p.details && all.map(c => (
+            <Button key={c.key} plain dimColor={c.key === 'idle'} onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))}>
+              <Text bold={c.key !== 'idle'}>{c.head}</Text>
+              {c.tail && <Text dimColor>{` ${c.tail}`}</Text>}
+            </Button>
           ))}
-          {p.queue > 0
-            ? <Button key="queue" onPress={async () => { await update($, pool, q => ({ ...q, queueOpen: !q.queueOpen })); await refreshData($, records) }}>
-                {`queue ${p.queue}`}
-              </Button>
-            : <Text dimColor>queue 0</Text>}
-          {(p.ledger ?? 0) > 0 && <Text key="ledger">{`ledger ${p.ledger}`}</Text>}
+          <Box flexGrow={1} />
+          {p.queue > 0 && <Button key="queue" plain dimColor onPress={() => toggle('queueOpen')}>{`📥 ${p.queue} queued`}</Button>}
+          {(p.ledger ?? 0) > 0 && <Button key="ledger" plain dimColor onPress={() => toggle('ledgerOpen')}>{`⏰ ${p.ledger} open`}</Button>}
+          {bartenders.length > 0 && <Button key="details" plain dimColor label={p.details ? 'Compact' : 'Details'} onPress={flip} />}
         </Box>
-        {bartenders.filter(b => b.cta).map(b => (
-          <Box flexDirection="row" alignItems="center" gap={1}>
-            <Text color="warning">! {b.ticket || b.repo}: {p.questions?.[b.id] ?? 'waits on you'}</Text>
-            <Button key={`open:${b.id}`} onPress={() => open(b.id, b.ticket || b.repo)}>Open</Button>
+        {opened && (
+          <Box flexDirection="row" alignItems="center" gap="xs" flexWrap="wrap">
+            <Text dimColor>{opened.head}</Text>
+            {actions(opened).map(o => <Button key={`${opened.key}:${o.value}`} plain dimColor onPress={() => pick(opened, o.value)}>{o.label}</Button>)}
           </Box>
-        ))}
+        )}
         {lines.map((line, i) => {
           const ticket = line.split('|')[0]?.trim() ?? ''
           return (
             <Box flexDirection="row" alignItems="center" gap={1}>
-              <Text dimColor>{line}</Text>
-              {i === 0 && <Button key="queue:pop" onPress={() => ask('queue: pop')}>Pop</Button>}
-              <Button key={`queue:remove:${ticket}`} onPress={() => ask(`queue: remove ${ticket}`)}>Remove</Button>
+              <Box flexShrink={1} minWidth={0}><Text dimColor wrap="truncate">{queueSummary(line)}</Text></Box>
+              {i === 0 && <Button key="queue:pop" plain dimColor onPress={() => ask('queue: pop')}>Pop</Button>}
+              <Button key={`queue:remove:${ticket}`} plain dimColor onPress={() => ask(`queue: remove ${ticket}`)}>Remove</Button>
             </Box>
           )
         })}
+        {ledgerLines.map(line => <Text dimColor wrap="truncate">{ledgerSummary(line)}</Text>)}
       </Box>
     )
     return below ? <Box flexDirection="column">{mine}{below}</Box> : mine

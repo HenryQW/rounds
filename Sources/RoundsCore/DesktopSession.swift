@@ -130,9 +130,10 @@ extension DesktopSession {
         title.wholeMatch(of: #/!?\[[^\]]+\] (?:🍸|🔧|🧹) (?:\S+ )?\S+/#) != nil
     }
 
-    /// The questions that wait on the user, from the Bouncer's title `!<n> 🚪 Bouncer`; 0 for any other title.
+    /// The questions that wait on the user, from the Bouncer's title `!<n> 🚪 Bouncer <repo>` (no repo before
+    /// plugin 0.10.4); 0 for any other title.
     public var bouncerQuestions: Int {
-        title.wholeMatch(of: #/!([0-9]{1,3}) 🚪 Bouncer/#).flatMap { Int($0.1) } ?? 0
+        title.wholeMatch(of: #/!([0-9]{1,3}) 🚪 Bouncer(?: \S+)?/#).flatMap { Int($0.1) } ?? 0
     }
 }
 

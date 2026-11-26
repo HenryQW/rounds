@@ -1,14 +1,32 @@
 import { expect, test } from 'claude-code/testing'
 
+import { EMPTY, dot, parseBartender, questionsBySession, renamed } from './pool'
+
 const BAND = { plugin: 'bouncer', component: 'AbovePrompt', props: { hasSurvey: false, bodyColumns: 120 } } as const
 
-const engine = (on: any) => {
+// This session's id, and writes of the Bouncer owner file.
+const base = (on: any, store: Record<string, unknown> = {}) => {
+  on('session.id', () => ({ value: 'me' }))
+  on('session.cwd', () => ({ value: '/w/rounds' }))
+  on('fs.write', () => ({ value: undefined }))
+  on('store.get', (_: unknown, e: any) => ({ value: store[e.key] }))
+  on('store.set', (_: unknown, e: any) => { store[e.key] = e.value; return { value: undefined } })
+}
+
+// Mount the band in Details (the chips); Compact is the default.
+const details = async (ui: any) => {
+  if ((await ui.find({ key: 'details' }))?.text === 'Details') await ui.press({ key: 'details' })
+  return ui
+}
+
+const engine = (on: any, store?: Record<string, unknown>) => {
   on('tool.call', () => ({ result: {} }))
   on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
+  base(on, store)
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
   on('fs.read', (_: unknown, e: { path?: string }) => {
-    if (e.path === '/data/queue.md') return { value: 'A-1 | r | Code | x\nA-2 | r | Spike | y\n' }
-    if (e.path === '/data/questions.md') return { value: 'MIDI-1616 | local_a | Post the draft yourself? Default: yes\n' }
+    if (e.path === '/data/rounds/queue.md') return { value: 'A-1 | r | Code | x\nA-2 | r | Spike | y\n' }
+    if (e.path === '/data/rounds/questions.md') return { value: 'MIDI-1616 | local_a | Post the draft yourself? Default: yes\n' }
     throw new Error('missing')
   })
 }
@@ -27,6 +45,18 @@ const record = (on: any) => {
 // The Bouncer's turn that a band prompt started ends.
 const endTurn = ($: any) => $.turn.complete({ answer: '', durationMs: 1, isAborted: false, reason: 'answer' })
 
+// The text a chip draws.
+const chip = (el: any) => el?.text
+// A pick in a chip's action row: the chip opens the row, the action closes it.
+const act = async (ui: any, key: string, value: string) => { await ui.press({ key }); await ui.press({ key: `${key}:${value}` }) }
+// The labels of a chip's action row.
+const actions = async (ui: any, key: string) => {
+  await ui.press({ key })
+  const labels = (await ui.findAll({ type: 'Button' })).filter((b: any) => b.key?.startsWith(`${key}:`)).map((b: any) => b.text)
+  await ui.press({ key })
+  return labels
+}
+
 const title = ($: any, session_id: string, t: string) =>
   $.tool.call({ tool: 'mcp__ccd_session_mgmt__set_session_title', session_id, title: t } as any)
 
@@ -34,7 +64,7 @@ test('no band outside a Bouncer session', async ($, on) => {
   engine(on)
   on('ui.render', ($, e) => { const { Text } = $.ui.resolve(e); return <Text>engine</Text> })
   await title($, 's1', '[Dev][MIDI-9] normal work')
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
   expect(await ui.find({ type: 'Text', text: /Bouncer/ })).toBe(undefined)
   await ui.unmount()
 })
@@ -50,33 +80,33 @@ test('the band shows Bartenders, the question count and the queue', async ($, on
   await $.tool.call({ tool: 'mcp__ccd_session_mgmt__archive_session', session_id: 'c' } as any)
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ ...BAND, surface } as any)
-    expect((await ui.find({ type: 'Text', text: /waiting/ }))?.text).toBe('! 1 waiting on you')
-    expect((await ui.find({ type: 'Text', text: /Dev/ }))?.text).toBe('[Dev]')
-    expect((await ui.find({ type: 'Text', text: /CR/ }))?.text).toBe('![CR]')
-    expect(await ui.find({ type: 'Text', text: /Idle/ })).toBe(undefined)
-    expect((await ui.find({ key: 'queue' }))?.text).toBe('queue 2')
+    const ui = await details(await $.ui.mount({ ...BAND, surface } as any))
+    expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢⚪]+$/u }))?.text).toBe('🔴🟡')
+    expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 🍸 MIDI-1 aspire · Dev')
+    expect(chip(await ui.find({ key: 'act:b' }))).toBe('🔴 🍸 MIDI-2 web · CR')
+    expect((await ui.find({ key: 'queue' }))?.text).toBe('📥 2 queued')
     await ui.unmount()
   }
 })
 
-test('a ticket key links to the Linear workspace of the option', { options: { linear_workspace_url: 'https://linear.app/acme/' } }, async ($, on) => {
+test('a ticket key opens in the Linear workspace of the option from its chip menu', { options: { linear_workspace_url: 'https://linear.app/acme/' } }, async ($, on) => {
   engine(on)
+  const runs: string[][] = []
+  on('process.run', (_: unknown, e: any) => { runs.push(e.argv); return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } } })
   await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
   await title($, 'b', '[Dev] 🍸 12 web')
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
-  const links = await ui.findAll({ type: 'Link' })
-  expect(links.map(l => l.props.href)).toEqual(['https://linear.app/acme/issue/MIDI-1'])
-  expect((await ui.find({ type: 'Text', text: /^12$/ }))?.text).toBe('12')
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  expect(await actions(ui, 'act:b')).toEqual(['Status', 'Stop', 'Reset'])
+  await act(ui, 'act:a', 'linear')
+  expect(runs).toEqual([['/usr/bin/open', 'https://linear.app/acme/issue/MIDI-1']])
   await ui.unmount()
 })
 
-test('a ticket key is plain text while the option is unset', async ($, on) => {
+test('the chip menu has no Linear item while the option is unset', async ($, on) => {
   engine(on)
   await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
-  expect(await ui.find({ type: 'Link' })).toBe(undefined)
-  expect((await ui.find({ type: 'Text', text: /MIDI-1/ }))?.text).toBe('MIDI-1')
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  expect(await actions(ui, 'act:a')).toEqual(['Status', 'Stop', 'Reset'])
   await ui.unmount()
 })
 
@@ -85,10 +115,10 @@ test('the Bartender menu asks the Bouncer, never the Bartender', async ($, on) =
   const { prompts } = record(on)
   await title($, 'a', '[Dev] 🍸 MIDI-1616 aspire')
   await title($, 'c', '[Idle] 🍸 web')
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
-  for (const value of ['status', 'stop', 'reset']) { await ui.select({ key: 'act:a', value }); await endTurn($) }
-  await ui.select({ key: 'act:c', value: 'stop' })
-  expect(prompts).toEqual(['MIDI-1616: status', 'MIDI-1616: stop', 'MIDI-1616: reset', 'web: stop'])
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  for (const value of ['status', 'stop', 'reset']) { await act(ui, 'act:a', `${value} a`); await endTurn($) }
+  await act(ui, 'idle', 'stop c')
+  expect(prompts).toEqual(['MIDI-1616: status', 'MIDI-1616: stop', 'MIDI-1616: reset', 'c: stop'])
   await ui.unmount()
 })
 
@@ -108,11 +138,11 @@ test('the queue opens to its lines, with Pop and Remove sent to the Bouncer', as
   const { prompts } = record(on)
   await title($, 'self', '🚪 Bouncer')
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-queue list' } as any)
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
-  expect(await ui.find({ type: 'Text', text: /A-1 \|/ })).toBe(undefined)
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  expect(await ui.find({ type: 'Text', text: /A-1/ })).toBe(undefined)
 
   await ui.press({ key: 'queue' })
-  expect((await ui.find({ type: 'Text', text: /A-2 \|/ }))?.text).toBe('A-2 | r | Spike | y')
+  expect((await ui.find({ type: 'Text', text: /A-2/ }))?.text).toBe('A-2 · r · Spike')
   expect(await ui.findAll({ key: 'queue:pop' })).toHaveLength(1)
   await ui.press({ key: 'queue:pop' })
   await endTurn($)
@@ -120,7 +150,7 @@ test('the queue opens to its lines, with Pop and Remove sent to the Bouncer', as
   expect(prompts).toEqual(['queue: pop', 'queue: remove A-2'])
 
   await ui.press({ key: 'queue' })
-  expect(await ui.find({ type: 'Text', text: /A-1 \|/ })).toBe(undefined)
+  expect(await ui.find({ type: 'Text', text: /A-1/ })).toBe(undefined)
   await ui.unmount()
 })
 
@@ -138,14 +168,9 @@ test('a Bartender shows in the band when the Bouncer starts it', async ($, on) =
   await start('[Dev] 🔧 bouncer-types rounds')
   await start('[Idle] 🧹 aspire')
 
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
-  expect((await ui.find({ type: 'Text', text: /MIDI-1616/ }))?.text).toBe('MIDI-1616')
-  expect((await ui.find({ type: 'Text', text: /bouncer-types/ }))?.text).toBe('bouncer-types')
-  expect((await ui.find({ type: 'Text', text: /^🔧$/u }))?.text).toBe('🔧')
-  expect((await ui.find({ type: 'Text', text: /^🧹$/u }))?.text).toBe('🧹')
-  expect((await ui.find({ type: 'Text', text: /^🍸$/u }))?.text).toBe('🍸')
-  expect(await ui.find({ type: 'Text', text: /MIDI-7/ })).toBe(undefined)
-  expect(await ui.find({ type: 'Text', text: /Fix the band/ })).toBe(undefined)
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  const shown = (await ui.findAll({ type: 'Button' })).filter((b: any) => /^(act:|idle$)/.test(b.key ?? '')).map(chip)
+  expect(shown).toEqual(['🟡 🍸 MIDI-1616 aspire · Dev', '🟡 🔧 bouncer-types Dev', '🟢 1 idle'])
   await ui.unmount()
 })
 
@@ -157,16 +182,16 @@ test('a start_session call with a non-Bartender title leaves the pool unchanged'
   await title($, 'self', '🚪 Bouncer')
   await $.tool.call({ tool: 'mcp__ccd_session__start_session', title: 'Fix the band', initiation: 'user_asked' } as any)
 
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
   expect((await ui.find({ type: 'Text', text: /Bartenders/ }))?.text).toBe('no Bartenders yet')
   await ui.unmount()
 })
 
-test('a Bartender that waits shows its question and opens its conversation', async ($, on) => {
+test('only the head question shows; it opens its Bartender, or asks the Bouncer to', async ($, on) => {
   const opened: unknown[] = []
   on('tool.call', { tool: 'mcp__ccd_window__open_session_in' }, (_: unknown, e: any) => {
     opened.push([e.session_id, e.target])
-    if (e.session_id === 'local_c') return { deny: 'not a session this session started' }
+    if (e.session_id === 'local_a') return { deny: 'not a session this session started' }
     return { result: 'Opened in split view.' }
   })
   engine(on)
@@ -179,17 +204,17 @@ test('a Bartender that waits shows its question and opens its conversation', asy
   // The sync set the Bouncer to !1; at 0 the band may send its fallback prompt.
   await title($, 'self', '🚪 Bouncer')
 
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
-  expect((await ui.find({ type: 'Text', text: /MIDI-1616:/ }))?.text).toBe('! MIDI-1616: Post the draft yourself? Default: yes')
-  expect((await ui.find({ type: 'Text', text: /MIDI-3:/ }))?.text).toBe('! MIDI-3: waits on you')
-  expect(await ui.find({ type: 'Text', text: /MIDI-2:/ })).toBe(undefined)
-  expect((await ui.findAll({ type: 'Button' })).map(b => b.key).filter(k => k?.startsWith('open:'))).toEqual(['open:local_a', 'open:local_c'])
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  expect((await ui.find({ type: 'Text', text: /MIDI-1616:/ }))?.text).toBe('🔴 MIDI-1616: Post the draft yourself? Default: yes →')
+  // Questions block in order: MIDI-3 waits (its `!` shows) but its line stays hidden until the head is answered.
+  expect(await ui.find({ type: 'Text', text: /MIDI-3:/ })).toBe(undefined)
+  expect(chip(await ui.find({ key: 'act:local_c' }))).toBe('🔴 🍸 MIDI-3 web · Dev')
+  expect((await ui.findAll({ type: 'Button' })).map((b: any) => b.key).filter((k: any) => k?.startsWith('open:'))).toEqual(['open:local_a'])
 
   // The plugin opens the Bartender in split view itself; when the app refuses, it asks the Bouncer.
   await ui.press({ key: 'open:local_a' })
-  await ui.press({ key: 'open:local_c' })
-  expect(opened).toEqual([['local_a', 'split'], ['local_c', 'split']])
-  expect(prompts).toEqual(['MIDI-3: open'])
+  expect(opened).toEqual([['local_a', 'split']])
+  expect(prompts).toEqual(['MIDI-1616: open'])
   await ui.unmount()
 })
 
@@ -206,18 +231,17 @@ test('while a question waits, the band sends no prompt but Open still works', as
   await title($, 'local_b', '![Dev] 🍸 MIDI-2 web')
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-queue list' } as any)
 
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
-  await ui.select({ key: 'act:local_a', value: 'stop' })
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  await act(ui, 'act:local_a', 'stop local_a')
   await ui.press({ key: 'queue' })
   await ui.press({ key: 'queue:pop' })
   await ui.press({ key: 'open:local_a' })
-  await ui.press({ key: 'open:local_b' })
-  expect(opened).toEqual(['local_a', 'local_b'])
+  expect(opened).toEqual(['local_a'])
   expect(prompts).toEqual([])
-  expect(toasts).toEqual(Array(3).fill('Answer the waiting question first'))
+  expect(toasts).toEqual(Array(2).fill('Answer the waiting question first'))
 
   await title($, 'self', '🚪 Bouncer')
-  await ui.select({ key: 'act:local_a', value: 'stop' })
+  await act(ui, 'act:local_a', 'stop local_a')
   expect(prompts).toEqual(['MIDI-1: stop'])
   await ui.unmount()
 })
@@ -228,22 +252,22 @@ test('the band sends one prompt at a time, and none while the Bouncer works', as
   await title($, 'self', '🚪 Bouncer')
   await title($, 'local_a', '[Dev] 🍸 MIDI-1 aspire')
 
-  const busy = await $.ui.mount({ ...BAND, surface: 'desktop', props: { ...BAND.props, isWorking: true } } as any)
-  await busy.select({ key: 'act:local_a', value: 'status' })
+  const busy = await details(await $.ui.mount({ ...BAND, surface: 'desktop', props: { ...BAND.props, isWorking: true } } as any))
+  await act(busy, 'act:local_a', 'status local_a')
   await busy.unmount()
   expect(prompts).toEqual([])
 
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop', props: { ...BAND.props, isWorking: false } } as any)
-  await ui.select({ key: 'act:local_a', value: 'status' })
-  await ui.select({ key: 'act:local_a', value: 'stop' })
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop', props: { ...BAND.props, isWorking: false } } as any))
+  await act(ui, 'act:local_a', 'status local_a')
+  await act(ui, 'act:local_a', 'stop local_a')
   expect(prompts).toEqual(['MIDI-1: status'])
   expect(toasts).toEqual(Array(2).fill('Wait for the Bouncer to finish its turn'))
 
   await $.turn.complete({ answer: '', durationMs: 1, isAborted: false, reason: 'answer', agentId: 'sub' } as any)
-  await ui.select({ key: 'act:local_a', value: 'stop' })
+  await act(ui, 'act:local_a', 'stop local_a')
   expect(prompts).toEqual(['MIDI-1: status'])
   await endTurn($)
-  await ui.select({ key: 'act:local_a', value: 'stop' })
+  await act(ui, 'act:local_a', 'stop local_a')
   expect(prompts).toEqual(['MIDI-1: status', 'MIDI-1: stop'])
   await ui.unmount()
 })
@@ -255,9 +279,10 @@ test('a turn-end note sets the status code, and the CTA follows questions.md', a
     if (String(e.tool).endsWith('set_session_title')) renames.push(`${e.session_id}=${e.title}`)
     return { result: {} }
   })
+  base(on)
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
   on('fs.read', (_: unknown, e: { path?: string }) => {
-    if (e.path === '/data/questions.md') return { value: questions }
+    if (e.path === '/data/rounds/questions.md') return { value: questions }
     throw new Error('missing')
   })
   on('session.receive', (_: unknown, e: any) => ({ text: e.text }))
@@ -284,27 +309,226 @@ test('a turn-end note sets the status code, and the CTA follows questions.md', a
   questions = 'MIDI-1 | local_a | Ship it? Default: yes\n'
   renames.length = 0
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-questions add "MIDI-1 | local_a | Ship it?"' } as any)
-  expect(renames).toEqual(['local_a=![CR] 🍸 MIDI-1 aspire', 'self=!1 🚪 Bouncer'])
+  expect(renames).toEqual(['local_a=![CR] 🍸 MIDI-1 aspire', 'self=!1 🚪 Bouncer rounds'])
 
   questions = ''
   renames.length = 0
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-questions done MIDI-1' } as any)
-  expect(renames).toEqual(['local_a=[CR] 🍸 MIDI-1 aspire', 'self=🚪 Bouncer'])
+  expect(renames).toEqual(['local_a=[CR] 🍸 MIDI-1 aspire', 'self=🚪 Bouncer rounds'])
 })
+
+const LEDGER = '/r/K-1.md: - [open] pr | u | trigger: merged | check:  | next: merge it | 2026-11-26\n'
+  + '/r/K-2.md: - [open] verify | K | trigger: t | check: c | next: check prod | 2026-11-26\n'
 
 test('the band shows the open ledger count', { options: { records_dir: '~/.tickets' } }, async ($, on) => {
   on('tool.call', () => ({ result: {} }))
+  base(on)
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
   on('fs.read', () => { throw new Error('missing') })
   const envs: unknown[] = []
   on('process.run', (_: unknown, e: any) => {
     envs.push([e.argv.join(' '), e.init?.env?.BOUNCER_RECORDS])
-    return { value: { exitCode: 0, stdout: '/r/K-1.md: - [open] pr | u\n/r/K-2.md: - [open] verify | K\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+    return { value: { exitCode: 0, stdout: LEDGER, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   await title($, 'self', '🚪 Bouncer')
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-ledger done K-1 u' } as any)
   expect(envs).toEqual([['/plugin/skills/bouncer/scripts/bouncer-ledger list', '~/.tickets']])
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
-  expect((await ui.find({ type: 'Text', text: /ledger/ }))?.text).toBe('ledger 2')
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  expect((await ui.find({ key: 'ledger' }))?.text).toBe('⏰ 2 open')
+  expect(await ui.find({ type: 'Text', text: /K-1/ })).toBe(undefined)
+  await ui.press({ key: 'ledger' })
+  expect((await ui.findAll({ type: 'Text', text: /^K-/ })).map((t: any) => t.text)).toEqual(['K-1 · pr · merge it', 'K-2 · verify · check prod'])
   await ui.unmount()
+})
+
+test('all idle Bartenders share one grey chip, whose actions name each session', async ($, on) => {
+  engine(on)
+  const { prompts } = record(on)
+  await title($, 'local_aaaaaaaa1', '[Idle] 🍸 aspire')
+  await title($, 'local_bbbbbbbb2', '[Idle] 🍸 aspire')
+  await title($, 'local_c', '[Idle] 🔧 web')
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  expect(chip(await ui.find({ key: 'idle' }))).toBe('🟢 3 idle')
+  expect((await ui.findAll({ type: 'Button' })).filter((b: any) => b.key?.startsWith('act:'))).toEqual([])
+  const labels = await actions(ui, 'idle')
+  expect(labels).toContain('Reset aaaaaaaa')
+  expect(labels).toContain('Reset bbbbbbbb')
+  await act(ui, 'idle', 'reset local_bbbbbbbb2')
+  expect(prompts).toEqual(['local_bbbbbbbb2: reset'])
+  await ui.unmount()
+})
+
+test('nothing waits: no waiting text, no queue or ledger count, one row', async ($, on) => {
+  on('tool.call', () => ({ result: {} }))
+  base(on)
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
+  on('fs.read', () => { throw new Error('missing') })
+  await title($, 'self', '🚪 Bouncer')
+  await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  expect(await ui.find({ type: 'Text', text: /wait|🔴|│/ })).toBe(undefined)
+  expect(await ui.find({ key: 'queue' })).toBe(undefined)
+  expect(await ui.find({ key: 'ledger' })).toBe(undefined)
+  await ui.unmount()
+})
+
+test('a queue emptied elsewhere leaves the band after the next turn or session start', async ($, on) => {
+  let queue = 'A-1 | r | Code | x\n'
+  on('tool.call', () => ({ result: {} }))
+  on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
+  on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  base(on)
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
+  on('fs.read', (_: unknown, e: { path?: string }) => {
+    if (e.path === '/data/rounds/queue.md') return { value: queue }
+    throw new Error('missing')
+  })
+  await title($, 'self', '🚪 Bouncer')
+  await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-queue list' } as any)
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  expect((await ui.find({ key: 'queue' }))?.text).toBe('📥 1 queued')
+  queue = ''
+  await endTurn($)
+  expect(await ui.find({ key: 'queue' })).toBe(undefined)
+  queue = 'A-1 | r | Code | x\nA-2 | r | Code | y\n'
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
+  expect((await ui.find({ key: 'queue' }))?.text).toBe('📥 2 queued')
+  await ui.unmount()
+})
+
+test('one Bouncer a repo: a second session of the same repo shows Take Over, and only that takes the Bouncer', async ($, on) => {
+  let owner = 'other'
+  const writes: string[] = []
+  on('tool.call', () => ({ result: {} }))
+  on('session.end', (_: unknown, e: any) => ({ sessionId: e.sessionId }))
+  on('session.id', () => ({ value: 'me' }))
+  on('session.cwd', () => ({ value: '/w/rounds' }))
+  on('fs.write', (_: unknown, e: any) => { writes.push(e.text ?? e.content ?? e.data); owner = String(writes.at(-1)); return { value: undefined } })
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
+  on('fs.read', (_: unknown, e: { path?: string }) => {
+    if (e.path === '/data/rounds/bouncer') return { value: owner }
+    throw new Error('missing')
+  })
+  await $.tool.call({ tool: 'Skill', skill: 'bouncer:bouncer' } as any)
+  await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  expect((await ui.find({ type: 'Text', text: /another session/ }))?.text).toBe('another session is the Bouncer of rounds')
+  expect(await ui.find({ key: 'act:a' })).toBe(undefined)
+  expect(writes).toEqual([])
+
+  await ui.press({ key: 'takeover' })
+  expect(writes).toEqual(['me'])
+  expect(await ui.find({ type: 'Text', text: /another session/ })).toBe(undefined)
+  await details(ui)
+  expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 🍸 MIDI-1 aspire · Dev')
+  await ui.unmount()
+
+  // Its session ends: the Bouncer is free for the next one.
+  await $.session.end({ reason: 'other', sessionId: 'me' } as any)
+  expect(writes).toEqual(['me', ''])
+})
+
+test('dots: red needs the user, yellow works or waits on others, green is idle', () => {
+  const d = (title: string, report?: string) => dot(parseBartender(title)!, report)
+  expect(d('![Dev] 🍸 A-1 r')).toBe('🔴')
+  expect(d('![Idle] 🍸 r')).toBe('🔴')
+  expect(d('[Dev] 🍸 A-1 r', 'NEEDS_INPUT')).toBe('🔴')
+  expect(d('[Dev] 🍸 A-1 r', 'BLOCKED')).toBe('🔴')
+  expect(d('[CR] 🍸 A-1 r')).toBe('🟡')
+  expect(d('[Dev] 🍸 A-1 r', 'DONE')).toBe('🟡')
+  expect(d('[Dev] 🍸 A-1 r', 'WORKING')).toBe('🟡')
+  expect(d('[Idle] 🍸 r')).toBe('🟢')
+  expect(d('[Idle] 🍸 r', 'BLOCKED')).toBe('🟢')
+})
+
+test('a turn-end report sets its Bartender dot, and the strip is sorted red first', async ($, on) => {
+  base(on)
+  on('tool.call', () => ({ result: {} }))
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
+  on('fs.read', () => { throw new Error('missing') })
+  on('session.receive', (_: unknown, e: any) => ({ text: e.text }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: '{"status":"BLOCKED","ticket":"A-2","linear":"Dev"}', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  await title($, 'self', '🚪 Bouncer')
+  await title($, 'a', '[Idle] 🍸 aspire')
+  await title($, 'b', '[Dev] 🍸 A-1 aspire')
+  await title($, 'c', '[Dev] 🍸 A-2 aspire')
+  await title($, 'd', '[CR] 🍸 A-3 aspire')
+  await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: BLOCKED\nTICKET: A-2' } as any)
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢⚪]+$/u }))?.text).toBe('🔴🟡🟡🟢')
+  expect(chip(await ui.find({ key: 'act:c' }))).toBe('🔴 🍸 A-2 aspire · Dev')
+  await ui.unmount()
+})
+
+test('Compact is the default and hides the chips; Details shows them and is kept in the store', async ($, on) => {
+  const store: Record<string, unknown> = {}
+  engine(on, store)
+  await title($, 'self', '🚪 Bouncer')
+  await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
+  await title($, 'b', '[Idle] 🍸 aspire')
+  await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-queue list' } as any)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢]+$/u }))?.text).toBe('🟡🟢')
+  expect((await ui.find({ key: 'queue' }))?.text).toBe('📥 2 queued')
+  expect(await ui.find({ key: 'act:a' })).toBe(undefined)
+  expect(await ui.find({ key: 'idle' })).toBe(undefined)
+  expect((await ui.find({ key: 'details' }))?.text).toBe('Details')
+
+  await ui.press({ key: 'details' })
+  expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 🍸 MIDI-1 aspire · Dev')
+  expect((await ui.find({ key: 'details' }))?.text).toBe('Compact')
+  expect(store.details).toBe(true)
+  await ui.press({ key: 'details' })
+  expect(await ui.find({ key: 'act:a' })).toBe(undefined)
+  expect(store.details).toBe(false)
+  await ui.unmount()
+})
+
+test('a new session starts in the stored mode', async ($, on) => {
+  engine(on, { details: true })
+  on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  await title($, 'self', '🚪 Bouncer')
+  await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect(chip(await ui.find({ key: 'act:a' }))).toBe('🟡 🍸 MIDI-1 aspire · Dev')
+  await ui.unmount()
+})
+
+test('a Bouncer of another repo does not block this one, and a repo title turns the band on', async ($, on) => {
+  on('tool.call', () => ({ result: {} }))
+  on('session.id', () => ({ value: 'me' }))
+  on('session.cwd', () => ({ value: '/w/rounds' }))
+  on('store.get', () => ({ value: true }))
+  const writes: string[] = []
+  on('fs.write', (_: unknown, e: any) => { writes.push(e.path); return { value: undefined } })
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
+  const reads: string[] = []
+  on('fs.read', (_: unknown, e: { path?: string }) => {
+    reads.push(String(e.path))
+    if (e.path === '/data/web/bouncer') return { value: 'other' }
+    if (e.path === '/data/rounds/queue.md') return { value: 'R-1 | rounds | Code | x\n' }
+    if (e.path === '/data/web/queue.md') return { value: 'W-1 | web | Code | x\n' }
+    throw new Error('missing')
+  })
+  await title($, 'self', '!1 🚪 Bouncer rounds')
+  await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-queue list' } as any)
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect(await ui.find({ type: 'Text', text: /another session/ })).toBe(undefined)
+  expect((await ui.find({ key: 'queue' }))?.text).toBe('📥 1 queued')
+  expect(reads.filter(r => r.startsWith('/data/web/'))).toEqual([])
+  expect(writes).toEqual(['/data/rounds/bouncer'])
+  await ui.unmount()
+})
+
+test('two Bouncer questions keep the oldest as the head', () => {
+  const q = questionsBySession('A-1 | self | Approve A?\nC-1 | self | Approve C?\nB-1 | local_b | Why?\n')
+  expect(Object.entries(q)).toEqual([['self', 'Approve A?'], ['local_b', 'Why?']])
+})
+
+test('a Bartender loses its last report when it goes idle or takes another ticket', () => {
+  const p = { ...EMPTY, bartenders: { s: '[Dev] 🍸 A-1 rounds' }, reports: { s: 'BLOCKED' } }
+  expect(renamed(p, 's', '[Review] 🍸 A-1 rounds').reports).toEqual({ s: 'BLOCKED' })
+  expect(renamed(p, 's', '[Dev] 🍸 B-2 rounds').reports).toEqual({})
+  expect(renamed(p, 's', '[Idle] 🍸 rounds').reports).toEqual({})
 })

@@ -8,7 +8,8 @@ export type Bartender = { cta: boolean; status: string; type: string; emoji: str
 // The emoji is the type: 🍸 Ticket, 🔧 Skill, 🧹 Cleanup.
 const TYPES: Record<string, string> = { '🍸': 'Ticket', '🔧': 'Skill', '🧹': 'Cleanup' }
 const BARTENDER = /^(!)?\[([^\]]+)\] (🍸|🔧|🧹) (?:(\S+) )?(\S+)$/u
-const BOUNCER = /^(?:!(\d+) )?🚪 Bouncer$/
+// `!2 🚪 Bouncer rounds`; a title from before 0.10.4 has no repo.
+const BOUNCER = /^(?:!(\d+) )?🚪 Bouncer(?: \S+)?$/
 
 export const parseBartender = (title: string): Bartender | undefined => {
   const m = BARTENDER.exec(title)
@@ -19,8 +20,13 @@ export const parseBartender = (title: string): Bartender | undefined => {
 export const renamed = (pool: Pool, sessionId: string, title: string): Pool => {
   const own = BOUNCER.exec(title)
   if (sessionId === 'self' && own) return { ...pool, isOn: true, waiting: Number(own[1] ?? 0) }
-  if (!parseBartender(title)) return pool
-  return { ...pool, isOn: true, bartenders: { ...pool.bartenders, [sessionId]: title } }
+  const b = parseBartender(title)
+  if (!b) return pool
+  // A last report belongs to the old task: drop it when the session goes idle or takes another ticket.
+  const old = parseBartender(pool.bartenders[sessionId] ?? '')
+  const { [sessionId]: _, ...rest } = pool.reports ?? {}
+  const reports = b.status === 'Idle' || old?.ticket !== b.ticket ? rest : pool.reports
+  return { ...pool, isOn: true, bartenders: { ...pool.bartenders, [sessionId]: title }, reports }
 }
 
 export const archived = (pool: Pool, sessionId: string): Pool => {
@@ -28,26 +34,76 @@ export const archived = (pool: Pool, sessionId: string): Pool => {
   return { ...pool, bartenders: rest }
 }
 
+/** One band chip: an active Bartender, or all idle Bartenders. `head` is drawn bold, `tail` grey. */
+export type Chip = { key: string; dot: string; head: string; tail: string; ticket: string; ids: string[] }
+
+// Traffic light, in band order: needs the user, works (or waits on others), idle and free for work.
+const DOTS = ['🔴', '🟡', '🟢']
+
+/** A Bartender's dot from its title and its last report STATUS (the mapping is in SKILL.md, "Band"). */
+export const dot = (b: Bartender, report?: string) =>
+  b.cta ? '🔴'
+  : b.status === 'Idle' ? '🟢'
+  : report === 'NEEDS_INPUT' || report === 'BLOCKED' ? '🔴'
+  : '🟡'
+
+const byDot = <T extends { dot: string }>(a: T, b: T) => DOTS.indexOf(a.dot) - DOTS.indexOf(b.dot)
+
+/** Each Bartender's dot, in band order. */
+export const dots = (bartenders: Readonly<Record<string, string>>, reports: Readonly<Record<string, string>> = {}) =>
+  Object.entries(bartenders).flatMap(([id, t]) => { const b = parseBartender(t); return b ? [{ dot: dot(b, reports[id]) }] : [] })
+    .sort(byDot).map(d => d.dot)
+
+/** Active Bartenders one chip each, red first (`🔴 🍸 MIDI-1`, grey `aspire · Dev`); all idle ones in one `🟢 N idle` chip, last. */
+export const chips = (bartenders: Readonly<Record<string, string>>, reports: Readonly<Record<string, string>> = {}, ownRepo = ''): Chip[] => {
+  const active: Chip[] = []
+  const idle: string[] = []
+  for (const [id, title] of Object.entries(bartenders)) {
+    const b = parseBartender(title)
+    if (!b) continue
+    const d = dot(b, reports[id])
+    if (b.status === 'Idle' && !b.cta) { idle.push(id); continue }
+    // A task with no ticket shows its repo as the name; the grey part then holds only the status code.
+    const repo = b.ticket && b.repo !== ownRepo ? b.repo : ''
+    active.push({ key: `act:${id}`, dot: d, head: `${d} ${b.emoji} ${b.ticket || b.repo}`, tail: [repo, b.status].filter(Boolean).join(' · '), ticket: b.ticket, ids: [id] })
+  }
+  active.sort(byDot)
+  return idle.length ? [...active, { key: 'idle', dot: '🟢', head: `🟢 ${idle.length} idle`, tail: '', ticket: '', ids: idle }] : active
+}
+
+/** A queue line (`KEY | repo | mode | note`) as `KEY · repo · mode`. */
+export const queueSummary = (line: string) => line.split('|').slice(0, 3).map(s => s.trim()).filter(Boolean).join(' · ')
+
+/** A `bouncer-ledger list` line (`/r/KEY.md: - [open] kind | key | ... | next: x | date`) as `KEY · kind · x`. */
+export const ledgerSummary = (line: string) => {
+  const m = /([^/]+)\.md: - \[open\] (\S+) \|.*\| next: (.*?) \| \d{4}-\d{2}-\d{2}\s*$/.exec(line)
+  return m ? `${m[1]} · ${m[2]} · ${m[3]}` : line
+}
+
 export const queueLines = (text: string) => text.split('\n').filter(l => l.trim() !== '')
 
-/** `questions.md` lines (`<TICKET> | <session_id> | <question>`) as session id to question. */
-export const questionsBySession = (text: string): Record<string, string> =>
-  Object.fromEntries(queueLines(text).flatMap(l => {
+/** `questions.md` lines (`<TICKET> | <session_id> | <question>`) as session id to its oldest question, in file order. */
+export const questionsBySession = (text: string): Record<string, string> => {
+  const out: Record<string, string> = {}
+  for (const l of queueLines(text)) {
     const [, id, ...q] = l.split('|').map(s => s.trim())
-    return id && q.length ? [[id, q.join(' | ')]] : []
-  }))
+    // The first line of a session wins: `self` holds one line a ticket, and the band shows the head.
+    if (id && q.length && !(id in out)) out[id] = q.join(' | ')
+  }
+  return out
+}
 
 /** A Bartender's report fields that set titles (bouncer-report's JSON). */
 export type Report = { status: string; ticket: string; linear: string | null }
 
-export const bouncerTitle = (n: number) => (n ? `!${n} 🚪 Bouncer` : '🚪 Bouncer')
+export const bouncerTitle = (n: number, repo: string) => `${n ? `!${n} ` : ''}🚪 Bouncer${repo ? ` ${repo}` : ''}`
 
 /**
  * The renames that make the titles match the open questions and the latest report: a Bartender has the `!` CTA
  * exactly when `questions.md` has a line for its session, its status code is the report's LINEAR, and the
  * Bouncer's count is the number of question lines (its own questions use the session id `self`).
  */
-export const synced = (pool: Pool, questionsText: string, report?: Report): Array<[string, string]> => {
+export const synced = (pool: Pool, questionsText: string, report?: Report, repo = ''): Array<[string, string]> => {
   const waiting = questionsBySession(questionsText)
   const out: Array<[string, string]> = []
   for (const [id, title] of Object.entries(pool.bartenders)) {
@@ -58,6 +114,6 @@ export const synced = (pool: Pool, questionsText: string, report?: Report): Arra
     if (next !== title) out.push([id, next])
   }
   const n = queueLines(questionsText).length
-  if (n !== pool.waiting) out.push(['self', bouncerTitle(n)])
+  if (n !== pool.waiting) out.push(['self', bouncerTitle(n, repo)])
   return out
 }
