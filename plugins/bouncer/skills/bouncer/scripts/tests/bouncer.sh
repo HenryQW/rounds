@@ -174,6 +174,10 @@ mkdir -p "$tmp/optcfg"; echo "{\"pluginConfigs\": {\"bouncer@rounds\": {\"option
 ok "ledger: the records_dir option names the folder" "$(CLAUDE_CONFIG_DIR="$tmp/optcfg" ./bouncer-ledger list | /usr/bin/grep -c "$tmp/rec/")" 4
 unset BOUNCER_DATA BOUNCER_REPO
 
+# SKILL.md: the Barback brief line that stops a double delivery of its result (each delivery starts a Bartender turn)
+grep -qF 'End your turn with the report as your final text. Never also send it' ../SKILL.md; ok "skill: Barback brief ends its turn with the report and never also sends it" $? 0
+grep -qF 'same agent id' ../SKILL.md; ok "skill: a second delivery of a Barback result gets no work" $? 0
+
 # bouncer-report
 R='STATUS: DONE
 TICKET: ABC-1
