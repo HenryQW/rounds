@@ -20,17 +20,25 @@ r="$tmp/hooks/register.tsx"
 sed -i '' "s/atom({ plugin: 'bouncer', key: 'pool' }/atom({ plugin: 'bouncer-dev', key: 'pool' }/" "$r"
 # The queue, questions and owner file of the installed plugin.
 sed -i '' "s|const data = (await \$.process.hookEnv()).CLAUDE_PLUGIN_DATA|const data = '$data'|" "$r"
-# Only this copy's band: the installed plugin's row leaves the band while the copy is loaded.
+# The copy starts with an empty pool: it turns on at load when the installed owner file names this session,
+# and only then hides the installed plugin's row, so the band is never empty. Bartenders show once renamed.
 cat >> "$r" <<'EOF'
 
+const seedPreview = async ($: EngineInterface) => {
+  if ((await dataFile($, 'bouncer')).trim() === (await $.session.id())) await update($, pool, p => (p.isOn ? p : { ...p, isOn: true }))
+}
+
 export const registerPreview: Register = on => {
-  on('ui.render', { component: 'AbovePromptList' }, ($, e, next) => next({ ...e, rows: e.rows.filter(r => r.plugin !== 'bouncer') }))
+  on('ui.render', { component: 'AbovePromptList' }, async ($, e, next) =>
+    (await read($, pool)).isOn ? next({ ...e, props: { ...e.props, rows: e.props.rows.filter(r => r.plugin !== 'bouncer') } }) : next(e))
     .catch(($, e, next) => next(e))
 }
 EOF
 # Run the preview hook from register.
 sed -i '' 's/^export const register: Register = (on, options) => {$/export const register: Register = (on, options) => {\n  registerPreview(on, options)/' "$r"
-for s in "'bouncer-dev', key" "const data = '$data'" "registerPreview(on, options)"; do
+# Seed the pool at session start (a reload runs it too), before its refresh.
+sed -i '' 's/^    if ((await read(\$, pool)).isOn) await refreshData(\$, records).catch(() => undefined)$/    await seedPreview($).catch(() => undefined)\n&/' "$r"
+for s in "'bouncer-dev', key" "const data = '$data'" "registerPreview(on, options)" "    await seedPreview(\$)"; do
   grep -qF "$s" "$r" || { echo "patch failed: $s" >&2; exit 1; }
 done
 mkdir -p "$dir"
