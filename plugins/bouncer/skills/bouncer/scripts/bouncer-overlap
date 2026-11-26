@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# bouncer-overlap [--branch <ref>]... <owner/repo> <file>...   who else touches these files now
+# Open PRs of <owner/repo> that change any of the files (gh pr list + gh pr diff --name-only), and commits of the
+# last 30 days on each --branch (default origin/HEAD) in the git checkout of the current folder. Prints a table:
+#   | source | ref | author | file |
+# Run it in the repo's checkout. Exit 2: bad usage; 1: gh or git failed.
+set -euo pipefail
+branches=()
+while [ "${1:-}" = "--branch" ]; do [ -n "${2:-}" ] || { echo "usage: --branch <ref>" >&2; exit 2; }; branches+=("$2"); shift 2; done
+[ $# -ge 2 ] || { echo "usage: bouncer-overlap [--branch <ref>]... <owner/repo> <file>..." >&2; exit 2; }
+repo=$1; shift
+[ ${#branches[@]} -gt 0 ] || branches=(origin/HEAD)
+echo "| source | ref | author | file |"
+echo "|---|---|---|---|"
+prs=$(gh pr list -R "$repo" --state open -L 1000 --json number,author -q '.[] | "\(.number) \(.author.login)"') || exit 1
+while read -r n author; do
+  [ -n "${n:-}" ] || continue
+  changed=$(gh pr diff "$n" -R "$repo" --name-only) || exit 1
+  for f in "$@"; do
+    if grep -qxF "$f" <<<"$changed"; then echo "| open PR | #$n | $author | $f |"; fi
+  done
+done <<<"$prs"
+for b in "${branches[@]}"; do
+  for f in "$@"; do
+    git log --since=30.days --format="| commit on $b | %h %ad | %an | $f |" --date=short "$b" -- "$f" || exit 1
+  done
+done

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fixture test for bouncer-data, bouncer-title, bouncer-route, bouncer-queue, bouncer-questions, bouncer-grants, bouncer-report and bartender-branch. Boundary cases first. No network.
+# Fixture test for bouncer-data, bouncer-title, bouncer-route, bouncer-queue, bouncer-questions, bouncer-grants, bouncer-ledger, bouncer-report, bouncer-accept, bouncer-overlap, bouncer-preflight and bartender-branch. Boundary cases first. No network.
 # Run: bash scripts/tests/bouncer.sh (from the skill folder)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -180,5 +180,52 @@ ok "branch: dirty tree stays on main" "$(git -C "$g" branch --show-current)" mai
 git -C "$g" rm -q --cached f; mkdir -p "$g/.context"; touch "$g/.context/TEST-0.md"
 ok "branch: prints the lower-case branch" "$(br TEST-1)" test-1
 ok "branch: switched to it" "$(git -C "$g" branch --show-current)" test-1
+
+# fakes for gh and curl (no network)
+fb="$tmp/fake"; mkdir -p "$fb"; S=$(pwd)
+cat > "$fb/gh" <<'SH'
+#!/bin/sh
+case "$1 $2" in
+  "pr list") printf '5 alice\n6 bob\n' ;;
+  "pr diff") [ "$3" = 5 ] && printf 'a.txt\nb.txt\n'; [ "$3" = 6 ] && printf 'c.txt\n'; true ;;
+  "pr view") case "$3" in */pull/1) echo MERGED;; */pull/2) echo CLOSED;; */pull/4) echo OPEN;; *) echo "not found" >&2; exit 1;; esac ;;
+esac
+SH
+printf '#!/bin/sh\ncase "$*" in *ABC-1*) echo %s;; *) echo %s;; esac\n' "'{\"data\":{\"issue\":{\"identifier\":\"ABC-1\"}}}'" "'{\"data\":{\"issue\":null}}'" > "$fb/curl"
+chmod +x "$fb/gh" "$fb/curl"
+
+# bouncer-accept
+acc() { env -u LINEAR_API_KEY PATH="$fb:$PATH" ./bouncer-accept "$@"; }
+./bouncer-accept 'nope' 2>/dev/null; ok "accept: bad json exits 2" $? 2
+acc '{"status":"WORKING","ticket":"ABC-1"}' >/dev/null; ok "accept: not DONE is a gap" $? 1
+ok "accept: merged and open PRs pass, no token is a note" "$(acc '{"status":"DONE","ticket":"ABC-1","result":"https://github.com/o/r/pull/1","evidence":"https://github.com/o/r/pull/4"}' | tr '\n' ';')" "note: https://github.com/o/r/pull/1 is MERGED;note: https://github.com/o/r/pull/4 is OPEN;note: ABC-1 not checked: LINEAR_API_KEY is unset;pass;"
+ok "accept: closed and missing PRs are gaps" "$(acc '{"status":"DONE","ticket":"12","evidence":"https://github.com/o/r/pull/2 https://github.com/o/r/pull/3"}' | /usr/bin/grep -c '^gap')" 2
+ok "accept: a resolving key passes" "$(echo '{"status":"DONE","ticket":"ABC-1"}' | LINEAR_API_KEY=k PATH="$fb:$PATH" ./bouncer-accept - | tail -1)" pass
+echo '{"status":"DONE","ticket":"ABC-2"}' | LINEAR_API_KEY=k PATH="$fb:$PATH" ./bouncer-accept - >/dev/null; ok "accept: an unknown key is a gap" $? 1
+
+# bouncer-overlap
+o="$tmp/o"; git init -q -b main "$o"; echo x > "$o/a.txt"; git -C "$o" add a.txt; git -C "$o" -c user.name=carol -c user.email=c@c commit -q -m a
+ov() { (cd "$o" && PATH="$fb:$PATH" "$S/bouncer-overlap" "$@"); }
+ov o/r 2>/dev/null; ok "overlap: no file exits 2" $? 2
+ov --branch 2>/dev/null; ok "overlap: --branch without a ref exits 2" $? 2
+ok "overlap: open PRs and recent commits per file" "$(ov --branch main o/r a.txt c.txt d.txt | sed 1,2d | sed 's/ [0-9a-f]\{7\} [0-9-]* / X /' | tr '\n' ';')" "| open PR | #5 | alice | a.txt |;| open PR | #6 | bob | c.txt |;| commit on main | X | carol | a.txt |;"
+
+# bouncer-preflight
+pf="$tmp/pf"; git init -q -b main "$pf"; git -C "$pf" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+mkdir -p "$pf/.claude" "$tmp/pfcfg"; touch "$pf/hook.sh"
+echo '{"hooks":{"PreToolUse":[{"hooks":[{"command":"$CLAUDE_PROJECT_DIR/hook.sh"},{"command":"python3 /gone/x.py --a"}]}]}}' > "$pf/.claude/settings.json"
+pre() { (cd "$1" && CLAUDE_CONFIG_DIR="$tmp/pfcfg" "${2:-$S/bouncer-preflight}"); }
+pre "$pf" >/dev/null; ok "preflight: a missing hook script needs a fix" $? 1
+ok "preflight: names the missing script only" "$(pre "$pf" | /usr/bin/grep -c '/gone/x.py')" 1
+ok "preflight: main checkout ok" "$(pre "$pf" | /usr/bin/grep -c '^ok main-checkout')" 1
+echo '{"permissions":{"allow":["mcp__ccd_session_mgmt__clear_session"]}}' > "$tmp/pfcfg/settings.json"; echo '{}' > "$pf/.claude/settings.json"
+ok "preflight: all pass" "$(pre "$pf" | tr '\n' ';')" "ok main-checkout;ok hook-paths;ok plugin-version (not a cached install, skipped);ok clear-allowed;"
+git -C "$pf" worktree add -q "$tmp/pfwt" 2>/dev/null
+ok "preflight: a worktree needs a fix" "$(pre "$tmp/pfwt" | /usr/bin/grep -c '^fix main-checkout')" 1
+mkdir -p "$pf/sub"; ok "preflight: a subfolder needs a fix" "$(pre "$pf/sub" | /usr/bin/grep -c '^fix main-checkout')" 1
+echo '{}' > "$tmp/pfcfg/settings.json"; ok "preflight: clear_session not allowed needs a fix" "$(pre "$pf" | /usr/bin/grep -c '^fix clear-allowed')" 1
+for v in 1.0.0 1.10.0; do c="$tmp/cache/plugins/cache/m/bouncer/$v/skills/bouncer/scripts"; mkdir -p "$c"; cp bouncer-preflight "$c/"; done
+ok "preflight: an old cached version needs a fix" "$(pre "$pf" "$tmp/cache/plugins/cache/m/bouncer/1.0.0/skills/bouncer/scripts/bouncer-preflight" | /usr/bin/grep -c 'runs 1.0.0 but 1.10.0')" 1
+ok "preflight: the newest cached version is ok" "$(pre "$pf" "$tmp/cache/plugins/cache/m/bouncer/1.10.0/skills/bouncer/scripts/bouncer-preflight" | /usr/bin/grep -c '^ok plugin-version')" 1
 
 exit $fail

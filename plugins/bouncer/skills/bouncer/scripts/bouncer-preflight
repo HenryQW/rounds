@@ -1,0 +1,63 @@
+#!/usr/bin/env python3
+"""bouncer-preflight   check the Bouncer's session before it routes. Run it in the session's folder.
+Prints "ok <check>" or "fix <check>: <what to do>" for each check:
+  main-checkout  the folder is the top of a git main checkout (not a worktree, not a subfolder)
+  hook-paths     each hook command in the user, project and local settings that names a script path points at a file
+  plugin-version this plugin copy is the newest version in the plugin cache (skipped for a --plugin-dir checkout)
+  clear-allowed  mcp__ccd_session_mgmt__clear_session is in a permissions.allow list
+Exit 0 when all pass, 1 when any needs a fix."""
+import json, os, re, shlex, subprocess, sys
+
+cwd = os.getcwd()
+home = os.path.expanduser("~")
+config = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.join(home, ".claude")
+settings = [os.path.join(config, "settings.json"), os.path.join(cwd, ".claude/settings.json"),
+            os.path.join(cwd, ".claude/settings.local.json")]
+fixes = []
+
+def report(name, fix=None):
+    if fix: fixes.append(name); print(f"fix {name}: {fix}")
+    else: print(f"ok {name}")
+
+def git(*a):
+    p = subprocess.run(["git", *a], capture_output=True, text=True, cwd=cwd)
+    return p.stdout.strip() if p.returncode == 0 else None
+
+top, gdir, common = git("rev-parse", "--show-toplevel"), git("rev-parse", "--absolute-git-dir"), git("rev-parse", "--git-common-dir")
+common = common and os.path.realpath(os.path.join(cwd, common))
+if not top: report("main-checkout", f"{cwd} is not a git checkout; start the Bouncer in the repo's main checkout")
+elif os.path.realpath(top) != os.path.realpath(cwd): report("main-checkout", f"start the Bouncer in {top}, not a subfolder")
+elif os.path.realpath(gdir) != common: report("main-checkout", "this is a worktree; start the Bouncer in the repo's main checkout")
+else: report("main-checkout")
+
+def load(path):
+    try: return json.load(open(path))
+    except (OSError, ValueError): return {}
+
+missing = []
+for path in settings:
+    for groups in (load(path).get("hooks") or {}).values():
+        for g in groups or []:
+            for h in g.get("hooks") or []:
+                try: words = shlex.split(str(h.get("command") or ""))
+                except ValueError: continue
+                for w in words[:2]:   # the script is the first word, or the second after an interpreter
+                    w = os.path.expanduser(w.replace("$CLAUDE_PROJECT_DIR", cwd).replace("${CLAUDE_PROJECT_DIR}", cwd).replace("$HOME", home))
+                    if "/" in w and not w.startswith("-") and "$" not in w:
+                        if not os.path.exists(w): missing.append(f"{w} (in {path})")
+                        break
+report("hook-paths", missing and ("fix or remove the hooks that name missing scripts, then start a new session: " + "; ".join(missing)))
+
+here = os.path.dirname(os.path.realpath(__file__))
+m = re.search(r"/plugins/cache/[^/]+/bouncer/([^/]+)/skills/bouncer/scripts$", here)
+if not m: print("ok plugin-version (not a cached install, skipped)")
+else:
+    vdir = os.path.dirname(os.path.dirname(os.path.dirname(here)))
+    key = lambda v: [int(x) if x.isdigit() else x for x in re.split(r"[.-]", v)]
+    try: newest = max(os.listdir(os.path.dirname(vdir)), key=key)
+    except ValueError: newest = m.group(1)
+    report("plugin-version", newest != m.group(1) and f"this session runs {m.group(1)} but {newest} is installed; start a new Bouncer session")
+
+allowed = any("mcp__ccd_session_mgmt__clear_session" in ((load(p).get("permissions") or {}).get("allow") or []) for p in settings)
+report("clear-allowed", not allowed and 'add "mcp__ccd_session_mgmt__clear_session" to permissions.allow (the user decides; never edit it for the user)')
+sys.exit(1 if fixes else 0)

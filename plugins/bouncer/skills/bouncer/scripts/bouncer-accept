@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+"""bouncer-accept <report-json | ->   check a DONE report (bouncer-report's output) before the Bouncer accepts it.
+Checks: STATUS is DONE; each GitHub PR URL in RESULT and EVIDENCE exists and is not CLOSED (`gh pr view`);
+a Linear-shaped TICKET (ABC-123) resolves through the Linear API with LINEAR_API_KEY (skipped, with a note, when unset).
+Out: "pass", or "gap: <text>" lines. Notes ("note: ...") never fail. Exit 0 pass, 1 gaps, 2 bad input."""
+import json, os, re, subprocess, sys
+
+arg = sys.argv[1:]
+if len(arg) != 1: print("usage: bouncer-accept <report-json | ->", file=sys.stderr); sys.exit(2)
+try:
+    r = json.loads(sys.stdin.read() if arg[0] == "-" else arg[0])
+    status, ticket = r["status"], r.get("ticket") or ""
+except (ValueError, KeyError, TypeError) as e:
+    print(f"bad report json: {e}", file=sys.stderr); sys.exit(2)
+
+gaps, notes = [], []
+if status != "DONE": gaps.append(f"STATUS is {status}, not DONE")
+
+text = " ".join(str(r.get(k) or "") for k in ("result", "evidence"))
+for url in dict.fromkeys(re.findall(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+", text)):
+    p = subprocess.run(["gh", "pr", "view", url, "--json", "state", "-q", ".state"], capture_output=True, text=True)
+    state = p.stdout.strip()
+    if p.returncode != 0: gaps.append(f"{url} not found ({p.stderr.strip()[:120]})")
+    elif state == "CLOSED": gaps.append(f"{url} is closed, not merged")
+    else: notes.append(f"{url} is {state}")
+
+if re.fullmatch(r"[A-Z][A-Z0-9]*-\d+", ticket):
+    key = os.environ.get("LINEAR_API_KEY")
+    if not key: notes.append(f"{ticket} not checked: LINEAR_API_KEY is unset")
+    else:
+        q = json.dumps({"query": "query($id: String!) { issue(id: $id) { identifier } }", "variables": {"id": ticket}})
+        p = subprocess.run(["curl", "-sS", "https://api.linear.app/graphql", "-H", "Content-Type: application/json",
+                            "-H", f"Authorization: {key}", "--data", q], capture_output=True, text=True)
+        try: found = (json.loads(p.stdout).get("data") or {}).get("issue")
+        except ValueError: found = None
+        if not found: gaps.append(f"{ticket} does not resolve in Linear")
+else:
+    notes.append(f"ticket {ticket or '(none)'} is not a Linear key: not checked")
+
+for n in notes: print(f"note: {n}")
+for g in gaps: print(f"gap: {g}")
+if gaps: sys.exit(1)
+print("pass")
