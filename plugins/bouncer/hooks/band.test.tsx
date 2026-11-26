@@ -105,6 +105,9 @@ test('the menu has only Status, Stop and Reset (the key is the Linear link), on 
   expect(await actions(ui, 'act:a')).toEqual(['Status', 'Stop', 'Reset'])
   await ui.press({ key: 'act:a' })
   expect((await ui.find({ key: 'menu:act:a' }))?.props?.flexWrap).toBe('nowrap')
+  // Three equal cells, each Button centred.
+  const cells = (await ui.find({ key: 'menu:act:a' }))?.children ?? []
+  expect(cells.map((x: any) => [x.props?.width, x.props?.flexGrow, x.props?.alignItems])).toEqual(Array(3).fill([0, 1, 'center']))
   await ui.unmount()
 })
 

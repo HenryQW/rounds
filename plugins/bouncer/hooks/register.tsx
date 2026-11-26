@@ -443,9 +443,14 @@ export const register: Register = (on, options) => {
               The terminal keeps plain ones. */}
           {p.menu === c.key && (
             <Box key={`menu:${c.key}`} flexDirection="row" gap="sm" flexWrap="nowrap">
-              {actions(c).map(o => <Button key={`${c.key}:${o.value}`} {...(isTerminal ? { plain: true as const } : { variant: 'secondary' as const })} onPress={() => pick(c, o.value)}>
-                {o.label}
-              </Button>)}
+              {/* Equal cells (width 0, grow 1, as the cards), each Button centred: a Button has no width prop and keeps its label's width. */}
+              {actions(c).map(o => (
+                <Box key={`cell:${c.key}:${o.value}`} flexDirection="column" width={0} flexGrow={1} alignItems="center">
+                  <Button key={`${c.key}:${o.value}`} {...(isTerminal ? { plain: true as const } : { variant: 'secondary' as const })} onPress={() => pick(c, o.value)}>
+                    {o.label}
+                  </Button>
+                </Box>
+              ))}
             </Box>
           )}
         </Box>
