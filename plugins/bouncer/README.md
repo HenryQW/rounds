@@ -15,7 +15,8 @@ Start a new session that you open yourself, then say "bouncer mode" or run `/bou
 
 | Option | Default | What it does |
 |---|---|---|
-| `status_codes` | `Backlog=Bklog; Todo=Todo; In Progress=Dev; In Review=CR; Done=Done; Canceled=Cxl; Duplicate=Dup; Open=Open; Closed=Done` | Maps each tracker status to the short code in a Bartender title, for example `[Dev] ABC-123 - Bartender - my-repo`. Use `Name=Code` pairs with `;` between them. |
+| `status_codes` | `Backlog=Bklog; Todo=Todo; In Progress=Dev; In Review=CR; Done=Done; Canceled=Cxl; Duplicate=Dup; Open=Open; Closed=Done` | Maps each tracker status to the short code in a Bartender title, for example `[Dev] 🍸 ABC-123 my-repo`. Use `Name=Code` pairs with `;` between them. |
+| `records_dir` | blank | The folder of the ticket records, for example `~/.tickets`. Blank: `tickets/` in the plugin data folder. |
 
 Set it with `/plugin configure bouncer@rounds`, then start a new session.
 
@@ -30,13 +31,14 @@ The Bouncer asks you only before an outward action (a message other people read,
 - If a hook rewrites Bash commands (rtk runs `git push` as `rtk git push`), an allow rule must name the rewritten form.
 
 ## Band
-A Bouncer session shows a band above the prompt: each Bartender with its status code, ticket and repo, the number of questions that wait on you, and the queue length. A Bartender with `!` waits on you. The band appears once the session loads the `bouncer` skill or sets a Bouncer title, and only in that session. It learns the pool from the Bouncer's own `start_session`, `set_session_title` and `archive_session` calls, so a Bartender renamed elsewhere shows its old title until the Bouncer renames it again.
+A Bouncer session shows a band above the prompt: each Bartender with its status code, type (🍸 Ticket, 🔧 Skill, 🧹 Cleanup), ticket or task name and repo, the number of questions that wait on you, and the queue length. A Bartender with `!` waits on you. The band appears once the session loads the `bouncer` skill or sets a Bouncer title, and only in that session. It learns the pool from the Bouncer's own `start_session`, `set_session_title` and `archive_session` calls, so a Bartender renamed elsewhere shows its old title until the Bouncer renames it again.
 
 The band also lets you act:
 - A ticket key opens the ticket in Linear when you set the `linear_workspace_url` plugin option (for example `https://linear.app/<workspace>`). Unset, keys are plain text.
 - The menu on each Bartender (Status, Stop, Reset) sends the Bouncer a prompt such as `ABC-123: stop`. The band never talks to a Bartender.
 - The band sends one prompt at a time: none while a question waits on you or while the Bouncer works. Open still works then.
-- When the number of questions that wait on you goes up, you get a notification.
+- When the number of questions that wait on you goes up, you get a notification. The plugin sets the `!` and the count itself from `questions.md`, and each Bartender's status code from its turn-end report.
+- `ledger N` shows the open items in the records' `LEDGER` sections.
 - A Bartender that waits on you (`!`) shows its question under the band, from `questions.md` in the plugin data folder. Open shows that Bartender's conversation in split view beside the Bouncer; if the app refuses, the band asks the Bouncer to open it. You still answer the Bouncer.
 - Click the queue length to show the queued tickets. Pop and Remove send the Bouncer `queue: pop` or `queue: remove ABC-123`; the Bouncer runs `bouncer-queue`.
 
@@ -48,13 +50,14 @@ The plugin keeps its state in the data folder that Claude Code gives it: `~/.cla
 | `queue.md` | Tickets above the Bartender cap, one line each |
 | `questions.md` | Bartender questions that wait on you, one line each |
 | `grants.md` | Your one yes for each ticket's closing chain, one line each |
-| `tickets/<TICKET>.md` | Ticket records, unless your rules name another place |
+| `decision-table.md` | Rows that the Bouncer adds to its decision table when you answer a question that no row covered |
+| `tickets/<TICKET>.md` | Ticket records, unless the `records_dir` option names another folder. Each record's `LEDGER` section holds its work to revisit (an open PR, a held message, a follow-up, a staging check); `bouncer-ledger due` lists what is due |
 
 The pool is in the session titles, so it needs no file. Every Bouncer session sees the same folder, whatever folder it runs in. Plugin updates keep the folder. `claude plugin uninstall bouncer@rounds` deletes it unless you add `--keep-data`.
 
 ## Known limits
 
-- The Bouncer must be a session that you open. With Remote Control on, a session that another session started cannot start Bartenders.
+- The Bouncer must be a session that you open, in the main checkout of the repo it routes. Do not move it with `change_directory`: hook paths stay on the old folder and Bash breaks. `bouncer-preflight` checks the folder, the hook paths, the plugin version and the `clear_session` allow rule. With Remote Control on, a session that another session started cannot start Bartenders, and `start_session` refuses another folder, so tickets of another repo wait in the queue.
 - Never detach a Bartender: its reports then do not reach the Bouncer.
 - Outside `bypassPermissions` mode, the app asks you before each Bartender reset (`clear_session`) and before a model or effort above the Bouncer's own.
 

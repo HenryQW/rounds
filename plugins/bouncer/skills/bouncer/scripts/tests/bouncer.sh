@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fixture test for bouncer-data, bouncer-title, bouncer-route, bouncer-queue, bouncer-questions, bouncer-grants, bouncer-report and bartender-branch. Boundary cases first. No network.
+# Fixture test for bouncer-data, bouncer-title, bouncer-route, bouncer-queue, bouncer-questions, bouncer-grants, bouncer-ledger, bouncer-report, bouncer-accept, bouncer-overlap, bouncer-preflight and bartender-branch. Boundary cases first. No network.
 # Run: bash scripts/tests/bouncer.sh (from the skill folder)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -16,6 +16,11 @@ ok "title: bouncer count" "$(./bouncer-title --bouncer 2)" "!2 🚪 Bouncer"
 ./bouncer-title "Not A Status" ABC-1 r 2>/dev/null; ok "title: unknown status exits 2" $? 2
 ./bouncer-title "In Progress" ABC-1 2>/dev/null; ok "title: missing repo exits 2" $? 2
 ok "title: idle" "$(./bouncer-title --idle my-repo)" "[Idle] 🍸 my-repo"
+ok "title: idle skill type" "$(./bouncer-title --idle my-repo --type Skill)" "[Idle] 🔧 my-repo"
+ok "title: cleanup type with cta" "$(./bouncer-title --type Cleanup "In Progress" old-sessions my-repo --cta)" "![Dev] 🧹 old-sessions my-repo"
+ok "title: ticket type is the default" "$(./bouncer-title --type Ticket Todo ABC-1 r)" "[Todo] 🍸 ABC-1 r"
+./bouncer-title --type Draft Todo ABC-1 r 2>/dev/null; ok "title: unknown type exits 2" $? 2
+./bouncer-title Todo ABC-1 r --type 2>/dev/null; ok "title: --type without a value exits 2" $? 2
 ok "title: bartender (default codes)" "$(./bouncer-title "In Progress" ABC-1234 my-repo)" "[Dev] 🍸 ABC-1234 my-repo"
 ok "title: github closed (default codes)" "$(./bouncer-title Closed 12 my-repo)" "[Done] 🍸 12 my-repo"
 ok "title: empty option uses the default" "$(BOUNCER_STATUS_CODES=" " ./bouncer-title Todo T r)" "[Todo] 🍸 T r"
@@ -38,12 +43,17 @@ S='[{"sessionId":"s1","title":"[Dev] 🍸 ABC-1 a","isRunning":true},
     {"sessionId":"s4","title":"[Spec] 🍸 ABC-4 d"},
     {"sessionId":"s5","title":"[Idle] 🍸 e","isRunning":true},
     {"sessionId":"s6","title":"[Dev][ABC-7] Reply button"},
-    {"sessionId":"s7","title":"[Idle] 🍸 f","isArchived":true}]'
+    {"sessionId":"s7","title":"[Idle] 🍸 f","isArchived":true},
+    {"sessionId":"s8","title":"[Idle] 🔧 g"}]'
 ok "route: idle Bartender in repo is assigned" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"b\"}}" '.action+" "+.sessionId')" "assign s2"
 ok "route: idle title but running is busy" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"e\"}}" .action)" queue
 ok "route: busy repo under cap starts (one per ticket)" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"a\"}, \"caps\": {\"active\": 9}}" .action)" start
 ok "route: 4 active at cap 3 queues" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"z\"}}" .action)" queue
 ok "route: under cap starts" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"z\"}, \"caps\": {\"active\": 5}}" .action)" start
+ok "route: idle Skill Bartender gets Skill work" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"x\", \"repo\": \"g\", \"type\": \"Skill\"}}" '.action+" "+.sessionId')" "assign s8"
+ok "route: an idle Skill Bartender does not take a ticket" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"g\"}, \"caps\": {\"active\": 9}}" .action)" start
+ok "route: an idle Ticket Bartender does not take Cleanup work" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"x\", \"repo\": \"b\", \"type\": \"Cleanup\"}, \"caps\": {\"active\": 9}}" .action)" start
+echo '{"sessions": [], "request": {"ticket": "x", "repo": "a", "type": "Draft"}}' | ./bouncer-route >/dev/null; ok "route: unknown type exits 2" $? 2
 ok "route: archived Bartender is ignored" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"f\"}, \"caps\": {\"active\": 5}}" .action)" start
 
 # bouncer-data
@@ -111,6 +121,39 @@ ok "grants: a new grant of the same ticket replaces the old" "$(./bouncer-grants
 ./bouncer-grants has ABC-2 pu; ok "grants: has matches whole actions only" $? 1
 ok "grants: get" "$(./bouncer-grants get ABC-1)" "ABC-1 | close, link, comment | yes, close it"
 ./bouncer-grants done ABC-2; ok "grants: done removes only that ticket" "$(cat "$tmp/q/grants.md")" "ABC-1 | close, link, comment | yes, close it"
+
+# bouncer-ledger (LEDGER sections in the records; a fake gh answers PR states)
+mkdir -p "$tmp/bin"; printf '#!/bin/sh\ncase "$3" in *merged*) echo MERGED;; *open*) echo OPEN;; *) exit 1;; esac\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
+export BOUNCER_TODAY=2026-11-26 BOUNCER_RECORDS="$tmp/rec"
+lg() { PATH="$tmp/bin:$PATH" ./bouncer-ledger "$@"; }
+ok "ledger: due with no records prints nothing" "$(lg due)" ""
+lg add K-1 memo k t "" n 2>/dev/null; ok "ledger: unknown kind exits 2" $? 2
+lg add ../x pr k "" "" n 2>/dev/null; ok "ledger: a bad record name exits 2" $? 2
+lg add K-1 follow-up "a | b" t "" n 2>/dev/null; ok "ledger: | in the key exits 2" $? 2
+lg done K-1 k 2>/dev/null; ok "ledger: done with no item exits 1" $? 1
+lg nope 2>/dev/null; ok "ledger: bad command exits 2" $? 2
+mkdir -p "$tmp/rec"; printf 'GOAL\nFix it.\n\nLEDGER\n- [done] verify | K-0 | trigger: x | check: true | next: y | 2026-11-01\n\nLINKS\nx\n' > "$tmp/rec/K-1.md"
+lg add K-1 pr https://x/pull/1-merged "" "" "close the ticket" >/dev/null
+lg add K-1 held-message K-1 "PR 2 merged" 's=$(echo a | tr a b); [ "$s" = b ]' "post the QA reply" >/dev/null
+lg add K-2 follow-up K-2 "K-1 accepted" false "start K-2" >/dev/null
+lg add rounds-main verify rounds "staging" "exit 3" "check it" >/dev/null
+lg add rounds-main pr https://x/pull/2-open "" "" "merge" >/dev/null
+ok "ledger: add goes under the LEDGER header, before other sections" "$(sed -n 6,7p "$tmp/rec/K-1.md" | cut -c1-24 | tr '\n' ';')" "- [open] pr | https://x/;- [open] held-message | ;"
+ok "ledger: other sections stay" "$(tail -2 "$tmp/rec/K-1.md" | tr '\n' ';')" "LINKS;x;"
+ok "ledger: a record with no section gets one at the end" "$(sed -n 1p "$tmp/rec/K-2.md")" "LEDGER"
+ok "ledger: a pr line gets the default trigger" "$(sed -n 6p "$tmp/rec/K-1.md")" "- [open] pr | https://x/pull/1-merged | trigger: merged or closed | check:  | next: close the ticket | 2026-11-26"
+ok "ledger: list prints open items with their record" "$(lg list | sed "s#$tmp/rec/##" | cut -d: -f1 | tr '\n' ' ')" "K-1.md K-1.md K-2.md rounds-main.md rounds-main.md "
+ok "ledger: due prints merged PRs and fired checks (a | in a check is kept)" "$(lg due 2>/dev/null | sed "s#$tmp/rec/##" | cut -d' ' -f1,4 | tr '\n' ';')" "K-1.md: pr;K-1.md: held-message;"
+ok "ledger: a check with another exit code is unsure" "$(lg due 2>&1 >/dev/null | cut -d' ' -f1)" "unsure"
+lg done K-1 https://x/pull/1-merged; ok "ledger: done marks only that item" "$(/usr/bin/grep -c '^- \[done\]' "$tmp/rec/K-1.md") $(lg list | /usr/bin/grep -c K-1.md)" "2 1"
+touch -t 202611010000 "$tmp/rec/K-2.md"
+ok "ledger: stale by age" "$(BOUNCER_NOW=$(date -j -f %Y%m%d%H%M 202611260000 +%s) lg stale | sed "s#$tmp/rec/##")" "K-2.md: older than 7 days"
+ok "ledger: stale by the Bartender's last turn" "$(BOUNCER_NOW=$(date -j -f %Y%m%d%H%M 202611260000 +%s) lg stale --days 30 --turn K-2=2026-11-02T00:00:00 | sed "s#$tmp/rec/##")" "K-2.md: older than its Bartender's last turn"
+ok "ledger: a fresh record is not stale" "$(lg stale --turn K-1=2020-01-01T00:00:00 | /usr/bin/grep -c K-1.md)" 0
+lg stale --turn K-1 2>/dev/null; ok "ledger: stale --turn without a time exits 2" $? 2
+unset BOUNCER_TODAY BOUNCER_RECORDS
+mkdir -p "$tmp/optcfg"; echo "{\"pluginConfigs\": {\"bouncer@rounds\": {\"options\": {\"records_dir\": \"$tmp/rec\"}}}}" > "$tmp/optcfg/settings.json"
+ok "ledger: the records_dir option names the folder" "$(CLAUDE_CONFIG_DIR="$tmp/optcfg" ./bouncer-ledger list | /usr/bin/grep -c "$tmp/rec/")" 4
 unset BOUNCER_DATA
 
 # bouncer-report
@@ -148,5 +191,52 @@ ok "branch: dirty tree stays on main" "$(git -C "$g" branch --show-current)" mai
 git -C "$g" rm -q --cached f; mkdir -p "$g/.context"; touch "$g/.context/TEST-0.md"
 ok "branch: prints the lower-case branch" "$(br TEST-1)" test-1
 ok "branch: switched to it" "$(git -C "$g" branch --show-current)" test-1
+
+# fakes for gh and curl (no network)
+fb="$tmp/fake"; mkdir -p "$fb"; S=$(pwd)
+cat > "$fb/gh" <<'SH'
+#!/bin/sh
+case "$1 $2" in
+  "pr list") printf '5 alice\n6 bob\n' ;;
+  "pr diff") [ "$3" = 5 ] && printf 'a.txt\nb.txt\n'; [ "$3" = 6 ] && printf 'c.txt\n'; true ;;
+  "pr view") case "$3" in */pull/1) echo MERGED;; */pull/2) echo CLOSED;; */pull/4) echo OPEN;; *) echo "not found" >&2; exit 1;; esac ;;
+esac
+SH
+printf '#!/bin/sh\ncase "$*" in *ABC-1*) echo %s;; *) echo %s;; esac\n' "'{\"data\":{\"issue\":{\"identifier\":\"ABC-1\"}}}'" "'{\"data\":{\"issue\":null}}'" > "$fb/curl"
+chmod +x "$fb/gh" "$fb/curl"
+
+# bouncer-accept
+acc() { env -u LINEAR_API_KEY PATH="$fb:$PATH" ./bouncer-accept "$@"; }
+./bouncer-accept 'nope' 2>/dev/null; ok "accept: bad json exits 2" $? 2
+acc '{"status":"WORKING","ticket":"ABC-1"}' >/dev/null; ok "accept: not DONE is a gap" $? 1
+ok "accept: merged and open PRs pass, no token is a note" "$(acc '{"status":"DONE","ticket":"ABC-1","result":"https://github.com/o/r/pull/1","evidence":"https://github.com/o/r/pull/4"}' | tr '\n' ';')" "note: https://github.com/o/r/pull/1 is MERGED;note: https://github.com/o/r/pull/4 is OPEN;note: ABC-1 not checked: LINEAR_API_KEY is unset;pass;"
+ok "accept: closed and missing PRs are gaps" "$(acc '{"status":"DONE","ticket":"12","evidence":"https://github.com/o/r/pull/2 https://github.com/o/r/pull/3"}' | /usr/bin/grep -c '^gap')" 2
+ok "accept: a resolving key passes" "$(echo '{"status":"DONE","ticket":"ABC-1"}' | LINEAR_API_KEY=k PATH="$fb:$PATH" ./bouncer-accept - | tail -1)" pass
+echo '{"status":"DONE","ticket":"ABC-2"}' | LINEAR_API_KEY=k PATH="$fb:$PATH" ./bouncer-accept - >/dev/null; ok "accept: an unknown key is a gap" $? 1
+
+# bouncer-overlap
+o="$tmp/o"; git init -q -b main "$o"; echo x > "$o/a.txt"; git -C "$o" add a.txt; git -C "$o" -c user.name=carol -c user.email=c@c commit -q -m a
+ov() { (cd "$o" && PATH="$fb:$PATH" "$S/bouncer-overlap" "$@"); }
+ov o/r 2>/dev/null; ok "overlap: no file exits 2" $? 2
+ov --branch 2>/dev/null; ok "overlap: --branch without a ref exits 2" $? 2
+ok "overlap: open PRs and recent commits per file" "$(ov --branch main o/r a.txt c.txt d.txt | sed 1,2d | sed 's/ [0-9a-f]\{7\} [0-9-]* / X /' | tr '\n' ';')" "| open PR | #5 | alice | a.txt |;| open PR | #6 | bob | c.txt |;| commit on main | X | carol | a.txt |;"
+
+# bouncer-preflight
+pf="$tmp/pf"; git init -q -b main "$pf"; git -C "$pf" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+mkdir -p "$pf/.claude" "$tmp/pfcfg"; touch "$pf/hook.sh"
+echo '{"hooks":{"PreToolUse":[{"hooks":[{"command":"$CLAUDE_PROJECT_DIR/hook.sh"},{"command":"python3 /gone/x.py --a"}]}]}}' > "$pf/.claude/settings.json"
+pre() { (cd "$1" && CLAUDE_CONFIG_DIR="$tmp/pfcfg" "${2:-$S/bouncer-preflight}"); }
+pre "$pf" >/dev/null; ok "preflight: a missing hook script needs a fix" $? 1
+ok "preflight: names the missing script only" "$(pre "$pf" | /usr/bin/grep -c '/gone/x.py')" 1
+ok "preflight: main checkout ok" "$(pre "$pf" | /usr/bin/grep -c '^ok main-checkout')" 1
+echo '{"permissions":{"allow":["mcp__ccd_session_mgmt__clear_session"]}}' > "$tmp/pfcfg/settings.json"; echo '{}' > "$pf/.claude/settings.json"
+ok "preflight: all pass" "$(pre "$pf" | tr '\n' ';')" "ok main-checkout;ok hook-paths;ok plugin-version (not a cached install, skipped);ok clear-allowed;"
+git -C "$pf" worktree add -q "$tmp/pfwt" 2>/dev/null
+ok "preflight: a worktree needs a fix" "$(pre "$tmp/pfwt" | /usr/bin/grep -c '^fix main-checkout')" 1
+mkdir -p "$pf/sub"; ok "preflight: a subfolder needs a fix" "$(pre "$pf/sub" | /usr/bin/grep -c '^fix main-checkout')" 1
+echo '{}' > "$tmp/pfcfg/settings.json"; ok "preflight: clear_session not allowed needs a fix" "$(pre "$pf" | /usr/bin/grep -c '^fix clear-allowed')" 1
+for v in 1.0.0 1.10.0; do c="$tmp/cache/plugins/cache/m/bouncer/$v/skills/bouncer/scripts"; mkdir -p "$c"; cp bouncer-preflight "$c/"; done
+ok "preflight: an old cached version needs a fix" "$(pre "$pf" "$tmp/cache/plugins/cache/m/bouncer/1.0.0/skills/bouncer/scripts/bouncer-preflight" | /usr/bin/grep -c 'runs 1.0.0 but 1.10.0')" 1
+ok "preflight: the newest cached version is ok" "$(pre "$pf" "$tmp/cache/plugins/cache/m/bouncer/1.10.0/skills/bouncer/scripts/bouncer-preflight" | /usr/bin/grep -c '^ok plugin-version')" 1
 
 exit $fail

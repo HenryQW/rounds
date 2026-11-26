@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+"""Open items to revisit, kept in the ticket records: a LEDGER section in each record, one line an item:
+  - [open] <kind> | <key or URL> | trigger: <text> | check: <command> | next: <one-line next action> | <YYYY-MM-DD>
+A settled item becomes "- [done] ...". kind: pr, held-message, follow-up, verify.
+check: a shell command that exits 0 when the item is due and 1 when it is not. Empty for a pr: due when
+`gh pr view <key>` says MERGED or CLOSED. Empty for another kind: never due by itself.
+
+bouncer-ledger add <record> <kind> <key> <trigger> <check> <next>   add an open item to <record>.md (made if missing)
+bouncer-ledger done <record> <key>   mark that record's open item of <key> done (exit 1 when there is none)
+bouncer-ledger due                   run each open check; print "<record path>: <line>" for each due item
+bouncer-ledger list                  print "<record path>: <line>" for each open item
+bouncer-ledger stale [--days N] [--turn <record>=<ISO time>]...   print each record with open items that is older
+                                     than N days (default 7) or than the owning Bartender's last turn
+The records are in $BOUNCER_RECORDS, else the records_dir plugin option, else <data>/tickets (bouncer-data).
+<record> is the record's file name without .md: a ticket key, or <repo>-<branch> for work with no ticket.
+A check that exits with another code, or runs over 60 s, prints "unsure <path>: <line>" on stderr.
+Exit 2: bad usage, an unknown kind, a bad record name, or a "|" in a field before the check."""
+import datetime, glob, json, os, re, subprocess, sys
+
+KINDS = ("pr", "held-message", "follow-up", "verify")
+ITEM = re.compile(r"^- \[(open|done)\] (\S+) \| (.+?) \| trigger: (.*?) \| check: (.*?) \| next: (.*?) \| (\d{4}-\d{2}-\d{2})\s*$")
+HEADER = re.compile(r"^(#+ *)?LEDGER\s*$")
+
+def die(msg, code=2):
+    print(msg, file=sys.stderr); sys.exit(code)
+
+def stored_option(name):
+    path = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "settings.json")
+    try: configs = json.load(open(path)).get("pluginConfigs", {})
+    except (OSError, ValueError): return ""
+    return next((str(v.get("options", {}).get(name, "")) for k, v in configs.items() if k.startswith("bouncer@")), "")
+
+def records_dir():
+    d = (os.environ.get("BOUNCER_RECORDS") or stored_option("records_dir")).strip()
+    if d: return os.path.expanduser(d)
+    data = subprocess.run([os.path.join(os.path.dirname(os.path.realpath(__file__)), "bouncer-data")],
+                          capture_output=True, text=True, check=True).stdout.strip()
+    return os.path.join(data, "tickets")
+
+def parse(line):
+    """The fields of an item line, or None: state, kind, key, trigger, check, next, date."""
+    m = ITEM.match(line)
+    return m.groups() if m else None
+
+def items(path):
+    """Item lines of the record's LEDGER section (from its header to the end of the file)."""
+    try: lines = open(path).read().splitlines()
+    except OSError: return []
+    at = next((i for i, l in enumerate(lines) if HEADER.match(l)), None)
+    return [] if at is None else [l for l in lines[at + 1:] if parse(l)]
+
+def record_path(name):
+    if not re.fullmatch(r"[\w.-]+", name) or name.startswith("."): die(f"bad record name: {name!r}")
+    return os.path.join(records_dir(), name + ".md")
+
+def all_open():
+    for path in sorted(glob.glob(os.path.join(records_dir(), "*.md"))):
+        for l in items(path):
+            if parse(l)[0] == "open": yield path, l
+
+def is_due(line):
+    _, kind, key, _, check, _, _ = parse(line)
+    if not check and kind == "pr":
+        check = f"s=$(gh pr view {key!r} --json state -q .state) || exit 2; [ \"$s\" = MERGED ] || [ \"$s\" = CLOSED ]"
+    if not check: return False
+    try: code = subprocess.run(["bash", "-c", check], capture_output=True, timeout=60).returncode
+    except subprocess.TimeoutExpired: code = -1
+    if code not in (0, 1): print(f"unsure {line}", file=sys.stderr)
+    return code == 0
+
+a = sys.argv[1:]
+cmd = a[0] if a else ""
+if cmd == "add" and len(a) == 7:
+    _, name, kind, key, trigger, check, nxt = a
+    if kind not in KINDS: die(f"unknown kind: {kind!r} (want {', '.join(KINDS)})")
+    if not key: die("the key is empty")
+    if any("|" in f or "\n" in f for f in (key, trigger)) or "\n" in check + nxt: die("no | in the key or the trigger, and no new line")
+    if kind == "pr" and not trigger: trigger = "merged or closed"
+    today = os.environ.get("BOUNCER_TODAY") or datetime.date.today().isoformat()
+    line = f"- [open] {kind} | {key} | trigger: {trigger} | check: {check} | next: {nxt} | {today}"
+    if not parse(line): die(f"the line does not parse: {line}")
+    path = record_path(name)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    lines = open(path).read().splitlines() if os.path.exists(path) else []
+    at = next((i for i, l in enumerate(lines) if HEADER.match(l)), None)
+    if at is None:
+        lines += ([""] if lines and lines[-1].strip() else []) + ["LEDGER", line]
+    else:
+        last = max([i for i in range(at + 1, len(lines)) if parse(lines[i])] + [at])
+        lines.insert(last + 1, line)
+    with open(path, "w") as f: f.write("\n".join(lines) + "\n")
+    print(f"{path}: {line}")
+elif cmd == "done" and len(a) == 3:
+    path = record_path(a[1])
+    lines = open(path).read().splitlines() if os.path.exists(path) else []
+    at = next((i for i, l in enumerate(lines) if HEADER.match(l)), len(lines))
+    hit = next((i for i in range(at + 1, len(lines)) if (p := parse(lines[i])) and p[0] == "open" and p[2] == a[2]), None)
+    if hit is None: die(f"no open item {a[2]} in {path}", 1)
+    lines[hit] = lines[hit].replace("- [open] ", "- [done] ", 1)
+    with open(path, "w") as f: f.write("\n".join(lines) + "\n")
+elif cmd == "list" and len(a) == 1:
+    for path, l in all_open(): print(f"{path}: {l}")
+elif cmd == "due" and len(a) == 1:
+    for path, l in all_open():
+        if is_due(l): print(f"{path}: {l}")
+elif cmd == "stale":
+    days, turns, rest = 7.0, {}, a[1:]
+    while rest:
+        if rest[0] == "--days" and len(rest) > 1: days = float(rest[1])
+        elif rest[0] == "--turn" and len(rest) > 1 and "=" in rest[1]:
+            k, t = rest[1].split("=", 1)
+            try: turns[k] = datetime.datetime.fromisoformat(t.replace("Z", "+00:00")).timestamp()
+            except ValueError: die(f"bad time: {t!r}")
+        else: die("usage: bouncer-ledger stale [--days N] [--turn <record>=<ISO time>]...")
+        rest = rest[2:]
+    now = float(os.environ.get("BOUNCER_NOW") or datetime.datetime.now().timestamp())
+    for path in sorted({p for p, _ in all_open()}):
+        age, name = os.path.getmtime(path), os.path.basename(path)[:-3]
+        if now - age > days * 86400: print(f"{path}: older than {days:g} days")
+        elif name in turns and age < turns[name]: print(f"{path}: older than its Bartender's last turn")
+else:
+    die("usage: bouncer-ledger add|done|due|list|stale ...")

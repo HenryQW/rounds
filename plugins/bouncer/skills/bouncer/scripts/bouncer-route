@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""bouncer-route < {"sessions": [list_sessions rows], "request": {"ticket", "repo"}, "caps": {"active": 3}}
+"""bouncer-route < {"sessions": [list_sessions rows], "request": {"ticket", "repo", "type"?}, "caps": {"active": 3}}
 Out: {"action": "assign"|"start"|"queue", "sessionId"?: id, "reason": text}. Exit 2: bad input.
-Rules: a Bartender title contains "🍸"; its repo is the last word of the title.
-Idle: the title starts with "[Idle]" and isRunning is not true. An idle Bartender of the repo gets the ticket;
+Rules: a Bartender title contains its type emoji (Ticket 🍸, the default; Skill 🔧; Cleanup 🧹); its repo is the last word.
+Idle: the title starts with "[Idle]" and isRunning is not true. An idle Bartender of the same type and repo gets the work;
 else a new Bartender starts (one per ticket, so tickets of one repo run in parallel).
 At most caps.active non-idle Bartenders (default 3). Archived rows are ignored."""
 import json, sys
@@ -13,24 +13,29 @@ def bad(msg):
 try:
     d = json.load(sys.stdin)
     rows, req = d["sessions"], d["request"]
-    ticket, repo = req["ticket"], req["repo"]
+    ticket, repo, kind = req["ticket"], req["repo"], req.get("type") or "Ticket"
     active = int((d.get("caps") or {}).get("active", 3))
 except (ValueError, KeyError, TypeError) as e:
     bad(e)
-if not ticket or not repo or active < 1:
-    bad("ticket, repo and caps.active >= 1 are required")
+TYPES = {"Ticket": "🍸", "Skill": "🔧", "Cleanup": "🧹"}   # as in bouncer-title
+if not ticket or not repo or active < 1 or kind not in TYPES:
+    bad(f"ticket, repo, caps.active >= 1 and a type of {'|'.join(TYPES)} are required")
 
 def idle(s):
     return (s.get("title") or "").startswith("[Idle]") and not s.get("isRunning")
 
-bars = [s for s in rows if "🍸" in (s.get("title") or "") and not s.get("isArchived")]
-here = [s for s in bars if s["title"].split()[-1] == repo]
+def emoji(s):
+    words = (s.get("title") or "").split()
+    return next((w for w in words if w in TYPES.values()), None)
+
+bars = [s for s in rows if emoji(s) and not s.get("isArchived")]
+here = [s for s in bars if s["title"].split()[-1] == repo and emoji(s) == TYPES[kind]]
 busy = [s for s in bars if not idle(s)]
 free = [s for s in here if idle(s)]
 if free:
-    out = {"action": "assign", "sessionId": free[0]["sessionId"], "reason": f"idle Bartender in {repo}"}
+    out = {"action": "assign", "sessionId": free[0]["sessionId"], "reason": f"idle {kind} Bartender in {repo}"}
 elif len(busy) >= active:
     out = {"action": "queue", "reason": f"pool full: {len(busy)} of {active} Bartenders active"}
 else:
-    out = {"action": "start", "reason": f"no idle Bartender in {repo}; {len(busy)} of {active} active"}
+    out = {"action": "start", "reason": f"no idle {kind} Bartender in {repo}; {len(busy)} of {active} active"}
 print(json.dumps(out))
