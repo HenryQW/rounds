@@ -19,6 +19,8 @@ export type Pool = {
   ledger?: number
   /** The `bouncer-ledger list` lines; absent in a value an earlier version stored. */
   ledgerLines?: readonly string[]
+  /** Each Bartender's last report text, kept for the full PR URLs its EVIDENCE names. */
+  reportTexts?: Readonly<Record<string, string>>
   /** True while the band lists the ledger's open items. */
   ledgerOpen?: boolean
   /** True while another session holds the Bouncer (`bouncer` in the plugin's data folder names it). */
@@ -28,7 +30,7 @@ export type Pool = {
   /** Bartender session id to whether its session runs a turn now (`list_sessions` `isRunning`). */
   running?: Readonly<Record<string, boolean>>
   /** Bartender session id to its linked session (`list_sessions`): folder, last activity, PR, and the PR's URL when its repo is on GitHub. */
-  sessions?: Readonly<Record<string, { cwd?: string; branch?: string; at?: string; pr?: { number: number; state?: string; url?: string } }>>
+  sessions?: Readonly<Record<string, { cwd?: string; branch?: string; at?: string; pr?: { number: number; state?: string } }>>
   /** Bartender session id to the sub-line of its last report: the wait reason, else the RESULT. */
   notes?: Readonly<Record<string, string>>
   /** True while the system appearance is dark: the band picks Linear's dark tokens, else the light ones. */

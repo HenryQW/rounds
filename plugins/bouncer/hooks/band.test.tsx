@@ -681,22 +681,41 @@ test("Details off the terminal takes Linear's tokens for the system appearance: 
   await ui.unmount()
 })
 
-test('a card links its ticket to Linear and its PR to GitHub, with the time since its last activity', { options: { linear_workspace_url: 'https://linear.app/acme' } }, async ($, on) => {
+test('a card links its ticket to Linear and its PR to the URL that its ledger line or report names, never to its folder remote', { options: { linear_workspace_url: 'https://linear.app/acme' } }, async ($, on) => {
   on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({ result: JSON.stringify([
     { sessionId: 'local_a', title: '[CR] 🍸 MIDI-1 rounds', isRunning: false, cwd: '/w/.claude/worktrees/midi-1', branch: 'henry/midi-1-fix', lastActivityAt: '2026-11-26T10:00:00Z', prNumber: 17, prState: 'MERGED' },
     { sessionId: 'local_b', title: '[Dev] 🔧 band rounds', isRunning: true, cwd: '/x/other', prNumber: 3, prState: 'OPEN' },
+    { sessionId: 'local_c', title: '[Dev] 🍸 MIDI-2 rounds', isRunning: true, cwd: '/w', prNumber: 5, prState: 'OPEN' },
   ]) }))
-  on('process.run', (_: unknown, e: any) => ({ value: { exitCode: e.argv[2] === '/w/.claude/worktrees/midi-1' ? 0 : 1, stdout: 'git@github.com:acme/rounds.git\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  const out = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+  on('process.run', (_: unknown, e: any) => {
+    const cmd = String(e.argv[0])
+    // The folder remote is another repo: the band must not use it.
+    if (cmd === 'git') return out('git@github.com:acme/rounds.git\n')
+    if (cmd.endsWith('bouncer-ledger')) return out('/r/MIDI-1.md: - [open] pr | https://github.com/acme/backend/pull/17 | trigger: merged | check:  | next: review | 2026-11-26\n'
+      + '/r/MIDI-9.md: - [open] pr | https://github.com/acme/web/pull/5 | trigger: merged | check:  | next: review | 2026-11-26\n')
+    if (cmd.endsWith('bouncer-report')) return out('{"status":"WORKING","ticket":"band","linear":null,"result":"PR up","question":null}')
+    return { value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
   on('clock.now', () => ({ value: Date.parse('2026-11-26T10:14:30Z') }))
-  engine(on, { details: true })
+  // engine() without its hookEnv, which has no plugin root for bouncer-ledger and bouncer-report.
+  on('tool.call', () => ({ result: {} }))
+  on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
+  base(on, { details: true })
+  on('fs.read', () => { throw new Error('missing') })
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  on('session.receive', (_: unknown, e: any) => ({ text: e.text }))
   await title($, 'self', '🚪 Bouncer')
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
+  // A report whose EVIDENCE names the full PR URL.
+  await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: WORKING\nTICKET: band\nEVIDENCE: https://github.com/acme/plugins/pull/3' } as any)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   const links = (await ui.findAll({ type: 'Link' })).map((l: any) => [l.props.label, l.props.href])
-  // A folder whose remote is not on GitHub shows its PR number with no link.
-  expect(links).toEqual([['MIDI-1', 'https://linear.app/acme/issue/MIDI-1'], ['#17', 'https://github.com/acme/rounds/pull/17']])
-  expect((await ui.find({ type: 'Text', text: /^#3$/ }))?.text).toBe('#3')
+  expect(links).toEqual(expect.arrayContaining([['MIDI-1', 'https://linear.app/acme/issue/MIDI-1'], ['#17', 'https://github.com/acme/backend/pull/17'], ['#3', 'https://github.com/acme/plugins/pull/3']]))
+  expect(links.some(([, h]: any) => /acme\/rounds|pull\/5$/.test(h))).toBe(false)
+  // No source names PR 5 for MIDI-2 (the ledger's #5 belongs to MIDI-9): plain text, no link.
+  expect((await ui.find({ type: 'Text', text: /^#5$/ }))?.text).toBe('#5')
   expect((await ui.find({ type: 'Text', text: /^14 min ago$/ }))?.text).toBe('14 min ago')
   // Line 2 is the status code and the branch (else the folder); the key shows once, as the title's link; the time is not mono.
   expect((await ui.find({ key: 'line2:act:local_a' }))?.text).toBe('CR · ⎇ henry/midi-1-fix')

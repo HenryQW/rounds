@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { EMPTY, ago, archived, columns, dots, githubRepo, ledgerSummary, parseBartender, prMark, queueLines, queueSummary, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
+import { EMPTY, ago, archived, columns, dots, ledgerSummary, parseBartender, prMark, prUrl, queueLines, queueSummary, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
 import type { Column, Report } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
@@ -42,15 +42,6 @@ const isOtherBouncer = async ($: EngineInterface) => {
   if (!owner) await writeOwner($, me)
   return owner !== '' && owner !== me
 }
-// A folder's GitHub repo (`owner/repo`) for PR links, once a folder: `git remote get-url origin`.
-const repos = new Map<string, string | undefined>()
-const repoOfFolder = async ($: EngineInterface, cwd: string) => {
-  if (!repos.has(cwd)) {
-    const ran = await $.process.run(['git', '-C', cwd, 'remote', 'get-url', 'origin']).catch(() => undefined)
-    repos.set(cwd, ran?.exitCode === 0 ? githubRepo(ran.stdout) : undefined)
-  }
-  return repos.get(cwd)
-}
 // The Bouncer's linked sessions: the Bartenders' current titles, whether each runs a turn, their folder, last activity and PR.
 // They also fill the pool after a reload, before the Bouncer renames anything.
 const refreshSessions = async ($: EngineInterface) => {
@@ -58,10 +49,7 @@ const refreshSessions = async ($: EngineInterface) => {
   if (!ran || ran.deny !== undefined || ran.isError === true) return
   const rows = sessionRows(ran.text ?? JSON.stringify(ran.result ?? ''))?.filter(r => parseBartender(r.title))
   if (!rows) return
-  const sessions = Object.fromEntries(await Promise.all(rows.map(async r => {
-    const repo = r.pr && r.cwd ? await repoOfFolder($, r.cwd) : undefined
-    return [r.id, { cwd: r.cwd, branch: r.branch, at: r.at, pr: r.pr && { ...r.pr, ...(repo ? { url: `https://github.com/${repo}/pull/${r.pr.number}` } : {}) } }] as const
-  })))
+  const sessions = Object.fromEntries(rows.map(r => [r.id, { cwd: r.cwd, branch: r.branch, at: r.at, pr: r.pr }] as const))
   await update($, pool, p => ({
     ...p,
     bartenders: Object.fromEntries(rows.map(r => [r.id, r.title])),
@@ -114,7 +102,7 @@ const onNote = async ($: EngineInterface, text: string) => {
   try { report = JSON.parse(ran.stdout) as Report } catch { return /* not a report */ }
   // Keep the STATUS for the band's dot and the sub-line for its column, on the session whose title has the report's ticket.
   const id = Object.entries((await read($, pool)).bartenders).find(([, t]) => report.ticket && parseBartender(t)?.ticket === report.ticket)?.[0]
-  if (id) await update($, pool, p => ({ ...p, reports: { ...p.reports, [id]: report.status }, notes: { ...p.notes, [id]: reportLine(report) } }))
+  if (id) await update($, pool, p => ({ ...p, reports: { ...p.reports, [id]: report.status }, notes: { ...p.notes, [id]: reportLine(report) }, reportTexts: { ...p.reportTexts, [id]: text } }))
   await syncTitles($, report)
 }
 
@@ -314,6 +302,8 @@ export const register: Register = (on, options) => {
       const s = id ? p.sessions?.[id] : undefined
       const branch = s?.branch ?? s?.cwd?.split('/').pop()
       const [glyph, glyphColor] = prMark(s?.pr?.state)
+      // The PR link only from a full URL its report or its ticket's ledger lines name; else the number as plain text.
+      const href = s?.pr && prUrl(s.pr.number, [p.reportTexts?.[id!] ?? '', ...(p.ledgerLines ?? []).filter(l => c.ticket && l.includes(`/${c.ticket}.md:`))])
       const title = c.ticket && linear && LINEAR_KEY.test(c.ticket)
         ? <Box flexDirection="row"><Text>{`${c.dot} `}</Text><Link href={`${linear}/issue/${c.ticket}`} label={c.ticket} /></Box>
         : <Text weight="medium" color={t?.ink} wrap="truncate-end">{c.value}</Text>
@@ -335,7 +325,7 @@ export const register: Register = (on, options) => {
               {s?.pr && (
                 <Box key={`pr:${c.key}`} flexDirection="row" flexShrink={0}>
                   <Text size="footnote" color={glyphColor}>{`${glyph} `}</Text>
-                  {s.pr.url ? <Link href={s.pr.url} label={`#${s.pr.number}`} /> : <Text size="footnote" color={t?.muted}>{`#${s.pr.number}`}</Text>}
+                  {href ? <Link href={href} label={`#${s.pr.number}`} /> : <Text size="footnote" color={t?.muted}>{`#${s.pr.number}`}</Text>}
                 </Box>
               )}
             </Box>

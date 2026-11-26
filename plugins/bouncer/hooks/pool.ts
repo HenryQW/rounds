@@ -27,8 +27,9 @@ export const renamed = (pool: Pool, sessionId: string, title: string): Pool => {
   const isNew = b.status === 'Idle' || old?.ticket !== b.ticket
   const { [sessionId]: _, ...reports } = pool.reports ?? {}
   const { [sessionId]: __, ...notes } = pool.notes ?? {}
+  const { [sessionId]: ___, ...reportTexts } = pool.reportTexts ?? {}
   return { ...pool, isOn: true, bartenders: { ...pool.bartenders, [sessionId]: title },
-    reports: isNew ? reports : pool.reports, notes: isNew ? notes : pool.notes }
+    reports: isNew ? reports : pool.reports, notes: isNew ? notes : pool.notes, reportTexts: isNew ? reportTexts : pool.reportTexts }
 }
 
 export const archived = (pool: Pool, sessionId: string): Pool => {
@@ -102,8 +103,13 @@ export const sessionRows = (raw: string): SessionRow[] | undefined => {
   }] : [])
 }
 
-/** The GitHub `owner/repo` of a remote URL (`git@github.com:o/r.git`, `https://github.com/o/r`); undefined for another host. */
-export const githubRepo = (remote: string) => /github\.com[:/]([^/\s]+\/[^/\s]+?)(?:\.git)?\s*$/.exec(remote.trim())?.[1]
+/**
+ * A PR's full GitHub URL from texts that carry one (a report, the ticket's ledger lines); undefined when none names
+ * PR `n`. Never built from a folder's remote: a Bartender's PR may live in another repo than its folder.
+ */
+export const prUrl = (n: number, texts: readonly string[]) =>
+  texts.flatMap(t => [...t.matchAll(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/(\d+)/g)])
+    .find(m => Number(m[1]) === n)?.[0]
 
 /** Time since `at`, in the Rounds row's format: `3 sec ago`, `14 min ago`, `2 hr ago`, `3 days ago`. */
 export const ago = (at: string, now: number) => {
