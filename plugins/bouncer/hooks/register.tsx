@@ -77,18 +77,12 @@ export const register: Register = (on, options) => {
       await $.prompt.submit({ text }).catch(() => update($, pool, q => ({ ...q, pending: false })))
     }
     const lines = p.queueOpen ? p.queueLines ?? [] : []
-    // `open claude://…` does not switch the app (tried 2026-11-26), so the window tool shows the Bartender.
-    // It takes only sessions the Bouncer started; when it fails, the Bouncer opens it.
-    const show = (id: string, target: 'focus' | 'split') =>
-      $.tool.call({ tool: 'mcp__ccd_window__open_session_in', session_id: id, target } as any).catch(() => undefined)
-    const failed = (ran: Awaited<ReturnType<typeof show>>) => !ran || ran.deny !== undefined || ran.isError === true
+    // `open claude://…` does not switch the app (tried 2026-11-26), so show the Bartender in split view.
+    // The window tool takes only sessions the Bouncer started; when the call fails, the Bouncer opens it.
     const open = async (id: string, name: string) => {
-      const focus = await show(id, 'focus')
-      const why = String(focus?.deny ?? focus?.text ?? JSON.stringify(focus?.result ?? ''))
-      if (!failed(focus) && !/refus/i.test(why)) return
-      // The app refuses focus while the cursor is in a text field or terminal: split view beside the Bouncer.
-      if (/text field|terminal|cursor/i.test(why)) $.ui.toast(`The cursor is in a text field, so ${name} opens in split view`)
-      if (failed(await show(id, 'split'))) await ask(`${name}: open`)
+      const ran = await $.tool.call({ tool: 'mcp__ccd_window__open_session_in', session_id: id, target: 'split' } as any)
+        .catch(() => undefined)
+      if (!ran || ran.deny !== undefined || ran.isError === true) await ask(`${name}: open`)
     }
 
     const mine = (

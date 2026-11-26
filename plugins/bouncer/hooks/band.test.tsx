@@ -161,29 +161,25 @@ test('a Bartender that waits shows its question and opens its conversation', asy
   on('tool.call', { tool: 'mcp__ccd_window__open_session_in' }, (_: unknown, e: any) => {
     opened.push([e.session_id, e.target])
     if (e.session_id === 'local_c') return { deny: 'not a session this session started' }
-    if (e.session_id === 'local_d' && e.target === 'focus') return { result: 'Refused: the cursor is in a text field or terminal.' }
-    return { result: 'Shown.' }
+    return { result: 'Opened in split view.' }
   })
   engine(on)
-  const { prompts, toasts } = record(on)
+  const { prompts } = record(on)
   await title($, 'local_a', '![Wont] 🍸 MIDI-1616 aspire')
   await title($, 'local_b', '[Dev] 🍸 MIDI-2 web')
   await title($, 'local_c', '![Dev] 🍸 MIDI-3 web')
-  await title($, 'local_d', '![Dev] 🍸 MIDI-4 web')
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-questions add "MIDI-1616 | local_a | x"' } as any)
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect((await ui.find({ type: 'Text', text: /MIDI-1616:/ }))?.text).toBe('! MIDI-1616: Post the draft yourself? Default: yes')
   expect((await ui.find({ type: 'Text', text: /MIDI-3:/ }))?.text).toBe('! MIDI-3: waits on you')
   expect(await ui.find({ type: 'Text', text: /MIDI-2:/ })).toBe(undefined)
-  expect((await ui.findAll({ type: 'Button' })).map(b => b.key).filter(k => k?.startsWith('open:'))).toEqual(['open:local_a', 'open:local_c', 'open:local_d'])
+  expect((await ui.findAll({ type: 'Button' })).map(b => b.key).filter(k => k?.startsWith('open:'))).toEqual(['open:local_a', 'open:local_c'])
 
-  // Open goes to the Bartender; a refused focus falls back to split view, and a refused split to the Bouncer.
+  // The plugin opens the Bartender in split view itself; when the app refuses, it asks the Bouncer.
   await ui.press({ key: 'open:local_a' })
-  await ui.press({ key: 'open:local_d' })
   await ui.press({ key: 'open:local_c' })
-  expect(opened).toEqual([['local_a', 'focus'], ['local_d', 'focus'], ['local_d', 'split'], ['local_c', 'focus'], ['local_c', 'split']])
-  expect(toasts).toEqual(['The cursor is in a text field, so MIDI-4 opens in split view'])
+  expect(opened).toEqual([['local_a', 'split'], ['local_c', 'split']])
   expect(prompts).toEqual(['MIDI-3: open'])
   await ui.unmount()
 })
@@ -207,7 +203,7 @@ test('while a question waits, the band sends no prompt but Open still works', as
   await ui.press({ key: 'queue:pop' })
   await ui.press({ key: 'open:local_a' })
   await ui.press({ key: 'open:local_b' })
-  expect(opened).toEqual(['local_a', 'local_b', 'local_b'])
+  expect(opened).toEqual(['local_a', 'local_b'])
   expect(prompts).toEqual([])
   expect(toasts).toEqual(Array(3).fill('Answer the waiting question first'))
 
