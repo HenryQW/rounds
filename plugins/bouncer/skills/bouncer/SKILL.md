@@ -78,6 +78,18 @@ There is no drafting type: the Bartender that owns the work drafts its messages.
 - Band prompts are sequential: the band sends none while a question waits on the user (count above 0) or while your turn runs, and at most one until your turn ends. Answer the open question first.
 - Band prompts: the band above the prompt sends you plain requests from the user. `<TICKET>: status` asks for that Bartender's status (a Bartender with no ticket, such as an idle one, is named by its session id: `local_…: status`); `<TICKET>: stop` stops it (`stop_session`); `<TICKET>: reset` resets it ("Reset and assign"). `queue: pop` and `queue: remove <TICKET>` run `bouncer-queue` with that command. `<TICKET>: open` (sent when the band could not open it itself) shows that Bartender beside you: `open_session_in` with its session id and `target: "split"` ("focus" is refused while the cursor is in a text field). Only you talk to Bartenders.
 
+## Band
+The plugin draws one row above your prompt. Compact (the default): a dot strip (one dot a Bartender, 🔴 🟡 🟢 order), the head question as a red pill (none when nothing waits), then `📥 N queued` and `⏰ N open` (ledger) only above zero. Details (the user's toggle, kept across sessions) adds a chip per active Bartender (`<dot> <emoji> <KEY or task>`, grey `<repo> · <status code>`, the repo hidden when it is yours) and one `🟢 N idle` chip. A dot comes from the title and the last `bouncer-report` STATUS of that Bartender's ticket, first match wins:
+
+| Dot | When |
+|---|---|
+| 🔴 | needs the user: `!` CTA (a line in `questions.md`) |
+| 🟢 | idle, free for work: `[Idle]` title |
+| 🔴 | needs the user: the last STATUS is `NEEDS_INPUT` or `BLOCKED` |
+| 🟡 | any other: works, or waits on others (CI, review, QA, a running Barback) |
+
+Keep titles and `questions.md` current: the dots follow them.
+
 ## Pick the next ticket
 When the user asks what to work on, name only tickets that can be worked now. Check each candidate before you name it (send the checks to one read-only worker when there are many):
 - No open blocked-by relation, no dependency on another open ticket, and no open parent or child ticket that must land first.
