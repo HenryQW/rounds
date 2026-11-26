@@ -2,7 +2,7 @@
 
 Bouncer mode runs as the `bouncer` Claude Code plugin ([`plugins/bouncer`](../../plugins/bouncer/README.md)) in Claude desktop. Claude desktop stores sessions and task state. Rounds reads only the session titles. See [specification section 2.1](../spec.md#21-desktop-session-files-read-only).
 
-An experimental Pi Bouncer runs beside it in a Herdr pane and claims GitHub issues. See [the Pi Bouncer claim loop](pi-loop.md).
+An experimental Pi Bouncer runs beside it in a Herdr pane and claims GitHub issues. See [the Pi Bouncer claim loop](pi-loop.md). The [test report](pi-loop-test.md) gives the results of its first live test.
 
 The [archive](archive/README.md) holds the Rounds-hosted design. The [decision log](decisions.md) records the owner’s decisions.
 

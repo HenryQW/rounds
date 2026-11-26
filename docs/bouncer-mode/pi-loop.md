@@ -122,13 +122,15 @@ A failure after the mark stops the script and names what it kept. It never tries
 
 ## Slices
 
+The [test report](pi-loop-test.md) gives the results of slices 2 to 6, the findings and what is not verified.
+
 | # | Slice | Proof |
 |---|---|---|
 | 1 | `bouncer-reconcile` (done) | A fixture test covers each state. A live run gives the real issues their correct states. |
-| 2 | `bouncer-dispatch` | A fixture test with real Git: the new checkout sits at the fetched sha although local `main` is behind, a second run starts nothing, an issue from another author is not claimed, a failed start keeps an orphan. Live, in a private test repository: one issue gets a worktree at the remote `main`. |
-| 3 | `bouncer-record` | A fixture test for each report case. Live: a repeated run leaves one comment, and `SleekFlow` gets no comment. |
-| 4 | `bouncer-tick` | A fixture test: it runs the actions in cap order, prints only the items left, and a second idle run does nothing. |
-| 5 | The extension: timer, wake and gate | A Bartender turn end gives exactly one Bouncer turn. One idle hour gives zero turns. A push in a Bartender is blocked. A push in the Bouncer shows a confirm with the exact command. |
-| 6 | The skill, for the model items only | A question from a Bartender reaches the owner, and the answer reaches the Bartender. |
+| 2 | `bouncer-dispatch` (done) | A fixture test with real Git: the new checkout sits at the fetched sha although local `main` is behind, a second run starts nothing, an issue from another author is not claimed, a failed start keeps an orphan. Live, in a private test repository: one issue gets a worktree at the remote `main`. |
+| 3 | `bouncer-record` (done) | A fixture test for each report case. Live: a repeated run leaves one comment, and `SleekFlow` gets no comment. |
+| 4 | `bouncer-tick` (done) | A fixture test: it runs the actions in cap order, prints only the items left, and a second idle run does nothing. |
+| 5 | The extension: timer, wake and gate (done) | A Bartender turn end gives exactly one Bouncer turn. One idle hour gives zero turns. A push in a Bartender is blocked. A push in the Bouncer shows a confirm with the exact command. |
+| 6 | The skill, for the model items only (done) | A question from a Bartender reaches the owner, and the answer reaches the Bartender. |
 
 Not in version one: a Bartender-side report writer, a relay into the Bouncer, report ids in the session, a claim lease, automatic cleanup, automatic resume of an orphan, a daemon, a second Bouncer, Barbacks, and Bartender rows as subagents in Rounds.
