@@ -7,8 +7,9 @@ tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
 fail=0
 ok() { if [ "$2" = "$3" ]; then echo "ok   $1"; else echo "FAIL $1: got [$2] want [$3]"; fail=1; fi; }
 
-# bouncer-title: with BOUNCER_STATUS_CODES unset it uses the status_codes default in plugin.json
+# bouncer-title: with BOUNCER_STATUS_CODES and no stored option unset it uses the status_codes default in plugin.json
 unset BOUNCER_STATUS_CODES
+export CLAUDE_CONFIG_DIR="$tmp/config"
 ok "title: bouncer at 0" "$(./bouncer-title --bouncer 0)" "Bouncer"
 ok "title: bouncer count" "$(./bouncer-title --bouncer 2)" "!2 Bouncer"
 ./bouncer-title --bouncer -1 2>/dev/null; ok "title: negative count exits 2" $? 2
@@ -20,6 +21,10 @@ ok "title: github closed (default codes)" "$(./bouncer-title Closed 12 my-repo)"
 ok "title: empty option uses the default" "$(BOUNCER_STATUS_CODES=" " ./bouncer-title Todo T r)" "[Todo] T - Bartender - r"
 BOUNCER_STATUS_CODES="Todo=Todo" ./bouncer-title Closed T r 2>/dev/null; ok "title: a set option replaces the default" $? 2
 BOUNCER_STATUS_CODES="Todo" ./bouncer-title Todo T r 2>/dev/null; ok "title: pair without = exits 2" $? 2
+mkdir -p "$tmp/config"; echo '{"pluginConfigs": {"bouncer@rounds": {"options": {"status_codes": "Won'"'"'t Do=Wont"}}}}' > "$tmp/config/settings.json"
+ok "title: the stored option without the env var" "$(./bouncer-title "Won't Do" ABC-9 web)" "[Wont] ABC-9 - Bartender - web"
+ok "title: the env var wins over the stored option" "$(BOUNCER_STATUS_CODES="Won't Do=WD" ./bouncer-title "Won't Do" ABC-9 web)" "[WD] ABC-9 - Bartender - web"
+rm "$tmp/config/settings.json"
 ok "title: custom codes, apostrophe, cta, spaces" "$(BOUNCER_STATUS_CODES=" Won't Do = Wont ;; Code Review=CR; " ./bouncer-title "Won't Do" ABC-9 web --cta)" "![Wont] ABC-9 - Bartender - web"
 
 # bouncer-route

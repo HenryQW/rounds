@@ -2,16 +2,23 @@
 """bouncer-title <status> <ticket> <repo> [--cta]   ->  [<code>] <ticket> - Bartender - <repo>  (! prefix with --cta)
 bouncer-title --idle <repo>                        ->  [Idle] Bartender - <repo>
 bouncer-title --bouncer <n>                        ->  !<n> Bouncer, or Bouncer at 0
-Status codes come from BOUNCER_STATUS_CODES ("Name=Code; Name=Code", the plugin option status_codes),
-else from the option default in the plugin manifest.
+Status codes come from BOUNCER_STATUS_CODES ("Name=Code; Name=Code"), else from the status_codes plugin option
+stored in Claude Code's settings.json, else from the option default in the plugin manifest.
 Exit 2: bad input, a bad code pair or an unknown status."""
 import json, os, sys
 
 def die(msg):
     print(msg, file=sys.stderr); sys.exit(2)
 
+def stored_option():
+    # The model may leave out BOUNCER_STATUS_CODES, so read the option where Claude Code stores it.
+    path = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "settings.json")
+    try: configs = json.load(open(path)).get("pluginConfigs", {})
+    except (OSError, ValueError): return ""
+    return next((str(v.get("options", {}).get("status_codes", "")) for k, v in configs.items() if k.startswith("bouncer@")), "")
+
 def codes():
-    raw = os.environ.get("BOUNCER_STATUS_CODES", "").strip()
+    raw = os.environ.get("BOUNCER_STATUS_CODES", "").strip() or stored_option().strip()
     if not raw:   # the option is unset: use its default from the plugin manifest
         manifest = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../../.claude-plugin/plugin.json")
         raw = json.load(open(manifest))["userConfig"]["status_codes"]["default"]

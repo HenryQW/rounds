@@ -33,7 +33,7 @@ The steps that need no judgment are scripts in `scripts/` next to this file (`${
 - The ticket record is one file a ticket outside every repo, so a branch switch or a new worktree never loses it: the place the user's rules name, else `<data>/tickets/<TICKET>.md`.
 - `<data>` is the plugin's data folder: the one path that `${CLAUDE_SKILL_DIR}/scripts/bouncer-data` prints. Claude Code keeps it across plugin updates and removes it on uninstall unless `--keep-data` is given. Every Bouncer session sees the same folder, whatever folder it runs in.
 - The pool state is the session titles. `list_sessions {"linked": true}` is the only read the Bouncer needs to route.
-- Titles (the Bouncer is the only one that renames, with `set_session_title`). Make each title with `${CLAUDE_SKILL_DIR}/scripts/bouncer-title <args>`, never by hand. Status codes: `${user_config.status_codes}`. If that text is `Name=Code` pairs, the user set the option: put `BOUNCER_STATUS_CODES="<that text>"` before the command. Else the script uses the default codes:
+- Titles (the Bouncer is the only one that renames, with `set_session_title`). Make each title with `${CLAUDE_SKILL_DIR}/scripts/bouncer-title <args>`, never by hand. Status codes: `${user_config.status_codes}`. The script reads the option from Claude Code's settings itself; `BOUNCER_STATUS_CODES="<pairs>"` before the command overrides it. With no option set, it uses the default codes:
   - `[<status>] <TICKET> - Bartender - <repo>`, for example `[Dev] ABC-123 - Bartender - my-repo`: `bouncer-title "<tracker status>" <TICKET> <repo>`
   - `[Idle] Bartender - <repo>`: `bouncer-title --idle <repo>`
 - A call to action (CTA) is not a status. It is a `!` prefix, put before the status and removed when the user answers:
