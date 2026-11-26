@@ -34,11 +34,11 @@ The steps that need no judgment are scripts in `scripts/` next to this file (`${
 - `<data>` is the plugin's data folder: the one path that `${CLAUDE_SKILL_DIR}/scripts/bouncer-data` prints. Claude Code keeps it across plugin updates and removes it on uninstall unless `--keep-data` is given. Every Bouncer session sees the same folder, whatever folder it runs in.
 - The pool state is the session titles. `list_sessions {"linked": true}` is the only read the Bouncer needs to route.
 - Titles (the Bouncer is the only one that renames, with `set_session_title`). Make each title with `${CLAUDE_SKILL_DIR}/scripts/bouncer-title <args>`, never by hand. Status codes: `${user_config.status_codes}`. The script reads the option from Claude Code's settings itself; `BOUNCER_STATUS_CODES="<pairs>"` before the command overrides it. With no option set, it uses the default codes:
-  - `[<status>] <TICKET> - Bartender - <repo>`, for example `[Dev] ABC-123 - Bartender - my-repo`: `bouncer-title "<tracker status>" <TICKET> <repo>`
-  - `[Idle] Bartender - <repo>`: `bouncer-title --idle <repo>`
+  - `[<status>] 🍸 <TICKET> <repo>`, for example `[Dev] 🍸 ABC-123 my-repo`: `bouncer-title "<tracker status>" <TICKET> <repo>`
+  - `[Idle] 🍸 <repo>`: `bouncer-title --idle <repo>`
 - A call to action (CTA) is not a status. It is a `!` prefix, put before the status and removed when the user answers:
-  - Bartender: `![Dev] <TICKET> - Bartender - <repo>`: add `--cta`
-  - Bouncer (`self`): `!<n> Bouncer`, where `<n>` is the number of questions that wait on the user; plain `Bouncer` at 0 (`bouncer-title --bouncer <n>`). The user looks only at the Bouncer, so this is the CTA the user sees.
+  - Bartender: `![Dev] 🍸 <TICKET> <repo>`: add `--cta`
+  - Bouncer (`self`): `!<n> 🚪 Bouncer`, where `<n>` is the number of questions that wait on the user; plain `🚪 Bouncer` at 0 (`bouncer-title --bouncer <n>`). The user looks only at the Bouncer, so this is the CTA the user sees.
 - `<status>` is the short code of the ticket's status in the tracker. `bouncer-title` maps each status name to its code with the `status_codes` plugin option (`Name=Code` pairs, `;` between them). Exit 2: an unknown status; ask the user, then tell the user to add it to the option.
 - The mode (Code, Spike, Mechanical) picks the model only. It is not in the title.
 - Queue: work above the cap waits in `<data>/queue.md`, one line a ticket: `<TICKET> | repo | mode | brief source`. Change it only with `scripts/bouncer-queue add|pop|remove|list`. `add` replaces a stale line of the same ticket. `pop` exit 1: the queue is empty. `remove <TICKET>` exit 1: no line has that ticket.

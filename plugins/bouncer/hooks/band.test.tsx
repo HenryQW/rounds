@@ -36,10 +36,10 @@ test('no band outside a Bouncer session', async ($, on) => {
 test('the band shows Bartenders, the question count and the queue', async ($, on) => {
   engine(on)
   record(on)
-  await title($, 'a', '[Dev] MIDI-1 - Bartender - aspire')
-  await title($, 'b', '![CR] MIDI-2 - Bartender - web')
-  await title($, 'c', '[Idle] Bartender - aspire')
-  await title($, 'self', '!1 Bouncer')
+  await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
+  await title($, 'b', '![CR] 🍸 MIDI-2 web')
+  await title($, 'c', '[Idle] 🍸 aspire')
+  await title($, 'self', '!1 🚪 Bouncer')
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-queue list' } as any)
   await $.tool.call({ tool: 'mcp__ccd_session_mgmt__archive_session', session_id: 'c' } as any)
 
@@ -56,8 +56,8 @@ test('the band shows Bartenders, the question count and the queue', async ($, on
 
 test('a ticket key links to the Linear workspace of the option', { options: { linear_workspace_url: 'https://linear.app/acme/' } }, async ($, on) => {
   engine(on)
-  await title($, 'a', '[Dev] MIDI-1 - Bartender - aspire')
-  await title($, 'b', '[Dev] 12 - Bartender - web')
+  await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
+  await title($, 'b', '[Dev] 🍸 12 web')
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   const links = await ui.findAll({ type: 'Link' })
   expect(links.map(l => l.props.href)).toEqual(['https://linear.app/acme/issue/MIDI-1'])
@@ -67,7 +67,7 @@ test('a ticket key links to the Linear workspace of the option', { options: { li
 
 test('a ticket key is plain text while the option is unset', async ($, on) => {
   engine(on)
-  await title($, 'a', '[Dev] MIDI-1 - Bartender - aspire')
+  await title($, 'a', '[Dev] 🍸 MIDI-1 aspire')
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect(await ui.find({ type: 'Link' })).toBe(undefined)
   expect((await ui.find({ type: 'Text', text: /MIDI-1/ }))?.text).toBe('MIDI-1')
@@ -77,8 +77,8 @@ test('a ticket key is plain text while the option is unset', async ($, on) => {
 test('the Bartender menu asks the Bouncer, never the Bartender', async ($, on) => {
   engine(on)
   const { prompts } = record(on)
-  await title($, 'a', '[Dev] MIDI-1616 - Bartender - aspire')
-  await title($, 'c', '[Idle] Bartender - web')
+  await title($, 'a', '[Dev] 🍸 MIDI-1616 aspire')
+  await title($, 'c', '[Idle] 🍸 web')
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   for (const value of ['status', 'stop', 'reset']) await ui.select({ key: 'act:a', value })
   await ui.select({ key: 'act:c', value: 'stop' })
@@ -89,18 +89,18 @@ test('the Bartender menu asks the Bouncer, never the Bartender', async ($, on) =
 test('a notification only when the waiting count goes up', async ($, on) => {
   engine(on)
   const { notes } = record(on)
-  await title($, 'self', '!1 Bouncer')
-  await title($, 'self', '!3 Bouncer')
-  await title($, 'self', '!2 Bouncer')
-  await title($, 'self', 'Bouncer')
-  await title($, 'self', '!2 Bouncer')
+  await title($, 'self', '!1 🚪 Bouncer')
+  await title($, 'self', '!3 🚪 Bouncer')
+  await title($, 'self', '!2 🚪 Bouncer')
+  await title($, 'self', '🚪 Bouncer')
+  await title($, 'self', '!2 🚪 Bouncer')
   expect(notes).toEqual(['1 waiting on you', '3 waiting on you', '2 waiting on you'])
 })
 
 test('the queue opens to its lines, with Pop and Remove sent to the Bouncer', async ($, on) => {
   engine(on)
   const { prompts } = record(on)
-  await title($, 'self', 'Bouncer')
+  await title($, 'self', '🚪 Bouncer')
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-queue list' } as any)
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect(await ui.find({ type: 'Text', text: /A-1 \|/ })).toBe(undefined)
@@ -124,10 +124,10 @@ test('a Bartender shows in the band when the Bouncer starts it', async ($, on) =
   engine(on)
   const start = (t: string, initiation = 'user_asked') =>
     $.tool.call({ tool: 'mcp__ccd_session__start_session', title: t, initiation, prompt: 'p' } as any)
-  await title($, 'self', 'Bouncer')
-  await start('[Dev] MIDI-1616 - Bartender - aspire')
+  await title($, 'self', '🚪 Bouncer')
+  await start('[Dev] 🍸 MIDI-1616 aspire')
   await start('Fix the band')
-  await start('[Todo] MIDI-7 - Bartender - web', 'offer')
+  await start('[Todo] 🍸 MIDI-7 web', 'offer')
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect((await ui.find({ type: 'Text', text: /MIDI-1616/ }))?.text).toBe('MIDI-1616')
@@ -141,7 +141,7 @@ test('a start_session call with a non-Bartender title leaves the pool unchanged'
     result: 'Started session "Fix the band" (session_id: local_abc, name: x)',
   }))
   engine(on)
-  await title($, 'self', 'Bouncer')
+  await title($, 'self', '🚪 Bouncer')
   await $.tool.call({ tool: 'mcp__ccd_session__start_session', title: 'Fix the band', initiation: 'user_asked' } as any)
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
@@ -158,9 +158,9 @@ test('a Bartender that waits shows its question and opens its conversation', asy
   })
   engine(on)
   const { prompts } = record(on)
-  await title($, 'local_a', '![Wont] MIDI-1616 - Bartender - aspire')
-  await title($, 'local_b', '[Dev] MIDI-2 - Bartender - web')
-  await title($, 'local_c', '![Dev] MIDI-3 - Bartender - web')
+  await title($, 'local_a', '![Wont] 🍸 MIDI-1616 aspire')
+  await title($, 'local_b', '[Dev] 🍸 MIDI-2 web')
+  await title($, 'local_c', '![Dev] 🍸 MIDI-3 web')
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-questions add "MIDI-1616 | local_a | x"' } as any)
 
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)

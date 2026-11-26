@@ -131,9 +131,9 @@ func rule5Running(l: HookLine, label: String) {
 /// review, so that a Bartender at work cannot hide them under Background.
 @Test func rule9BouncerTitle() {
     let review: [String: Any] = ["status_category": "review_ready", "needs_action": "", "summarizes_uuid": "u1"]
-    expect(classify(session(["title": "!2 Bouncer", "postTurnSummary": review]), stop), .needsInput, "Question")
+    expect(classify(session(["title": "!2 🚪 Bouncer", "postTurnSummary": review]), stop), .needsInput, "Question")
     expect(classify(session(["title": "Bouncer", "postTurnSummary": review]), stop), .ready, "review")
-    expect(classify(session(["title": "!2 Bouncer tests", "postTurnSummary": review]), stop), .ready, "review")
+    expect(classify(session(["title": "!2 🚪 Bouncer tests", "postTurnSummary": review]), stop), .ready, "review")
 }
 
 @Test func staleSummaryIgnored() {

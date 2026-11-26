@@ -4,9 +4,9 @@ export const EMPTY: Pool = { isOn: false, bartenders: {}, waiting: 0, queue: 0 }
 
 export type Bartender = { cta: boolean; status: string; ticket: string; repo: string }
 
-// `![Dev] MIDI-1 - Bartender - repo` or `[Idle] Bartender - repo` (made by bouncer-title).
-const BARTENDER = /^(!)?\[([^\]]+)\] (?:(\S+) - )?Bartender - (.+)$/
-const BOUNCER = /^(?:!(\d+) )?Bouncer$/
+// `![Dev] 🍸 MIDI-1 repo` or `[Idle] 🍸 repo` (made by bouncer-title); a repo is a folder name with no space.
+const BARTENDER = /^(!)?\[([^\]]+)\] 🍸 (?:(\S+) )?(\S+)$/
+const BOUNCER = /^(?:!(\d+) )?🚪 Bouncer$/
 
 export const parseBartender = (title: string): Bartender | undefined => {
   const m = BARTENDER.exec(title)

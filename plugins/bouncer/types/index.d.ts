@@ -3,7 +3,7 @@ export type Pool = {
   isOn: boolean
   /** Bartender session id to its last title, as the Bouncer set it. */
   bartenders: Record<string, string>
-  /** Questions that wait on the user: the n of the Bouncer's own `!<n> Bouncer` title. */
+  /** Questions that wait on the user: the n of the Bouncer's own `!<n> 🚪 Bouncer` title. */
   waiting: number
   /** Lines in `queue.md` in the plugin's data folder. */
   queue: number
