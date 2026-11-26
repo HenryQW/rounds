@@ -74,8 +74,8 @@ First run `${CLAUDE_SKILL_DIR}/scripts/bartender-branch <TICKET> [base]` (base d
 Record: keep the ticket state in <ticket record path> after each result, not in messages. Decisions and results also go where the user's rules say (the ticket, a work doc).
 Run each bounded part in a Barback: the Agent tool with isolation "worktree", and the model and effort the user's rules give for that kind of work. At most 3 Barbacks at a time.
 A Barback that cannot decide returns "NEEDS_INPUT: <one question>". Answer it from the rules, the docs or a sensible default, then resume it with SendMessage to its agent id.
-For a technical question that rules and defaults do not settle, consult the advisor if this setup has one, before you send it up. A Mechanical Bartender sends the question up.
-Always send up, never decide alone: an action that the user's rules say needs the user's approval, a scope change, a change to the acceptance criteria, a product or priority choice. Add your pick as the default.
+For any question that rules and defaults do not settle (technical, product or priority), consult the advisor if this setup has one, before you send it up. Never consult it for an action that the user's rules say needs the user's approval: send that up directly. A Mechanical Bartender never consults the advisor: it sends the question up.
+Always send up, never decide alone: an action that needs the user's approval, a scope change, a change to the acceptance criteria, a product or priority choice that the advisor did not settle. Add your pick (the advisor's, if you consulted it) as the default.
 End every turn with the report shape below, with no text before it. Never send a message to the Bouncer: your turn end reaches it.
 <report shape>
 ```
@@ -94,16 +94,16 @@ EVIDENCE: <record link, PR, or file:line>
 - The Bouncer pipes each turn-end note to `scripts/bouncer-report`. It finds the 6 field lines anywhere in the note (the last block if there are several) and prints them as JSON. Exit 2: a field is missing, STATUS is bad, NEEDS_INPUT has no question, or the field lines pass 400 characters. Then check the evidence directly first (git log of the Bartender's branch, the ticket record). Read the transcript only if that is not enough. Tell the Bartender to use the shape.
 - When `LINEAR` differs from the title, the Bouncer renames the Bartender.
 - `WORKING`: no action. Barbacks still run.
-- `NEEDS_INPUT`: the Bouncer settles it with the Bartender first: it answers from rules, docs, the ticket or a sensible default, asks the Bartender for missing facts, and consults the advisor (if any) for a technical question that rules and defaults do not settle. It asks the user only when nothing covers the question: an action that needs the user's approval, or a product or priority choice. Then it adds the `!` CTA to the Bartender (`--cta`), updates the Bouncer count (`--bouncer <n>`), and asks the user in one line: the question, its pick and the default it takes if the user does not answer. It sends the answer back in the user's exact words, then removes the CTA and lowers the count.
+- `NEEDS_INPUT`: the Bouncer settles it with the Bartender first: it answers from rules, docs, the ticket or a sensible default, asks the Bartender for missing facts, and consults the advisor (if any) for any question that rules and defaults do not settle. An action that needs the user's approval goes to the user directly, with no advisor call. It asks the user only for such an action or for a question that the advisor did not settle. Then it adds the `!` CTA to the Bartender (`--cta`), updates the Bouncer count (`--bouncer <n>`), and asks the user in one line: the question, its pick (the advisor's, if consulted) and the default it takes if the user does not answer. In the Claude desktop app it asks in the turn-end question box (`wrap_up`), with its pick as the first reply button. It sends the answer back in the user's exact words, then removes the CTA and lowers the count.
 - `DONE`: check the evidence, then reset the Bartender and assign the next ticket from `bouncer-queue pop`. A popped ticket of another repo goes through "Route a request" instead, and the Bartender stays idle.
 - `BLOCKED`: tell the user the blocker in one line.
 
 ## Escalation
 | Question | Answered by |
 |---|---|
-| A technical question that rules and defaults do not settle | The level that has it, with the advisor if any |
+| A question that rules and defaults do not settle (technical, product or priority) | The level that has it, with the advisor if any; the user only if the advisor does not settle it |
 | Cross-ticket or cross-repo | The Bouncer |
-| An action that needs the user's approval; a product or priority choice | The user, through the Bouncer |
+| An action that needs the user's approval | The user, through the Bouncer, with no advisor call |
 
 Each level answers from rules, docs and defaults first. It escalates only when nothing covers the question.
 
