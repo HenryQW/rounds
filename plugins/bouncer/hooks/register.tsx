@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { EMPTY, ago, archived, columns, dots, ledgerItem, parseBartender, ledgerNext, openPrUrls, prInfo, ownPr, prMark, prUrl, prUrls, ticketLedger, queueLines, queueSummary, questionItem, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
+import { EMPTY, ago, answers, archived, columns, dots, ledgerItem, parseBartender, ledgerNext, openPrUrls, prInfo, ownPr, prMark, prUrl, prUrls, ticketLedger, queueLines, queueSummary, questionItem, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
 import type { Column, Report } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
@@ -129,6 +129,20 @@ const onNote = async ($: EngineInterface, text: string) => {
   await syncTitles($, report)
 }
 
+// The decision memory goes with the first prompt of each session that is already the Bouncer (a clear or a restart gives
+// a new id), so a fresh context never works without it. Exit 1 is an empty memory; a failure tries again on the next prompt.
+const MEMORY = 'Bouncer decision memory (`bouncer-decisions list`: every active decision; check this turn against it):'
+const memoryContext = async ($: EngineInterface) => {
+  const id = await $.session.id()
+  if ((await read($, pool)).memoryFor === id) return undefined
+  const env = await $.process.hookEnv()
+  if (!env.CLAUDE_PLUGIN_ROOT) return undefined
+  const ran = await $.process.run([`${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-decisions`, 'list'], { env }).catch(() => undefined)
+  if (!ran || (ran.exitCode !== 0 && ran.exitCode !== 1)) return undefined
+  await update($, pool, p => ({ ...p, memoryFor: id }))
+  return ran.exitCode === 0 && ran.stdout.trim() ? `${MEMORY}\n${ran.stdout.trim()}` : undefined
+}
+
 // The band above the prompt; off the terminal Details opens in the Bouncer pane, which this same code draws.
 // shortcut: e and next are untyped here, as one function draws the AbovePrompt and the Pane.
 const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, records: string, linear: string) => {
@@ -147,9 +161,10 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
   // none while a question waits on the user, while the Bouncer works, or before the last one's turn ended.
   // The pane's props do not say whether a turn runs; the pool keeps it from prompt.submit to turn.complete.
   const isWorking = e.props?.isWorking ?? !!p.working
-  const ask = async (text: string) => {
+  // An answer (a pane button on the head question) goes while that question waits; any other prompt waits for it.
+  const ask = async (text: string, isAnswer = false) => {
     const now = await read($, pool)
-    if (now.waiting > 0) return $.ui.toast('Answer the waiting question first')
+    if (now.waiting > 0 && !isAnswer) return $.ui.toast('Answer the waiting question first')
     if (isWorking || now.pending) return $.ui.toast('Wait for the Bouncer to finish its turn')
     await update($, pool, q => ({ ...q, pending: true }))
     await $.prompt.submit({ text }).catch(() => update($, pool, q => ({ ...q, pending: false })))
@@ -483,8 +498,15 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
         <Box key="undecided" flexDirection="column" gap={isTerminal ? 0 : 'sm'}>
           <Box key="undecided:title"><Text size="footnote" weight="medium" color="error">{`Undecided ${undecided.length}`}</Text></Box>
           <Box flexDirection="column" gap={isTerminal ? 0 : 'xs'} backgroundColor="diffRemovedDimmed" paddingX={isTerminal ? 'xs' : 'md'} paddingY={isTerminal ? 0 : 'sm'} {...(t ? { borderStyle: 'round', borderColor: t.hairline } : {})}>
-            {undecided.map(q => {
+            {undecided.map((q, i) => {
               const b = bartenders.find(x => x.id === q.id)
+              // Only the head is asked, so only the head takes an answer: its Pick and Default send their text.
+              const a = i === 0 ? answers(q.question) : { pick: undefined, default: undefined }
+              const reply = (kind: 'Pick' | 'Default', text: string) => (
+                <Button key={`answer:${kind.toLowerCase()}:${q.ticket}`} plain onPress={() => ask(`Answer to ${q.ticket} (${kind} button): ${text}`, true)} {...(t ? { hover: { backgroundColor: t.hover } } : {})}>
+                  <Text color={t?.ink}>{kind}</Text>
+                </Button>
+              )
               const go = q.id === 'self'
                 ? async () => {
                     const at = asks.get(q.ticket)
@@ -497,6 +519,8 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
                   <Box flexGrow={1} flexShrink={1} minWidth={0}>
                     <Button key={`ask:${q.ticket}`} plain onPress={go}><Text wrap="truncate-end" color={t?.ink}>{`🔴 ${q.ticket}: ${q.question}`}</Text></Button>
                   </Box>
+                  {a.pick !== undefined && reply('Pick', a.pick)}
+                  {a.default !== undefined && reply('Default', a.default)}
                   {q.at && now > 0 && <Text size="footnote" color={t?.subtle}>{ago(q.at, now)}</Text>}
                 </Box>
               )
@@ -593,7 +617,11 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     await onNote($, e.text).catch(() => undefined)
     await update($, pool, p => (p.working ? p : { ...p, working: true }))
-    if ((await read($, pool)).isOn) await refreshSessions($).catch(() => undefined)
+    if ((await read($, pool)).isOn) {
+      await refreshSessions($).catch(() => undefined)
+      const memory = await memoryContext($).catch(() => undefined)
+      if (memory) return next({ ...e, context: [...(e.context === undefined ? [] : [e.context].flat()), memory] })
+    }
     return next(e)
   })
 

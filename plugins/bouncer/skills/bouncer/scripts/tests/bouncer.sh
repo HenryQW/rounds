@@ -116,7 +116,7 @@ ok "questions: count on empty is 0" "$(./bouncer-questions count)" 0
 ./bouncer-questions add "ABC-1 | local_a" 2>/dev/null; ok "questions: no question exits 2" $? 2
 ./bouncer-questions add " | local_a | why?" 2>/dev/null; ok "questions: no ticket exits 2" $? 2
 ./bouncer-questions done 2>/dev/null; ok "questions: done without a ticket exits 2" $? 2
-./bouncer-questions done ABC-9 2>/dev/null; ok "questions: done of a missing ticket exits 1" $? 1
+./bouncer-questions done ABC-9 --none 2>/dev/null; ok "questions: done of a missing ticket exits 1" $? 1
 ./bouncer-questions nope 2>/dev/null; ok "questions: bad command exits 2" $? 2
 noat() { sed -E 's/ \| at: [0-9T:Z-]+$//'; }
 ./bouncer-questions add "ABC-1 | local_a | Will Henry post it himself, or allow save_comment? Default: post"
@@ -128,13 +128,20 @@ ok "questions: count" "$(./bouncer-questions count)" 2
 ./bouncer-questions next | grep -qE ' \| at: [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$'; ok "questions: a line ends with the UTC time it was added" $? 0
 ./bouncer-questions add "ABC-3 | self | Merge? | at: 1999-01-01T00:00:00Z"; ok "questions: a given at: is replaced, not doubled" "$(./bouncer-questions list | grep -c 'at: ')" 3
 ./bouncer-questions list | grep -q 1999; ok "questions: the old at: is gone" $? 1
-./bouncer-questions done ABC-3
-./bouncer-questions done ABC-2; ok "questions: done removes only that ticket" "$(./bouncer-questions list | noat)" "ABC-1 | local_a | Post it or not?"
+./bouncer-questions done ABC-3 --none
+./bouncer-questions done ABC-2 --none; ok "questions: done removes only that ticket" "$(./bouncer-questions list | noat)" "ABC-1 | local_a | Post it or not?"
 ok "questions: the file is questions.md in the repo folder" "$(noat < "$tmp/q/r/questions.md")" "ABC-1 | local_a | Post it or not?"
 ./bouncer-questions add "cleanup-old | local_c | Keep A?"; ./bouncer-questions add "cleanup.old | local_d | Keep B?"
 ok "questions: a key matches literally, not as a regex" "$(./bouncer-questions count)" 3
-./bouncer-questions done cleanup.old; ok "questions: done matches the key literally" "$(./bouncer-questions list | noat | tr '\n' ';')" "ABC-1 | local_a | Post it or not?;cleanup-old | local_c | Keep A?;"
-./bouncer-questions done cleanup-old
+./bouncer-questions done cleanup.old --none; ok "questions: done matches the key literally" "$(./bouncer-questions list | noat | tr '\n' ';')" "ABC-1 | local_a | Post it or not?;cleanup-old | local_c | Keep A?;"
+./bouncer-questions done cleanup-old --none
+./bouncer-questions add "ABC-4 | self | Pin Node 24? Default: yes"
+./bouncer-questions done ABC-4 2>/dev/null; ok "questions: done without --decision or --none exits 2" $? 2
+./bouncer-questions done ABC-4 --decision D99 2>/dev/null; ok "questions: done with an unknown decision exits 2" $? 2
+ok "questions: a refused done keeps the question" "$(./bouncer-questions list | noat | grep -c ABC-4)" 1
+BOUNCER_TODAY=2026-11-28 ./bouncer-decisions add --about "Toolchain" "web | build | Pin Node 24 | CI image moved | Henry: yes" >/dev/null
+./bouncer-questions done ABC-4 --decision D1; ok "questions: done with an active decision removes the question" "$(./bouncer-questions list | noat | grep -c ABC-4)" 0
+rm -rf "$tmp/q/memory.md" "$tmp/q/decisions"
 
 # bouncer-grants (in the data folder)
 ./bouncer-grants has ABC-1 push 2>/dev/null; ok "grants: has with no grant exits 1" $? 1
@@ -224,16 +231,21 @@ ok "ledger: list --all also prints done items" "$(CLAUDE_CONFIG_DIR="$tmp/optcfg
 ok "ledger: the records_dir option names the folder" "$(CLAUDE_CONFIG_DIR="$tmp/optcfg" ./bouncer-ledger list | /usr/bin/grep -c "$tmp/rec/")" 4
 unset BOUNCER_DATA BOUNCER_REPO
 
+# SKILL.md and its on-demand files: the router names each file in references/, and each file it names exists
+sk=$(cat ../SKILL.md ../references/*.md)   # the whole skill text
+named=$(grep -o '`references/[a-z-]*\.md`' ../SKILL.md | tr -d '`' | sort -u)
+ok "skill: the router names every file in references/" "$named" "$(cd .. && ls references/*.md | sort)"
+for r in $named; do grep -qF "| \`$r\` |" ../SKILL.md; ok "skill: $r has a router row" $? 0; done
 # SKILL.md: the Barback brief line that stops a double delivery of its result (each delivery starts a Bartender turn)
-grep -qF 'End your turn with the report as your final text. Never also send it' ../SKILL.md; ok "skill: Barback brief ends its turn with the report and never also sends it" $? 0
-grep -qF 'same agent id' ../SKILL.md; ok "skill: a second delivery of a Barback result gets no work" $? 0
-grep -qF 'End a turn only with STATUS DONE, NEEDS_INPUT or BLOCKED.' ../SKILL.md; ok "skill: the Bartender brief ends a turn only on DONE, NEEDS_INPUT or BLOCKED" $? 0
-grep -qF 'only for a turn cut short (a usage limit or an interrupt)' ../SKILL.md; ok "skill: WORKING only for a turn cut short" $? 0
-grep -qF 'This wins over the app'"'"'s line to tell the user the outcome' ../SKILL.md; ok "skill: a WORKING note or a partial result is a silent turn" $? 0
-grep -qF 'in the `DRAFTS` section of the ticket record, one `### <id>` heading each' ../SKILL.md; ok "skill: drafts go in the record's DRAFTS section" $? 0
-grep -qF 'in a message of its own, never next to other tool calls' ../SKILL.md; ok "skill: a state-changing Bash call goes alone" $? 0
-grep -qF '**Supervise each Bartender.**' ../SKILL.md; ok "skill: the Bouncer checks Bartender evidence before it relays" $? 0
-grep -qF '[Load the `<skill>` skill (Skill tool) before any work' ../SKILL.md; ok "skill: the brief loads the bartender_skill" $? 0
+grep -qF 'End your turn with the report as your final text. Never also send it' <<<"$sk"; ok "skill: Barback brief ends its turn with the report and never also sends it" $? 0
+grep -qF 'same agent id' <<<"$sk"; ok "skill: a second delivery of a Barback result gets no work" $? 0
+grep -qF 'End a turn only with STATUS DONE, NEEDS_INPUT or BLOCKED.' <<<"$sk"; ok "skill: the Bartender brief ends a turn only on DONE, NEEDS_INPUT or BLOCKED" $? 0
+grep -qF 'only for a turn cut short (a usage limit or an interrupt)' <<<"$sk"; ok "skill: WORKING only for a turn cut short" $? 0
+grep -qF 'This wins over the app'"'"'s line to tell the user the outcome' <<<"$sk"; ok "skill: a WORKING note or a partial result is a silent turn" $? 0
+grep -qF 'in the `DRAFTS` section of the ticket record, one `### <id>` heading each' <<<"$sk"; ok "skill: drafts go in the record's DRAFTS section" $? 0
+grep -qF 'in a message of its own, never next to other tool calls' <<<"$sk"; ok "skill: a state-changing Bash call goes alone" $? 0
+grep -qF '**Supervise each Bartender.**' <<<"$sk"; ok "skill: the Bouncer checks Bartender evidence before it relays" $? 0
+grep -qF '[Load the `<skill>` skill (Skill tool) before any work' <<<"$sk"; ok "skill: the brief loads the bartender_skill" $? 0
 for o in bartender_skill ticket_effort; do grep -qF "\${user_config.$o}" ../SKILL.md; ok "skill: option $o is read" $? 0; done
 ok "plugin.json: bartender_skill default is blank, ticket_effort default is medium" "$(python3 -c 'import json;c=json.load(open("../../../.claude-plugin/plugin.json"))["userConfig"];print(repr(c["bartender_skill"]["default"]),c["ticket_effort"]["default"])')" "'' medium"
 

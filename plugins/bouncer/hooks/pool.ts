@@ -190,6 +190,13 @@ export const questionItem = (line: string) => {
   return { ticket, id, question: q.join(' | '), at: m?.[1] }
 }
 
+/** The pick and the default at the end of a question (`<question> Pick: <a>. Default: <b>`): the pane's answer buttons. */
+export const answers = (question: string) => {
+  const d = /\bDefault:\s*(.+?)\.?\s*$/.exec(question)
+  const p = /\bPick:\s*(.+?)\.?\s*$/.exec(d ? question.slice(0, d.index) : question)
+  return { pick: p?.[1], default: d?.[1] }
+}
+
 /** `questions.md` lines as session id to its oldest question, in file order. */
 export const questionsBySession = (text: string): Record<string, string> => {
   const out: Record<string, string> = {}
