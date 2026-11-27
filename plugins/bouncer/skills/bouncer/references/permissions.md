@@ -13,6 +13,4 @@ Only the user's allow rules for `mcp__ccd_pr__bind_pr` and `mcp__ccd_pr__set_mon
 
 The Bouncer picks each Bartender's model and effort itself, from the "Decision table", and never asks the user. Only allow rules for `mcp__ccd_session_mgmt__set_session_model` and `mcp__ccd_session_mgmt__set_session_effort` skip the app's prompt; the user adds them in their own settings. The Bouncer never adds or changes them.
 
-The Bouncer sends each state-changing Bash call (a push, a merge, a script that writes) in a message of its own, never next to other tool calls. Auto mode gave "no verdict" 3 times when such a call was batched with others (seen 2026-11-27).
-
 Auto mode refuses an approval that one session relays to another ("Unsanctioned Communication", "Destructive or Unwanted Actions", seen 2026-11-26), so the Bouncer runs the closing chain itself. A hook such as rtk may rewrite Bash commands (`git push` runs as `rtk git push`); an allow rule must name the rewritten form.

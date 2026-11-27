@@ -12,7 +12,5 @@ The ledger keeps work that must be revisited in the ticket records, so it surviv
   | `verify` | Ticket key | What to verify where (for example staging), and a check if one exists |
 
   A check exits 0 when due and 1 when not.
-- Run `bouncer-ledger due` at Bouncer start and on each user turn. It prints only due items, each with its record path: read that one record, never all of them. Act on each due item through the "Decision table" (a held message still needs the user's yes to send), and `bouncer-ledger done <record> <key>` when it is settled. An `unsure` line: check it by hand.
-- Run `bouncer-ledger stale --turn <record>=<last turn time>` (one `--turn` for each Bartender, from `list_sessions`) at Bouncer start. For a stale record, ask its Bartender to refresh it. Only when that Bartender is gone, a Haiku subagent rebuilds the record from that session's transcript. No routine model summaries.
 - An item with no check is never due by itself: run `bouncer-ledger list` when the user asks what is open.
 - The band shows the open count.

@@ -141,6 +141,7 @@ ok "questions: a key matches literally, not as a regex" "$(./bouncer-questions c
 ok "questions: a refused done keeps the question" "$(./bouncer-questions list | noat | grep -c ABC-4)" 1
 BOUNCER_TODAY=2026-11-28 ./bouncer-decisions add --about "Toolchain" "web | build | Pin Node 24 | CI image moved | Henry: yes" >/dev/null
 ./bouncer-questions done ABC-4 --decision D1; ok "questions: done with an active decision removes the question" "$(./bouncer-questions list | noat | grep -c ABC-4)" 0
+chmod 000 "$tmp/q/memory.md"; ./bouncer-decisions list >/dev/null 2>&1; ok "decisions: list of an unreadable memory exits 2, not 1" $? 2; chmod 644 "$tmp/q/memory.md"
 rm -rf "$tmp/q/memory.md" "$tmp/q/decisions"
 
 # bouncer-grants (in the data folder)

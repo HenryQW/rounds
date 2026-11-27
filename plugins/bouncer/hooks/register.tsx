@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { EMPTY, ago, answers, archived, columns, dots, ledgerItem, parseBartender, ledgerNext, openPrUrls, prInfo, ownPr, prMark, prUrl, prUrls, ticketLedger, queueLines, queueSummary, questionItem, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
+import { EMPTY, ago, archived, columns, dots, ledgerItem, parseBartender, ledgerNext, openPrUrls, prInfo, ownPr, prMark, prUrl, prUrls, ticketLedger, queueLines, queueSummary, questionItem, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
 import type { Column, Report } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
@@ -500,11 +500,15 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
           <Box flexDirection="column" gap={isTerminal ? 0 : 'xs'} backgroundColor="diffRemovedDimmed" paddingX={isTerminal ? 'xs' : 'md'} paddingY={isTerminal ? 0 : 'sm'} {...(t ? { borderStyle: 'round', borderColor: t.hairline } : {})}>
             {undecided.map((q, i) => {
               const b = bartenders.find(x => x.id === q.id)
-              // Only the head is asked, so only the head takes an answer: its Pick and Default send their text.
-              const a = i === 0 ? answers(q.question) : { pick: undefined, default: undefined }
+              // Only the head is asked, so only the head takes an answer. A button shows its whole option and sends it only
+              // while the file's head is still this question with this option.
               const reply = (kind: 'Pick' | 'Default', text: string) => (
-                <Button key={`answer:${kind.toLowerCase()}:${q.ticket}`} plain onPress={() => ask(`Answer to ${q.ticket} (${kind} button): ${text}`, true)} {...(t ? { hover: { backgroundColor: t.hover } } : {})}>
-                  <Text color={t?.ink}>{kind}</Text>
+                <Button key={`answer:${kind.toLowerCase()}:${q.ticket}`} plain {...(t ? { hover: { backgroundColor: t.hover } } : {})} onPress={async () => {
+                  const head = queueLines(await dataFile($, 'questions.md')).map(questionItem)[0]
+                  if (head?.ticket !== q.ticket || (kind === 'Pick' ? head.pick : head.default) !== text) return $.ui.toast(`${q.ticket}: the question changed; read it again`)
+                  return ask(`Answer to ${q.ticket} (${kind} button): ${text}`, true)
+                }}>
+                  <Text color={t?.ink}>{`${kind}: ${text}`}</Text>
                 </Button>
               )
               const go = q.id === 'self'
@@ -515,13 +519,19 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
                   }
                 : () => open(q.id, b ? b.ticket || b.repo : q.ticket)
               return (
-                <Box key={`undecided:${q.ticket}`} flexDirection="row" alignItems="center" gap="sm" {...(t ? { hover: { backgroundColor: t.hover } } : {})}>
-                  <Box flexGrow={1} flexShrink={1} minWidth={0}>
-                    <Button key={`ask:${q.ticket}`} plain onPress={go}><Text wrap="truncate-end" color={t?.ink}>{`🔴 ${q.ticket}: ${q.question}`}</Text></Button>
+                <Box key={`undecided:${q.ticket}`} flexDirection="column">
+                  <Box flexDirection="row" alignItems="center" gap="sm" {...(t ? { hover: { backgroundColor: t.hover } } : {})}>
+                    <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                      <Button key={`ask:${q.ticket}`} plain onPress={go}><Text wrap="truncate-end" color={t?.ink}>{`🔴 ${q.ticket}: ${q.question}`}</Text></Button>
+                    </Box>
+                    {q.at && now > 0 && <Text size="footnote" color={t?.subtle}>{ago(q.at, now)}</Text>}
                   </Box>
-                  {a.pick !== undefined && reply('Pick', a.pick)}
-                  {a.default !== undefined && reply('Default', a.default)}
-                  {q.at && now > 0 && <Text size="footnote" color={t?.subtle}>{ago(q.at, now)}</Text>}
+                  {i === 0 && (q.pick !== undefined || q.default !== undefined) && (
+                    <Box key={`answers:${q.ticket}`} flexDirection="row" flexWrap="wrap" gap="sm">
+                      {q.pick !== undefined && reply('Pick', q.pick)}
+                      {q.default !== undefined && reply('Default', q.default)}
+                    </Box>
+                  )}
                 </Box>
               )
             })}

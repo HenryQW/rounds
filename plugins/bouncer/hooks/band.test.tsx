@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { EMPTY, answers, dot, parseBartender, ticketLedger, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
+import { EMPTY, dot, questionItem, parseBartender, ticketLedger, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
 
 const BAND = { plugin: 'bouncer', component: 'AbovePrompt', props: { hasSurvey: false, bodyColumns: 120 } } as const
 const PANE = { plugin: 'bouncer', component: 'Pane', requestId: 'bouncer', props: { bodyColumns: 120 } } as const
@@ -848,10 +848,11 @@ test('the pane lists every undecided item, oldest first, with its age; a Bartend
   await ui.unmount()
 })
 
-test('a question line gives the pane its pick and its default', () => {
-  expect(answers('Conflicts with D3: CI moved. Replace D3? Pick: replace with Node 24. Default: keep D3')).toEqual({ pick: 'replace with Node 24', default: 'keep D3' })
-  expect(answers('Merge PR 36? Default: yes')).toEqual({ pick: undefined, default: 'yes' })
-  expect(answers('Post the comment?')).toEqual({ pick: undefined, default: undefined })
+test('a question line gives the pane its pick and its default as fields, verbatim', () => {
+  expect(questionItem('rounds-36 | self | Replace D3? | Pick: write Default: off in the U.K. | Default: keep D3. | at: 2026-11-27T10:00:00Z'))
+    .toEqual({ ticket: 'rounds-36', id: 'self', question: 'Replace D3?', pick: 'write Default: off in the U.K.', default: 'keep D3.', at: '2026-11-27T10:00:00Z' })
+  expect(questionItem('MIDI-1 | local_a | Merge PR 36? Default: yes')).toMatchObject({ question: 'Merge PR 36? Default: yes', pick: undefined, default: undefined })
+  expect(questionItem('MIDI-1 | local_a | Default: yes')).toMatchObject({ question: 'Default: yes', default: undefined })
 })
 
 test('the head undecided item has Pick and Default buttons that answer it while it waits; a later item has none', async ($, on) => {
@@ -859,8 +860,9 @@ test('the head undecided item has Pick and Default buttons that answer it while 
   base(on, { details: true })
   on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
+  let file = 'rounds-36 | self | Replace D3? | Pick: replace with Node 24 | Default: keep D3\nMIDI-1 | local_a | Post the comment? | Default: yes\n'
   on('fs.read', (_: unknown, e: { path?: string }) => {
-    if (e.path === '/data/rounds/questions.md') return { value: 'rounds-36 | self | Replace D3? Pick: replace with Node 24. Default: keep D3\nMIDI-1 | local_a | Post the comment? Default: yes\n' }
+    if (e.path === '/data/rounds/questions.md') return { value: file }
     throw new Error('missing')
   })
   const { prompts, toasts } = record(on)
@@ -869,12 +871,17 @@ test('the head undecided item has Pick and Default buttons that answer it while 
   await title($, 'self', '!2 🚪 Bouncer')
   await endTurn($)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
-  expect((await ui.find({ key: 'answer:pick:rounds-36' }))?.text).toBe('Pick')
+  expect((await ui.find({ key: 'answer:pick:rounds-36' }))?.text).toBe('Pick: replace with Node 24')
   expect(await ui.find({ key: 'answer:default:MIDI-1' })).toBe(undefined)
   // Two questions wait, yet the answer goes: it answers the head.
   await ui.press({ key: 'answer:default:rounds-36' })
   expect(prompts).toEqual(['Answer to rounds-36 (Default button): keep D3'])
   expect(toasts).toEqual([])
+  // The head changed after the pane drew it: the old button sends nothing.
+  file = 'rounds-36 | self | Replace D3? | Pick: replace with Node 26 | Default: keep D3\n'
+  await ui.press({ key: 'answer:pick:rounds-36' })
+  expect(prompts).toEqual(['Answer to rounds-36 (Default button): keep D3'])
+  expect(toasts).toEqual(['rounds-36: the question changed; read it again'])
   await ui.unmount()
 })
 
