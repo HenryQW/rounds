@@ -160,17 +160,23 @@ export BOUNCER_TODAY=2026-11-27
 ./bouncer-decisions list 2>/dev/null; ok "decisions: list with none exits 1" $? 1
 ./bouncer-decisions add "rounds | no source" 2>/dev/null; ok "decisions: a line without a source exits 2" $? 2
 ./bouncer-decisions add --supersedes D9 "rounds | x | y" 2>/dev/null; ok "decisions: supersede of an unknown id exits 2" $? 2
-./bouncer-decisions find 2>/dev/null; ok "decisions: find without words exits 2" $? 2
+./bouncer-decisions get 7 2>/dev/null; ok "decisions: get of a bad id exits 2" $? 2
 ok "decisions: add prints the id" "$(./bouncer-decisions add "rounds | Use GitHub Issues as the tracker | user: \"use issues | not Linear\"")" D1
 ./bouncer-decisions add "all | Merge PRs on a ready verdict | default: agentMerge rule" >/dev/null
 ./bouncer-decisions add "web | Deploy on Fridays | user: ok" >/dev/null
 ok "decisions: list of a scope adds the all scope" "$(./bouncer-decisions list rounds | cut -d' ' -f1 | tr '\n' ' ')" "D1 D2 "
-ok "decisions: find is case-insensitive and literal" "$(./bouncer-decisions find LINEAR 'a.b' | cut -d' ' -f1)" D1
+ok "decisions: an exact duplicate adds nothing" "$(./bouncer-decisions add "web | Deploy on Fridays | user: again")" D3
+ok "decisions: list of two scopes" "$(./bouncer-decisions list web rounds | cut -d' ' -f1 | tr '\n' ' ')" "D1 D2 D3 "
 ok "decisions: supersede prints the new id" "$(./bouncer-decisions add --supersedes D1 "rounds | Use Linear as the tracker | user: switch to Linear")" D4
 ok "decisions: the old one is marked" "$(./bouncer-decisions history | head -1)" 'D1 | 2026-11-27 | rounds | Use GitHub Issues as the tracker | user: "use issues | not Linear" | superseded by D4'
 ok "decisions: list drops a superseded one" "$(./bouncer-decisions list rounds | cut -d' ' -f1 | tr '\n' ' ')" "D2 D4 "
 ./bouncer-decisions add --supersedes D1 "rounds | x | y" 2>/dev/null; ok "decisions: supersede of a superseded id exits 2" $? 2
+./bouncer-decisions get D1 2>/dev/null; ok "decisions: get of a superseded id exits 1" $? 1
+ok "decisions: get an active id" "$(./bouncer-decisions get D4 | cut -d' ' -f1)" D4
 ok "decisions: ids count superseded lines" "$(./bouncer-decisions add "web | Pin Node 22 | default: CI image")" D5
+BOUNCER_DECISIONS_CAP=300 ./bouncer-decisions add "web | Pin Node 24 | default: new CI image" 2>/dev/null; ok "decisions: an add over the cap exits 3" $? 3
+ok "decisions: an add over the cap writes nothing" "$(./bouncer-decisions history | wc -l | tr -d ' ')" 5
+ok "decisions: a supersede frees its old line from the cap" "$(BOUNCER_DECISIONS_CAP=300 ./bouncer-decisions add --supersedes D5 "web | Pin Node 24 | default: new CI image")" D6
 
 # bouncer-ledger (LEDGER sections in the records; a fake gh answers PR states)
 mkdir -p "$tmp/bin"; printf '#!/bin/sh\ncase "$3" in *merged*) echo MERGED;; *open*) echo OPEN;; *) exit 1;; esac\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"

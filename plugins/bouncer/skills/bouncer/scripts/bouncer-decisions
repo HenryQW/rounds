@@ -2,19 +2,24 @@
 # bouncer-decisions add [--supersedes D<n>] "<scope> | <decision> | <source>"   record a decision; prints its id (D<n>)
 #   <scope>: a repo, a ticket key or `all`. <source>: the user's exact words, or `default: <why>` for a default the Bouncer took.
 #   --supersedes marks that active decision `superseded by D<new>`; it stays in the file as history.
-# bouncer-decisions list [scope]   print the active decisions (all of them, or those of that scope and of `all`)
-# bouncer-decisions find <word>... print the active decisions that hold any of the words (case-insensitive), to check a conflict
-# bouncer-decisions history        print every decision, superseded ones included
+#   An exact duplicate (same scope and decision as an active line) adds nothing and prints the existing id.
+# bouncer-decisions list [scope]...  print the active decisions (all of them, or those of the scopes given and of `all`)
+# bouncer-decisions get D<n>         print that active decision; exit 1 when it is unknown or superseded (check an id before you cite it)
+# bouncer-decisions history          print every decision, superseded ones included
 # The log is decisions.md in the plugin's data folder (bouncer-data), shared by every Bouncer and kept across updates.
 # Line: D<n> | <date> | <scope> | <decision> | <source>[ | superseded by D<m>]. Only the Bouncer writes it.
-# Exit 1: find or list matched nothing. Exit 2: bad usage, a line without its 3 fields, or --supersedes of an unknown or superseded id.
+# The active lines have a cap (BOUNCER_DECISIONS_CAP characters, default 8000), so the whole list fits in context and
+# is read in full, never searched. Superseded lines do not count.
+# Exit 1: list or get matched nothing. Exit 2: bad usage, a line without its 3 fields, or --supersedes of an unknown or
+# superseded id. Exit 3: the add would pass the cap; nothing is written.
 set -euo pipefail
 trim() { local s=$1; s=${s#"${s%%[![:space:]]*}"}; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
-usage() { echo "usage: bouncer-decisions add [--supersedes D<n>] \"scope | decision | source\" | list [scope] | find <word>... | history" >&2; exit 2; }
+usage() { echo "usage: bouncer-decisions add [--supersedes D<n>] \"scope | decision | source\" | list [scope]... | get D<n> | history" >&2; exit 2; }
 cmd=${1:-}
 [ -n "$cmd" ] || usage
 shift
 f="$("$(dirname "$0")/bouncer-data")/decisions.md"
+cap=${BOUNCER_DECISIONS_CAP:-8000}
 touch "$f"
 active() { awk '/^D[0-9]+ \|/ && !/\| superseded by D[0-9]+$/' "$f"; }
 case $cmd in
@@ -27,21 +32,24 @@ case $cmd in
     if [ -n "$old" ]; then
       [[ $old =~ ^D[0-9]+$ ]] && active | grep -q "^$old |" || { echo "no active decision $old" >&2; exit 2; }
     fi
+    dup=$(active | S="$s" D="$d" awk -F' \\| ' '$3 == ENVIRON["S"] && $4 == ENVIRON["D"] { print $1; exit }')
+    if [ -n "$dup" ] && [ -z "$old" ]; then echo "$dup"; exit 0; fi
     n=$(( $(grep -c '^D[0-9]' "$f" || true) + 1 ))
+    line="D$n | ${BOUNCER_TODAY:-$(date +%F)} | $s | $d | $w"
+    kept=$(active | { if [ -n "$old" ]; then O="$old |" awk 'index($0, ENVIRON["O"]) != 1'; else cat; fi; })
+    size=$(printf '%s\n%s\n' "$kept" "$line" | wc -m | tr -d ' ')
+    [ "$size" -le "$cap" ] || { echo "over cap: active decisions would be $size of $cap characters; supersede or merge old ones first" >&2; exit 3; }
     tmp=$(mktemp)
     if [ -n "$old" ]; then O="$old |" N="D$n" awk 'index($0, ENVIRON["O"]) == 1 { print $0 " | superseded by " ENVIRON["N"]; next } { print }' "$f" > "$tmp"
     else cp "$f" "$tmp"; fi
-    echo "D$n | ${BOUNCER_TODAY:-$(date +%F)} | $s | $d | $w" >> "$tmp"; mv "$tmp" "$f"
+    echo "$line" >> "$tmp"; mv "$tmp" "$f"
     echo "D$n" ;;
   list)
-    s=$(trim "${1:-}")
-    if [ -z "$s" ]; then active | grep . || exit 1
-    else active | S="$s" awk -F' \\| ' '$3 == ENVIRON["S"] || $3 == "all"' | grep . || exit 1; fi ;;
-  find)
-    [ $# -gt 0 ] || usage
-    args=(); for w in "$@"; do [ -n "$w" ] && args+=(-e "$w"); done
-    [ ${#args[@]} -gt 0 ] || usage
-    active | grep -iF "${args[@]}" || exit 1 ;;
+    if [ $# -eq 0 ]; then active | grep . || exit 1
+    else active | S=" $* " awk -F' \\| ' 'index(ENVIRON["S"], " " $3 " ") || $3 == "all"' | grep . || exit 1; fi ;;
+  get)
+    [[ ${1:-} =~ ^D[0-9]+$ ]] || usage
+    active | grep "^$1 |" || { echo "no active decision $1" >&2; exit 1; } ;;
   history) cat "$f" ;;
   *) usage ;;
 esac

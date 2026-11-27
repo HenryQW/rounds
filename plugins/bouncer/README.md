@@ -55,7 +55,7 @@ The plugin keeps its state in the data folder that Claude Code gives it: `~/.cla
 | `<repo>/queue.md` | One Bouncer's tickets above the Bartender cap, one line each |
 | `<repo>/questions.md` | One Bouncer's questions that wait on you, one line each, oldest first |
 | `grants.md` | Your one yes for each ticket's closing chain, one line each |
-| `decisions.md` | The decision log, the memory of past sessions: one line a decision (`D<n> \| date \| scope \| decision \| source`). The Bouncer adds each decision of yours and each default that a later session must follow, reads it at start, and asks you when new information conflicts with a decision. A replaced decision stays, marked `superseded by` |
+| `decisions.md` | The decision log, the memory of past sessions: one line a decision (`D<n> \| date \| scope \| decision \| source`). The Bouncer adds each decision of yours and each default that a later session must follow, reads all of it at start, and asks you when new information conflicts with a decision. The decisions in force have a cap of 8000 characters, so the whole list fits in context; a replaced decision stays as history, marked `superseded by`, and does not count |
 | `decision-table.md` | Rows that the Bouncer adds to its decision table when you answer a question that no row covered |
 | `tickets/<TICKET>.md` | Ticket records, unless the `records_dir` option names another folder. Each record's `LEDGER` section holds its work to revisit (an open PR, a held message, a follow-up, a staging check); `bouncer-ledger due` lists what is due |
 
