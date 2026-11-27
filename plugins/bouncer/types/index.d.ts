@@ -13,22 +13,34 @@ export type Pool = {
   queueOpen?: boolean
   /** True from a band prompt until the Bouncer's turn ends: the band sends one prompt at a time. */
   pending?: boolean
+  /** True from a prompt until the Bouncer's turn ends: the pane, whose props do not say it, sends no prompt then. */
+  working?: boolean
   /** Bartender session id to its open question for the user, from `questions.md`. */
   questions?: Readonly<Record<string, string>>
-  /** Open items in the records' LEDGER sections (`bouncer-ledger list`); absent in a value an earlier version stored. */
-  ledger?: number
-  /** The `bouncer-ledger list` lines; absent in a value an earlier version stored. */
+  /** The `bouncer-ledger list --all` lines, open and done (done ones keep their PR URLs); absent in a value an earlier version stored. */
   ledgerLines?: readonly string[]
-  /** True while the band lists the ledger's open items. */
-  ledgerOpen?: boolean
+  /** Each Bartender's last report text, kept for the full PR URLs its EVIDENCE names. */
+  reportTexts?: Readonly<Record<string, string>>
+  /** The `bouncer-ledger due` lines: open items whose check says the user must act now. Read once a turn. */
+  due?: readonly string[]
+  /** A PR's full URL to its GitHub state (lower case) and base branch, read with `gh` once a turn for the open pr ledger items. */
+  prs?: Readonly<Record<string, { state?: string; base?: string }>>
   /** True while another session holds the Bouncer (`bouncer` in the plugin's data folder names it). */
   isOther?: boolean
   /** Bartender session id to the STATUS of its last turn-end report (`bouncer-report`). */
   reports?: Readonly<Record<string, string>>
-  /** True when the band shows the chips (Details); false is Compact. Kept across sessions in `$.store` `details`. */
-  details?: boolean
-  /** The chip whose action row is open (its key). */
+  /** Bartender session id to whether its session runs a turn now (`list_sessions` `isRunning`). */
+  running?: Readonly<Record<string, boolean>>
+  /** Bartender session id to its linked session (`list_sessions`): folder, last activity, PR, and the PR's URL when its repo is on GitHub. */
+  sessions?: Readonly<Record<string, { cwd?: string; branch?: string; at?: string; pr?: { number: number; state?: string } }>>
+  /** Bartender session id to the sub-line of its last report: the wait reason, else the RESULT. */
+  notes?: Readonly<Record<string, string>>
+  /** True while the system appearance is dark: the band picks Linear's dark tokens, else the light ones. */
+  dark?: boolean
+  /** The column whose actions show in place of its sub-line (its key). */
   menu?: string
+  /** The Stop or Reset action (its value) that waits for its second click; cleared after 5 seconds. */
+  confirm?: string
 }
 
 declare module 'claude-code' {

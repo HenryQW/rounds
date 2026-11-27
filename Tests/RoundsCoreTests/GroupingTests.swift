@@ -100,7 +100,7 @@ private func thread(_ id: String, _ state: SessionState, parent: String? = nil) 
     let now = Date(timeIntervalSince1970: 4)
     let pool = [row("b", nil, activity: 3, title: "Bouncer"),
                 row("t1", nil, activity: 2, title: "[Dev] 🍸 MIDI-1 repo", parent: "b", state: .working),
-                row("t2", nil, activity: 1, title: "![Spec] 🔧 bouncer-types repo", parent: "b", state: .ready)]
+                row("t2", nil, activity: 1, title: "!🔧 [bouncer-types] [Spec] Bartender types", parent: "b", state: .ready)]
     let g = group(pool, query: "", rule: LastCallRule(), now: now)
     #expect(g.lastCallCount == 0 && g.running.map(\.id) == ["b"] && g.running[0].children.count == 2)
     #expect(g.running[0].status.state == .background && g.running[0].status.detail == "1 subagent")
