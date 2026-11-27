@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fixture test for bouncer-data, bouncer-title, bouncer-route, bouncer-queue, bouncer-questions, bouncer-grants, bouncer-ledger, bouncer-report, bouncer-accept, bouncer-overlap, bouncer-preflight and bartender-branch. Boundary cases first. No network.
+# Fixture test for bouncer-data, bouncer-title, bouncer-route, bouncer-queue, bouncer-questions, bouncer-grants, bouncer-decisions, bouncer-ledger, bouncer-report, bouncer-accept, bouncer-overlap, bouncer-preflight and bartender-branch. Boundary cases first. No network.
 # Run: bash scripts/tests/bouncer.sh (from the skill folder)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -154,6 +154,23 @@ ok "grants: a new grant of the same ticket replaces the old" "$(./bouncer-grants
 ./bouncer-grants has ABC-2 pu; ok "grants: has matches whole actions only" $? 1
 ok "grants: get" "$(./bouncer-grants get ABC-1)" "ABC-1 | close, link, comment | yes, close it"
 ./bouncer-grants done ABC-2; ok "grants: done removes only that ticket" "$(cat "$tmp/q/grants.md")" "ABC-1 | close, link, comment | yes, close it"
+
+# bouncer-decisions (in the data folder)
+export BOUNCER_TODAY=2026-11-27
+./bouncer-decisions list 2>/dev/null; ok "decisions: list with none exits 1" $? 1
+./bouncer-decisions add "rounds | no source" 2>/dev/null; ok "decisions: a line without a source exits 2" $? 2
+./bouncer-decisions add --supersedes D9 "rounds | x | y" 2>/dev/null; ok "decisions: supersede of an unknown id exits 2" $? 2
+./bouncer-decisions find 2>/dev/null; ok "decisions: find without words exits 2" $? 2
+ok "decisions: add prints the id" "$(./bouncer-decisions add "rounds | Use GitHub Issues as the tracker | user: \"use issues | not Linear\"")" D1
+./bouncer-decisions add "all | Merge PRs on a ready verdict | default: agentMerge rule" >/dev/null
+./bouncer-decisions add "web | Deploy on Fridays | user: ok" >/dev/null
+ok "decisions: list of a scope adds the all scope" "$(./bouncer-decisions list rounds | cut -d' ' -f1 | tr '\n' ' ')" "D1 D2 "
+ok "decisions: find is case-insensitive and literal" "$(./bouncer-decisions find LINEAR 'a.b' | cut -d' ' -f1)" D1
+ok "decisions: supersede prints the new id" "$(./bouncer-decisions add --supersedes D1 "rounds | Use Linear as the tracker | user: switch to Linear")" D4
+ok "decisions: the old one is marked" "$(./bouncer-decisions history | head -1)" 'D1 | 2026-11-27 | rounds | Use GitHub Issues as the tracker | user: "use issues | not Linear" | superseded by D4'
+ok "decisions: list drops a superseded one" "$(./bouncer-decisions list rounds | cut -d' ' -f1 | tr '\n' ' ')" "D2 D4 "
+./bouncer-decisions add --supersedes D1 "rounds | x | y" 2>/dev/null; ok "decisions: supersede of a superseded id exits 2" $? 2
+ok "decisions: ids count superseded lines" "$(./bouncer-decisions add "web | Pin Node 22 | default: CI image")" D5
 
 # bouncer-ledger (LEDGER sections in the records; a fake gh answers PR states)
 mkdir -p "$tmp/bin"; printf '#!/bin/sh\ncase "$3" in *merged*) echo MERGED;; *open*) echo OPEN;; *) exit 1;; esac\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"

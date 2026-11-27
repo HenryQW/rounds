@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# bouncer-decisions add [--supersedes D<n>] "<scope> | <decision> | <source>"   record a decision; prints its id (D<n>)
+#   <scope>: a repo, a ticket key or `all`. <source>: the user's exact words, or `default: <why>` for a default the Bouncer took.
+#   --supersedes marks that active decision `superseded by D<new>`; it stays in the file as history.
+# bouncer-decisions list [scope]   print the active decisions (all of them, or those of that scope and of `all`)
+# bouncer-decisions find <word>... print the active decisions that hold any of the words (case-insensitive), to check a conflict
+# bouncer-decisions history        print every decision, superseded ones included
+# The log is decisions.md in the plugin's data folder (bouncer-data), shared by every Bouncer and kept across updates.
+# Line: D<n> | <date> | <scope> | <decision> | <source>[ | superseded by D<m>]. Only the Bouncer writes it.
+# Exit 1: find or list matched nothing. Exit 2: bad usage, a line without its 3 fields, or --supersedes of an unknown or superseded id.
+set -euo pipefail
+trim() { local s=$1; s=${s#"${s%%[![:space:]]*}"}; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
+usage() { echo "usage: bouncer-decisions add [--supersedes D<n>] \"scope | decision | source\" | list [scope] | find <word>... | history" >&2; exit 2; }
+cmd=${1:-}
+[ -n "$cmd" ] || usage
+shift
+f="$("$(dirname "$0")/bouncer-data")/decisions.md"
+touch "$f"
+active() { awk '/^D[0-9]+ \|/ && !/\| superseded by D[0-9]+$/' "$f"; }
+case $cmd in
+  add)
+    old=""
+    if [ "${1:-}" = "--supersedes" ]; then old=${2:-}; shift 2 || usage; fi
+    IFS='|' read -r s d w <<<"${1:-}"   # w keeps any further | of the source
+    s=$(trim "$s"); d=$(trim "${d:-}"); w=$(trim "${w:-}")
+    [ -n "$s" ] && [ -n "$d" ] && [ -n "$w" ] || { echo "bad line: want scope | decision | source" >&2; exit 2; }
+    if [ -n "$old" ]; then
+      [[ $old =~ ^D[0-9]+$ ]] && active | grep -q "^$old |" || { echo "no active decision $old" >&2; exit 2; }
+    fi
+    n=$(( $(grep -c '^D[0-9]' "$f" || true) + 1 ))
+    tmp=$(mktemp)
+    if [ -n "$old" ]; then O="$old |" N="D$n" awk 'index($0, ENVIRON["O"]) == 1 { print $0 " | superseded by " ENVIRON["N"]; next } { print }' "$f" > "$tmp"
+    else cp "$f" "$tmp"; fi
+    echo "D$n | ${BOUNCER_TODAY:-$(date +%F)} | $s | $d | $w" >> "$tmp"; mv "$tmp" "$f"
+    echo "D$n" ;;
+  list)
+    s=$(trim "${1:-}")
+    if [ -z "$s" ]; then active | grep . || exit 1
+    else active | S="$s" awk -F' \\| ' '$3 == ENVIRON["S"] || $3 == "all"' | grep . || exit 1; fi ;;
+  find)
+    [ $# -gt 0 ] || usage
+    args=(); for w in "$@"; do [ -n "$w" ] && args+=(-e "$w"); done
+    [ ${#args[@]} -gt 0 ] || usage
+    active | grep -iF "${args[@]}" || exit 1 ;;
+  history) cat "$f" ;;
+  *) usage ;;
+esac

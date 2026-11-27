@@ -1,6 +1,6 @@
 {
   "name": "bouncer",
-  "version": "0.11.3",
+  "version": "0.11.4",
   "description": "Bouncer mode for the Claude desktop app: one Bouncer session routes tickets to Bartender sessions, one ticket each, in their own worktrees.",
   "author": {
     "name": "Henry Wang",
