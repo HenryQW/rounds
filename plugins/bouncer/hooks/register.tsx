@@ -243,7 +243,7 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
   // Linear's look off the terminal; the terminal keeps its own colours.
   const t = isTerminal ? undefined : LINEAR[p.dark ? 'dark' : 'light']
   // A quiet button: no fill, dim text that turns full strength under the pointer.
-  const detailsButton = <Button key="details" plain dimColor label="Details" onPress={openPane} />
+  const detailsButton = <Button key="details" plain dimColor label="Open Pane" onPress={openPane} />
   const { Link } = $.ui.resolve(e)
   // Every link in the accent: a bare Link takes the surface's own colour, which drew grey in Details.
   const link = (href: string, label: string) =>
@@ -363,7 +363,7 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
     // Measure once the engine gives widths.
     const n = p.waiting
     const w = (chars: number) => (isTerminal ? chars : Math.ceil(chars * 0.8))
-    const right = w((n > 0 ? `${n} waits on you`.length + 2 : 0) + (due.length > 0 ? `${due.length} to act`.length + 2 : 0) + 'Details'.length + 2)
+    const right = w((n > 0 ? `${n} waits on you`.length + 2 : 0) + (due.length > 0 ? `${due.length} to act`.length + 2 : 0) + 'Open Pane'.length + 2)
     const budget = (e.props?.bodyColumns ?? 120) - right - 5
     const fitOf = (withPr: boolean) => {
       const cells = (c: Column) => 2 + w(c.value.length + (c.label ? c.label.length + 1 : 0) + (withPr ? prOf(c).cells : 0)) + 3

@@ -409,7 +409,7 @@ test('off the terminal Details opens the Bouncer pane, two cards a row, and the 
   await band.press({ key: 'details' })
   // focus raises the pane when it is open already.
   expect(opened).toEqual([['bouncer', true]])
-  expect((await band.find({ key: 'details' }))?.text).toBe('Details')
+  expect((await band.find({ key: 'details' }))?.text).toBe('Open Pane')
   expect((await band.findAll({ type: 'Box' })).some((b: any) => b.props?.key?.startsWith('col:'))).toBe(false)
   await band.unmount()
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
@@ -443,6 +443,18 @@ test('a card title opens its Bartender session in split view', async ($, on) => 
   expect(opened).toEqual([['local_a', 'split'], ['local_b', 'split'], ['local_a', 'split'], ['local_b', 'split'], ['local_a', 'split']])
   expect(prompts).toEqual([])
   await pane.unmount()
+})
+
+test('a pane open that the engine rejects says so in a toast, never silently', async ($, on) => {
+  engine(on)
+  const { toasts } = record(on)
+  // No ui.open handler: the open rejects, as it does for a pane another plugin holds.
+  await title($, 'a', '🍸 [MIDI-1] [Dev] Ticket a')
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  await ui.press({ key: 'details' })
+  expect(toasts).toHaveLength(1)
+  expect(toasts[0]).toMatch(/^The Bouncer pane waits to show: .+/)
+  await ui.unmount()
 })
 
 test('a pane that does not show says so; the band stays one line', async ($, on) => {
@@ -642,10 +654,10 @@ test('the band is one line: a pill a Bartender (dot and key, chip), the waiting 
   expect(await ui.find({ type: 'Text', text: /Post the draft/ })).toBe(undefined)
   expect(await ui.find({ key: 'act:a' })).toBe(undefined)
   expect(await ui.find({ key: 'idle' })).toBe(undefined)
-  expect((await ui.find({ key: 'details' }))?.text).toBe('Details')
+  expect((await ui.find({ key: 'details' }))?.text).toBe('Open Pane')
   // Details has no other state: the band stays this one line.
   await ui.press({ key: 'details' })
-  expect((await ui.find({ key: 'details' }))?.text).toBe('Details')
+  expect((await ui.find({ key: 'details' }))?.text).toBe('Open Pane')
   expect(await ui.find({ key: 'act:a' })).toBe(undefined)
 
   await title($, 'self', '🚪 Bouncer')
