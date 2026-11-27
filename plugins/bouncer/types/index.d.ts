@@ -17,6 +17,8 @@ export type Pool = {
   working?: boolean
   /** Bartender session id to its open question for the user, from `questions.md`. */
   questions?: Readonly<Record<string, string>>
+  /** Every line of `questions.md`, oldest first: the pane's Undecided list. Absent in a value an earlier version stored. */
+  questionLines?: readonly string[]
   /** The `bouncer-ledger list --all` lines, open and done (done ones keep their PR URLs); absent in a value an earlier version stored. */
   ledgerLines?: readonly string[]
   /** Each Bartender's last report text, kept for the full PR URLs its EVIDENCE names. */

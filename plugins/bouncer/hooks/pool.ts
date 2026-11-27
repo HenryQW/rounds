@@ -183,13 +183,20 @@ export const ledgerItem = (line: string) => {
 
 export const queueLines = (text: string) => text.split('\n').filter(l => l.trim() !== '')
 
-/** `questions.md` lines (`<TICKET> | <session_id> | <question>`) as session id to its oldest question, in file order. */
+/** A `questions.md` line (`<TICKET> | <session_id> | <question>[ | at: <ISO time>]`) as its parts; `at` is absent in a line an earlier version wrote. */
+export const questionItem = (line: string) => {
+  const m = / \| at: (\S+)\s*$/.exec(line)
+  const [ticket = '', id = '', ...q] = (m ? line.slice(0, m.index) : line).split('|').map(s => s.trim())
+  return { ticket, id, question: q.join(' | '), at: m?.[1] }
+}
+
+/** `questions.md` lines as session id to its oldest question, in file order. */
 export const questionsBySession = (text: string): Record<string, string> => {
   const out: Record<string, string> = {}
   for (const l of queueLines(text)) {
-    const [, id, ...q] = l.split('|').map(s => s.trim())
+    const { id, question } = questionItem(l)
     // The first line of a session wins: `self` holds one line a ticket, and the band shows the head.
-    if (id && q.length && !(id in out)) out[id] = q.join(' | ')
+    if (id && question && !(id in out)) out[id] = question
   }
   return out
 }

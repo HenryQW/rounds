@@ -1,10 +1,13 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { EMPTY, ago, archived, columns, dots, ledgerItem, parseBartender, ledgerNext, openPrUrls, prInfo, ownPr, prMark, prUrl, prUrls, ticketLedger, queueLines, queueSummary, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
+import { EMPTY, ago, archived, columns, dots, ledgerItem, parseBartender, ledgerNext, openPrUrls, prInfo, ownPr, prMark, prUrl, prUrls, ticketLedger, queueLines, queueSummary, questionItem, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
 import type { Column, Report } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
+// shortcut: an undecided item's key to the requestId of the Bouncer's last Decide reply that named it, drawn since the
+// module loaded; a reload forgets it until the reply draws again. Keep it in state once a render may write it.
+const asks = new Map<string, string>()
 const PANE = 'bouncer'
 const ACTIONS = [['status', 'Status'], ['stop', 'Stop'], ['reset', 'Reset']] as const
 
@@ -78,10 +81,11 @@ const refreshData = async ($: EngineInterface, records = '') => {
   await update($, pool, p => (p.isOther === isOther ? p : { ...p, isOther }))
   if (!isOther) await refreshSessions($).catch(() => undefined)
   const lines = queueLines(await dataFile($, 'queue.md'))
-  const questions = questionsBySession(await dataFile($, 'questions.md'))
+  const questionsText = await dataFile($, 'questions.md')
+  const questions = questionsBySession(questionsText)
   const ledger = await ledgerList($, records)
   await update($, pool, p => ({
-    ...p, queue: lines.length, queueLines: lines, questions,
+    ...p, queue: lines.length, queueLines: lines, questions, questionLines: queueLines(questionsText),
     ledgerLines: ledger ?? p.ledgerLines,
   }))
 }
@@ -270,7 +274,8 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
     )
   })
   // The clock only when a card shows a time.
-  const now = Object.values(p.sessions ?? {}).some(x => x.at) ? await $.clock.now() : 0
+  const undecided = (p.questionLines ?? []).map(questionItem).filter(q => q.id && q.question)
+  const now = Object.values(p.sessions ?? {}).some(x => x.at) || undecided.some(q => q.at) ? await $.clock.now() : 0
   // A Bartender as Rounds row pieces: the title (dot and key, the key a link to its Linear issue), the status code as a
   // chip, the PR (`#17860 +1`, glyph in the PR state colour). The title is not a Button: a desktop Button adds its own
   // inset, so the rows would not align.
@@ -472,7 +477,34 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
         <Box flexGrow={1} />
         {p.queue > 0 && <Button key="queue" plain onPress={() => toggle('queueOpen')}><Text color={t?.muted}>{`Queue ${p.queue}`}</Text></Button>}
       </Box>
-      {waits && (
+      {/* Every undecided item, oldest first: a Bartender's opens its session; the Bouncer's own scrolls this transcript to
+          the reply that asked it (the last one that named its key), else says why not. */}
+      {undecided.length > 0 && (
+        <Box key="undecided" flexDirection="column" gap={isTerminal ? 0 : 'sm'}>
+          <Box key="undecided:title"><Text size="footnote" weight="medium" color="error">{`Undecided ${undecided.length}`}</Text></Box>
+          <Box flexDirection="column" gap={isTerminal ? 0 : 'xs'} backgroundColor="diffRemovedDimmed" paddingX={isTerminal ? 'xs' : 'md'} paddingY={isTerminal ? 0 : 'sm'} {...(t ? { borderStyle: 'round', borderColor: t.hairline } : {})}>
+            {undecided.map(q => {
+              const b = bartenders.find(x => x.id === q.id)
+              const go = q.id === 'self'
+                ? async () => {
+                    const at = asks.get(q.ticket)
+                    const ran = at ? await $.ui.scroll({ to: { requestId: at }, block: 'start' }).catch((err: unknown) => ({ deny: String(err) })) : { deny: 'no reply named it yet' }
+                    if (ran.deny !== undefined) $.ui.toast(`${q.ticket}: ${ran.deny}`)
+                  }
+                : () => open(q.id, b ? b.ticket || b.repo : q.ticket)
+              return (
+                <Box key={`undecided:${q.ticket}`} flexDirection="row" alignItems="center" gap="sm" {...(t ? { hover: { backgroundColor: t.hover } } : {})}>
+                  <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                    <Button key={`ask:${q.ticket}`} plain onPress={go}><Text wrap="truncate-end" color={t?.ink}>{`🔴 ${q.ticket}: ${q.question}`}</Text></Button>
+                  </Box>
+                  {q.at && now > 0 && <Text size="footnote" color={t?.subtle}>{ago(q.at, now)}</Text>}
+                </Box>
+              )
+            })}
+          </Box>
+        </Box>
+      )}
+      {waits && undecided.length === 0 && (
         <Box backgroundColor="diffRemovedDimmed" paddingX={isTerminal ? 'xs' : 'md'} paddingY={isTerminal ? 0 : 'sm'} {...(t ? { borderStyle: 'round', borderColor: t.hairline } : {})}>
           {waits.b
             ? <Button key={`open:${waits.b.id}`} plain onPress={() => open(waits.b!.id, waits.name)}>
@@ -595,6 +627,14 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, ($, e, next) => draw($, e, next, false, records, linear))
+  // The Bouncer's Decide reply that names an undecided item's key is where the pane scrolls on a click; the last one wins.
+  // A render may not write state, so the map is the module's own.
+  on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
+    const p = await read($, pool)
+    if (p.isOn && /Decide/.test(e.props.text))
+      for (const q of (p.questionLines ?? []).map(questionItem)) if (q.id === 'self' && e.props.text.includes(q.ticket)) asks.set(q.ticket, e.requestId)
+    return next(e)
+  })
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
     const { Text } = $.ui.resolve(e)
     return (await read($, pool)).isOn ? draw($, e, next, true, records, linear) : <Text>This session is not the Bouncer.</Text>

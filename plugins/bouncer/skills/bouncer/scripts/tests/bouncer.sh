@@ -118,17 +118,22 @@ ok "questions: count on empty is 0" "$(./bouncer-questions count)" 0
 ./bouncer-questions done 2>/dev/null; ok "questions: done without a ticket exits 2" $? 2
 ./bouncer-questions done ABC-9 2>/dev/null; ok "questions: done of a missing ticket exits 1" $? 1
 ./bouncer-questions nope 2>/dev/null; ok "questions: bad command exits 2" $? 2
+noat() { sed -E 's/ \| at: [0-9T:Z-]+$//'; }
 ./bouncer-questions add "ABC-1 | local_a | Will Henry post it himself, or allow save_comment? Default: post"
 ./bouncer-questions add "ABC-2|local_b|Ship A | or B?"
 ./bouncer-questions add "ABC-1 | local_a | Post it or not?"
-ok "questions: a reworded head stays the head" "$(./bouncer-questions next)" "ABC-1 | local_a | Post it or not?"
-ok "questions: a new question of the same ticket replaces the old in its place" "$(./bouncer-questions list | tr '\n' ';')" "ABC-1 | local_a | Post it or not?;ABC-2 | local_b | Ship A | or B?;"
+ok "questions: a reworded head stays the head" "$(./bouncer-questions next | noat)" "ABC-1 | local_a | Post it or not?"
+ok "questions: a new question of the same ticket replaces the old in its place" "$(./bouncer-questions list | noat | tr '\n' ';')" "ABC-1 | local_a | Post it or not?;ABC-2 | local_b | Ship A | or B?;"
 ok "questions: count" "$(./bouncer-questions count)" 2
-./bouncer-questions done ABC-2; ok "questions: done removes only that ticket" "$(./bouncer-questions list)" "ABC-1 | local_a | Post it or not?"
-ok "questions: the file is questions.md in the repo folder" "$(cat "$tmp/q/r/questions.md")" "ABC-1 | local_a | Post it or not?"
+./bouncer-questions next | grep -qE ' \| at: [0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z$'; ok "questions: a line ends with the UTC time it was added" $? 0
+./bouncer-questions add "ABC-3 | self | Merge? | at: 1999-01-01T00:00:00Z"; ok "questions: a given at: is replaced, not doubled" "$(./bouncer-questions list | grep -c 'at: ')" 3
+./bouncer-questions list | grep -q 1999; ok "questions: the old at: is gone" $? 1
+./bouncer-questions done ABC-3
+./bouncer-questions done ABC-2; ok "questions: done removes only that ticket" "$(./bouncer-questions list | noat)" "ABC-1 | local_a | Post it or not?"
+ok "questions: the file is questions.md in the repo folder" "$(noat < "$tmp/q/r/questions.md")" "ABC-1 | local_a | Post it or not?"
 ./bouncer-questions add "cleanup-old | local_c | Keep A?"; ./bouncer-questions add "cleanup.old | local_d | Keep B?"
 ok "questions: a key matches literally, not as a regex" "$(./bouncer-questions count)" 3
-./bouncer-questions done cleanup.old; ok "questions: done matches the key literally" "$(./bouncer-questions list | tr '\n' ';')" "ABC-1 | local_a | Post it or not?;cleanup-old | local_c | Keep A?;"
+./bouncer-questions done cleanup.old; ok "questions: done matches the key literally" "$(./bouncer-questions list | noat | tr '\n' ';')" "ABC-1 | local_a | Post it or not?;cleanup-old | local_c | Keep A?;"
 ./bouncer-questions done cleanup-old
 
 # bouncer-grants (in the data folder)
