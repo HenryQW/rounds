@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# The Bouncer's decisions, in two layers in the plugin's data folder (bouncer-data), shared by every Bouncer:
+#   memory.md               one short line a decision; the active lines are read whole at start (cap below)
+#   decisions/<domain>.md   one short record a decision: the decision, why, the source; read only on demand
+#   decisions/INDEX.md      the router: one line a domain; read it to find the one domain file you need
+# bouncer-decisions add [--supersedes D<n>] [--about "<what the domain covers>"] "<scope> | <domain> | <decision> | <why> | <source>"
+#   record a decision in both layers; prints its id (D<n>). <scope>: a repo, a ticket key or `all`. <domain>: a topic
+#   name (a-z, 0-9, -), such as `tracker` or `release`; a new domain needs --about (given again, it rewrites the
+#   domain's router line). <why>: the reason in one or two sentences, with no `|`. <source>: the user's exact words,
+#   or `default: <why>`.
+#   --supersedes marks that active decision `superseded by D<new>` in both layers; it stays as history.
+#   An exact duplicate (same scope, domain and decision as an active line) adds nothing and prints the existing id.
+# bouncer-decisions list [scope]...  print the active memory lines (all, or those of the scopes given and of `all`)
+# bouncer-decisions get D<n>         print that active memory line; exit 1 when it is unknown or superseded
+# bouncer-decisions why D<n>         print that decision's record (decision, why, source), superseded or not
+# bouncer-decisions domains          print the router (decisions/INDEX.md)
+# bouncer-decisions history          print every memory line, superseded ones included
+# Memory line: D<n> | <date> | <scope> | <domain> | <decision>[ | superseded by D<m>]. Only the Bouncer writes.
+# The active memory lines have a cap (BOUNCER_DECISIONS_CAP characters, default 8000), so the whole list fits in
+# context and is read in full, never searched. Superseded lines do not count. Records have no cap: they are read
+# one at a time.
+# Exit 1: list, get, why or domains found nothing. Exit 2: bad usage, a line without its 5 fields, a bad domain
+# name, a new domain without --about, or --supersedes of an unknown or superseded id. Exit 3: the add would pass
+# the cap; nothing is written.
+set -euo pipefail
+trim() { local s=$1; s=${s#"${s%%[![:space:]]*}"}; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
+usage() { echo "usage: bouncer-decisions add [--supersedes D<n>] [--about text] \"scope | domain | decision | why | source\" | list [scope]... | get D<n> | why D<n> | domains | history" >&2; exit 2; }
+cmd=${1:-}
+[ -n "$cmd" ] || usage
+shift
+data=$("$(dirname "$0")/bouncer-data")
+f="$data/memory.md"; dir="$data/decisions"; idx="$dir/INDEX.md"
+cap=${BOUNCER_DECISIONS_CAP:-8000}
+mkdir -p "$dir"; touch "$f"
+active() { awk '/^D[0-9]+ \|/ && !/\| superseded by D[0-9]+$/' "$f"; }
+record_file() {   # the domain file that holds the record of $1
+  local g
+  for g in "$dir"/*.md; do
+    [ -e "$g" ] && [ "${g##*/}" != INDEX.md ] || continue
+    grep -q "^## $1 (" "$g" && { echo "$g"; return 0; }
+  done
+  return 0
+}
+reindex() {
+  local g tmp; tmp=$(mktemp)
+  { echo "# Decision router"
+    echo "Read only the file of the domain that matches the topic. Line: domain: what it covers (active decisions) file."
+    for g in "$dir"/*.md; do
+      [ -e "$g" ] && [ "${g##*/}" != INDEX.md ] || continue
+      echo "- $(basename "$g" .md): $(sed -n 2p "$g") ($(awk '/^## D[0-9]+ \(/ && !/superseded by/ { n++ } END { print n + 0 }' "$g") active) decisions/${g##*/}"
+    done; } > "$tmp"
+  mv "$tmp" "$idx"
+}
+case $cmd in
+  add)
+    old=""; about=""
+    while [ "${1:-}" = --supersedes ] || [ "${1:-}" = --about ]; do
+      [ $# -ge 3 ] || usage
+      if [ "$1" = --supersedes ]; then old=$2; else about=$(trim "$2"); fi
+      shift 2
+    done
+    [ $# -eq 1 ] || usage
+    IFS='|' read -r s dom d why w <<<"$1"   # w keeps any further | of the source
+    s=$(trim "$s"); dom=$(trim "${dom:-}"); d=$(trim "${d:-}"); why=$(trim "${why:-}"); w=$(trim "${w:-}")
+    [ -n "$s" ] && [ -n "$dom" ] && [ -n "$d" ] && [ -n "$why" ] && [ -n "$w" ] || { echo "bad line: want scope | domain | decision | why | source" >&2; exit 2; }
+    [[ $dom =~ ^[a-z0-9][a-z0-9-]*$ ]] || { echo "bad domain: $dom (want a-z, 0-9, -)" >&2; exit 2; }
+    g="$dir/$dom.md"
+    [ -e "$g" ] || [ -n "$about" ] || { echo "new domain $dom: give --about \"<what it covers>\"" >&2; exit 2; }
+    if [ -n "$old" ]; then
+      [[ $old =~ ^D[0-9]+$ ]] && active | grep -q "^$old |" || { echo "no active decision $old" >&2; exit 2; }
+    fi
+    dup=$(active | S="$s" G="$dom" D="$d" awk -F' \\| ' '$3 == ENVIRON["S"] && $4 == ENVIRON["G"] && $5 == ENVIRON["D"] { print $1; exit }')
+    if [ -n "$dup" ] && [ -z "$old" ]; then echo "$dup"; exit 0; fi
+    n=$(( $(grep -c '^D[0-9]' "$f" || true) + 1 ))
+    today=${BOUNCER_TODAY:-$(date +%F)}
+    line="D$n | $today | $s | $dom | $d"
+    kept=$(active | { if [ -n "$old" ]; then O="$old |" awk 'index($0, ENVIRON["O"]) != 1'; else cat; fi; })
+    size=$(printf '%s\n%s\n' "$kept" "$line" | wc -m | tr -d ' ')
+    [ "$size" -le "$cap" ] || { echo "over cap: active decisions would be $size of $cap characters; supersede or merge old ones first" >&2; exit 3; }
+    # memory.md
+    tmp=$(mktemp)
+    if [ -n "$old" ]; then O="$old |" N="D$n" awk 'index($0, ENVIRON["O"]) == 1 { print $0 " | superseded by " ENVIRON["N"]; next } { print }' "$f" > "$tmp"
+    else cp "$f" "$tmp"; fi
+    echo "$line" >> "$tmp"; mv "$tmp" "$f"
+    # decisions/<domain>.md: line 1 the domain, line 2 what it covers (the router reads it), then one record a decision
+    if [ ! -e "$g" ]; then printf '# %s\n%s\n' "$dom" "$about" > "$g"
+    elif [ -n "$about" ]; then tmp=$(mktemp); A="$about" awk 'NR == 2 { print ENVIRON["A"]; next } { print }' "$g" > "$tmp"; mv "$tmp" "$g"; fi
+    if [ -n "$old" ]; then
+      og=$(record_file "$old")
+      if [ -n "$og" ]; then tmp=$(mktemp); H="## $old (" N="D$n" awk 'index($0, ENVIRON["H"]) == 1 { print $0 " superseded by " ENVIRON["N"]; next } { print }' "$og" > "$tmp"; mv "$tmp" "$og"; fi
+    fi
+    { printf '\n## D%s (%s, %s)\n%s\nWhy: %s\nSource: %s\n' "$n" "$today" "$s" "$d" "$why" "$w"
+      [ -z "$old" ] || echo "Supersedes: $old"; } >> "$g"
+    reindex
+    echo "D$n" ;;
+  list)
+    if [ $# -eq 0 ]; then active | grep . || exit 1
+    else active | S=" $* " awk -F' \\| ' 'index(ENVIRON["S"], " " $3 " ") || $3 == "all"' | grep . || exit 1; fi ;;
+  get)
+    [[ ${1:-} =~ ^D[0-9]+$ ]] || usage
+    active | grep "^$1 |" || { echo "no active decision $1" >&2; exit 1; } ;;
+  why)
+    [[ ${1:-} =~ ^D[0-9]+$ ]] || usage
+    g=$(record_file "$1")
+    [ -n "$g" ] || { echo "no record of $1" >&2; exit 1; }
+    H="## $1 (" awk 'index($0, ENVIRON["H"]) == 1 { p = 1; print; next } /^## / { p = 0 } p && NF' "$g" ;;
+  domains) [ -s "$idx" ] && cat "$idx" || { echo "no domains yet" >&2; exit 1; } ;;
+  history) cat "$f" ;;
+  *) usage ;;
+esac

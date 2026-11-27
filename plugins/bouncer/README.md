@@ -29,6 +29,7 @@ The Bouncer asks you only before an outward action (a message other people read,
 
 - **One yes for each ticket.** At routing, the Bouncer asks once for the ticket's closing chain, for example `push, pr, merge`. A request that already says it ("fix it and merge") is the yes. The grant is a line in `grants.md`. The chain stops and asks again when a check fails, the scope changes, an action is outside the grant, or an approved text changed.
 - **The Bouncer runs outward actions.** Bartenders only prepare them: a committed branch, and the PR text and comment drafts in the ticket record. Auto mode refuses an approval that one session relays to another, so the session where you said yes runs the push, the PR, the merge and the comment.
+- **Decisions are kept.** The Bouncer records each of your decisions in `memory.md` (one short line) and in a domain file under `decisions/` (the decision and why). It reads the memory in each new session, and a domain file only when it needs the reason. When a request, a Bartender or a ticket conflicts with a recorded decision, it asks you to keep or replace that decision. It does not pick one itself.
 - **"What should I work on"** names only tickets that can be worked now, and lists the others with a one-line reason (blocked, waiting for a release or another ticket).
 - If a hook rewrites Bash commands (rtk runs `git push` as `rtk git push`), an allow rule must name the rewritten form.
 
@@ -54,6 +55,9 @@ The plugin keeps its state in the data folder that Claude Code gives it: `~/.cla
 | `<repo>/queue.md` | One Bouncer's tickets above the Bartender cap, one line each |
 | `<repo>/questions.md` | One Bouncer's questions that wait on you, one line each, oldest first |
 | `grants.md` | Your one yes for each ticket's closing chain, one line each |
+| `memory.md` | The decision memory, read whole in each new session: one short line a decision (`D<n> \| date \| scope \| domain \| decision`). The Bouncer adds each decision of yours and each default that a later session must follow, and asks you when new information conflicts with a decision. The decisions in force have a cap of 8000 characters, so the whole list fits in context; a replaced decision stays as history, marked `superseded by`, and does not count |
+| `decisions/<domain>.md` | One record a decision of that domain: the decision, why, and the source (your words or the default's reason). Read only on demand |
+| `decisions/INDEX.md` | The router: one line a domain, with what it covers, its active count and its file, so the Bouncer opens only the domain it needs |
 | `decision-table.md` | Rows that the Bouncer adds to its decision table when you answer a question that no row covered |
 | `tickets/<TICKET>.md` | Ticket records, unless the `records_dir` option names another folder. Each record's `LEDGER` section holds its work to revisit (an open PR, a held message, a follow-up, a staging check); `bouncer-ledger due` lists what is due |
 

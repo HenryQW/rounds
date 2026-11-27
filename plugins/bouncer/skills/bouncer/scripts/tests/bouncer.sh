@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fixture test for bouncer-data, bouncer-title, bouncer-route, bouncer-queue, bouncer-questions, bouncer-grants, bouncer-ledger, bouncer-report, bouncer-accept, bouncer-overlap, bouncer-preflight and bartender-branch. Boundary cases first. No network.
+# Fixture test for bouncer-data, bouncer-title, bouncer-route, bouncer-queue, bouncer-questions, bouncer-grants, bouncer-decisions, bouncer-ledger, bouncer-report, bouncer-accept, bouncer-overlap, bouncer-preflight and bartender-branch. Boundary cases first. No network.
 # Run: bash scripts/tests/bouncer.sh (from the skill folder)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -154,6 +154,40 @@ ok "grants: a new grant of the same ticket replaces the old" "$(./bouncer-grants
 ./bouncer-grants has ABC-2 pu; ok "grants: has matches whole actions only" $? 1
 ok "grants: get" "$(./bouncer-grants get ABC-1)" "ABC-1 | close, link, comment | yes, close it"
 ./bouncer-grants done ABC-2; ok "grants: done removes only that ticket" "$(cat "$tmp/q/grants.md")" "ABC-1 | close, link, comment | yes, close it"
+
+# bouncer-decisions (memory.md and decisions/ in the data folder)
+export BOUNCER_TODAY=2026-11-27
+./bouncer-decisions list 2>/dev/null; ok "decisions: list with none exits 1" $? 1
+./bouncer-decisions domains 2>/dev/null; ok "decisions: domains with none exits 1" $? 1
+./bouncer-decisions add --about x "rounds | tracker | no why or source" 2>/dev/null; ok "decisions: a line without its 5 fields exits 2" $? 2
+./bouncer-decisions add --about x "rounds | Tracker! | d | w | s" 2>/dev/null; ok "decisions: a bad domain name exits 2" $? 2
+./bouncer-decisions add "rounds | tracker | d | w | s" 2>/dev/null; ok "decisions: a new domain without --about exits 2" $? 2
+./bouncer-decisions add --about 2>/dev/null; ok "decisions: --about without a value exits 2" $? 2
+./bouncer-decisions add --supersedes D9 --about x "rounds | tracker | d | w | s" 2>/dev/null; ok "decisions: supersede of an unknown id exits 2" $? 2
+./bouncer-decisions get 7 2>/dev/null; ok "decisions: get of a bad id exits 2" $? 2
+ok "decisions: add prints the id" "$(./bouncer-decisions add --about "Work tracker and ticket states" "rounds | tracker | Use GitHub Issues as the tracker | One tracker for all Bouncer work | user: \"use issues | not Linear\"")" D1
+./bouncer-decisions add --about "Merges and releases" "all | release | Merge PRs on a ready verdict | Saves a question for each PR | default: agentMerge rule" >/dev/null
+./bouncer-decisions add "web | release | Deploy on Fridays | The team is free then | user: ok" >/dev/null
+ok "decisions: a memory line holds no why or source" "$(./bouncer-decisions get D2)" "D2 | 2026-11-27 | all | release | Merge PRs on a ready verdict"
+ok "decisions: list of a scope adds the all scope" "$(./bouncer-decisions list rounds | cut -d' ' -f1 | tr '\n' ' ')" "D1 D2 "
+ok "decisions: an exact duplicate adds nothing" "$(./bouncer-decisions add "web | release | Deploy on Fridays | again | user: again")" D3
+ok "decisions: list of two scopes" "$(./bouncer-decisions list web rounds | cut -d' ' -f1 | tr '\n' ' ')" "D1 D2 D3 "
+ok "decisions: the router has one line a domain" "$(./bouncer-decisions domains | grep '^- ' | tr '\n' ';')" "- release: Merges and releases (2 active) decisions/release.md;- tracker: Work tracker and ticket states (1 active) decisions/tracker.md;"
+ok "decisions: why prints the record" "$(./bouncer-decisions why D1 | tr '\n' ';')" '## D1 (2026-11-27, rounds);Use GitHub Issues as the tracker;Why: One tracker for all Bouncer work;Source: user: "use issues | not Linear";'
+ok "decisions: supersede prints the new id" "$(./bouncer-decisions add --supersedes D1 "rounds | tracker | Use Linear as the tracker | The team moved to Linear | user: switch to Linear")" D4
+ok "decisions: the old memory line is marked" "$(./bouncer-decisions history | head -1)" 'D1 | 2026-11-27 | rounds | tracker | Use GitHub Issues as the tracker | superseded by D4'
+ok "decisions: the old record is marked" "$(./bouncer-decisions why D1 | head -1)" "## D1 (2026-11-27, rounds) superseded by D4"
+ok "decisions: the new record names the old" "$(./bouncer-decisions why D4 | tail -1)" "Supersedes: D1"
+ok "decisions: the router counts active records only" "$(./bouncer-decisions domains | grep '^- tracker')" "- tracker: Work tracker and ticket states (1 active) decisions/tracker.md"
+ok "decisions: --about rewrites the router line" "$(./bouncer-decisions add --about "Trackers" "rounds | tracker | Close stale issues monthly | Keeps the board short | user: yes" >/dev/null; ./bouncer-decisions domains | grep '^- tracker')" "- tracker: Trackers (2 active) decisions/tracker.md"
+ok "decisions: list drops a superseded one" "$(./bouncer-decisions list rounds | cut -d' ' -f1 | tr '\n' ' ')" "D2 D4 D5 "
+./bouncer-decisions add --supersedes D1 "rounds | tracker | x | y | z" 2>/dev/null; ok "decisions: supersede of a superseded id exits 2" $? 2
+./bouncer-decisions get D1 2>/dev/null; ok "decisions: get of a superseded id exits 1" $? 1
+./bouncer-decisions why D9 2>/dev/null; ok "decisions: why of an unknown id exits 1" $? 1
+ok "decisions: ids count superseded lines" "$(./bouncer-decisions add "web | release | Pin Node 22 | CI image | default: CI image")" D6
+BOUNCER_DECISIONS_CAP=300 ./bouncer-decisions add "web | release | Pin Node 24 | new CI image | default: new CI image" 2>/dev/null; ok "decisions: an add over the cap exits 3" $? 3
+ok "decisions: an add over the cap writes nothing" "$(./bouncer-decisions history | wc -l | tr -d ' ') $(grep -c '^## D' "$tmp/q/decisions/release.md")" "6 3"
+ok "decisions: a supersede frees its old line from the cap" "$(BOUNCER_DECISIONS_CAP=300 ./bouncer-decisions add --supersedes D6 "web | release | Pin Node 24 | new CI image | default: new CI image")" D7
 
 # bouncer-ledger (LEDGER sections in the records; a fake gh answers PR states)
 mkdir -p "$tmp/bin"; printf '#!/bin/sh\ncase "$3" in *merged*) echo MERGED;; *open*) echo OPEN;; *) exit 1;; esac\n' > "$tmp/bin/gh"; chmod +x "$tmp/bin/gh"
