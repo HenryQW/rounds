@@ -5,6 +5,7 @@ import { EMPTY, ago, archived, columns, dots, ledgerItem, parseBartender, ledger
 import type { Column, Report } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
+const PANE = 'bouncer'
 const ACTIONS = [['status', 'Status'], ['stop', 'Stop'], ['reset', 'Reset']] as const
 
 // A Linear-shaped key (ABC-123) links to the tracker; a GitHub issue number does not.
@@ -122,6 +123,358 @@ const onNote = async ($: EngineInterface, text: string) => {
   await syncTitles($, report)
 }
 
+// The band above the prompt; off the terminal Details opens in the Bouncer pane, which this same code draws.
+// shortcut: e and next are untyped here, as one function draws the AbovePrompt and the Pane.
+const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, records: string, linear: string) => {
+  const p = await read($, pool)
+  if (!inPane && (e.props.hasSurvey || !p.isOn)) return next(e)
+  // Other mods share this slot (ponytail's band): draw theirs below ours.
+  const below = inPane ? undefined : await next(e).catch(() => undefined)
+
+  const { Box, Text, Button } = $.ui.resolve(e)
+  const width = e.surface === 'terminal' && !inPane ? e.props.bodyColumns : undefined
+  const bartenders = Object.entries(p.bartenders).flatMap(([id, t]) => {
+    const b = parseBartender(t)
+    return b ? [{ id, ...b }] : []
+  })
+  // Only the Bouncer talks to Bartenders: the band asks it with a plain prompt. Prompts are sequential:
+  // none while a question waits on the user, while the Bouncer works, or before the last one's turn ended.
+  const isWorking = e.props?.isWorking ?? false
+  const ask = async (text: string) => {
+    const now = await read($, pool)
+    if (now.waiting > 0) return $.ui.toast('Answer the waiting question first')
+    if (isWorking || now.pending) return $.ui.toast('Wait for the Bouncer to finish its turn')
+    await update($, pool, q => ({ ...q, pending: true }))
+    await $.prompt.submit({ text }).catch(() => update($, pool, q => ({ ...q, pending: false })))
+  }
+  const ownRepo = await repoOf($)
+  if (p.isOther) {
+    const take = async () => { await writeOwner($, await $.session.id()); await refreshData($, records) }
+    const row = (
+      <Box flexDirection="row" alignItems="center" gap={2} flexWrap="wrap" width={width}>
+        <Text bold>Bouncer</Text>
+        <Text>{`another session is the Bouncer of ${ownRepo}`}</Text>
+        <Button key="takeover" plain onPress={take}>Take Over</Button>
+      </Box>
+    )
+    return below ? <Box flexDirection="column">{row}{below}</Box> : row
+  }
+  // Questions block in order: the band shows only the oldest (the head of questions.md); the next shows once it is answered.
+  const [headId, headQuestion] = Object.entries(p.questions ?? {})[0] ?? []
+  const headB = bartenders.find(b => b.id === headId)
+  const ctaB = bartenders.find(b => b.cta)
+  const waits = headQuestion !== undefined
+    ? { b: headB, name: headB ? headB.ticket || headB.repo : headId === 'self' ? 'Bouncer' : headId ?? '', question: headQuestion }
+    : ctaB && { b: ctaB, name: ctaB.ticket || ctaB.repo, question: 'waits on you' }
+  const lines = p.queueOpen ? p.queueLines ?? [] : []
+  const due = p.due ?? []
+  const dueLines = p.ledgerOpen ? due : []
+  const all = columns(p.bartenders, p.reports, p.running)
+  // Compact (the default) is one line; Details adds the ask row and the columns. Kept across sessions.
+  const flip = async () => {
+    const q0 = await read($, pool)
+    const shownNow = !!q0.details && (isTerminal || !!q0.paneless)
+    // Off the terminal Details is the Bouncer pane, so the band stays one thin row; where no pane can show, the band.
+    if (!isTerminal && !inPane && !shownNow) {
+      const opened = await $.ui.open({ id: PANE, title: 'Bouncer' }).catch(() => undefined)
+      if (opened?.isPlaced) return
+      await update($, pool, q => ({ ...q, paneless: true }))
+    }
+    const details = !shownNow
+    await update($, pool, q => ({ ...q, details }))
+    await $.store.set('details', details).catch(() => undefined)
+  }
+  // A column's actions name one session each (a ticket key, else its session id),
+  // so an action on the grouped idle column is never ambiguous.
+  const actions = (c: Column) => [
+    ...c.ids.flatMap(id => ACTIONS.map(([a, label]) =>
+      ({ value: `${a} ${id}`, label: c.ids.length > 1 ? `${label} ${id.replace(/^local_/, '').slice(0, 8)}` : label }))),
+  ]
+  // Stop and Reset send only on a second click: the first shows "Confirm …?" and Cancel, for 5 seconds.
+  const menuCells = (c: Column) => {
+    const o = actions(c).find(x => x.value === p.confirm)
+    if (o) return [
+      { value: o.value, label: `Confirm ${o.label.toLowerCase()}?`, red: o.value.startsWith('reset'), press: () => pick(c, o.value) },
+      { value: 'cancel', label: 'Cancel', red: false, press: () => update($, pool, q => ({ ...q, confirm: undefined })) },
+    ]
+    return actions(c).map(x => ({
+      ...x, red: x.value.startsWith('reset'),
+      press: x.value.startsWith('status') ? () => pick(c, x.value) : async () => {
+        await update($, pool, q => ({ ...q, confirm: x.value }))
+        $.clock.after(5000, () => { void update($, pool, q => (q.confirm === x.value ? { ...q, confirm: undefined } : q)) })
+      },
+    }))
+  }
+  const pick = async (c: Column, v: string) => {
+    await update($, pool, q => ({ ...q, menu: undefined, confirm: undefined }))
+    const [a, id] = v.split(' ')
+    if (a && id) await ask(`${c.ticket || id}: ${a}`)
+  }
+  const toggle = async (k: 'queueOpen' | 'ledgerOpen') => {
+    await update($, pool, q => ({ ...q, [k]: !q[k] }))
+    await refreshData($, records)
+  }
+  // `open claude://…` does not switch the app (tried 2026-11-26), so show the Bartender in split view.
+  // The window tool takes only sessions the Bouncer started; when the call fails, the Bouncer opens it.
+  const open = async (id: string, name: string) => {
+    const ran = await $.tool.call({ tool: 'mcp__ccd_window__open_session_in', session_id: id, target: 'split' } as any)
+      .catch(() => undefined)
+    if (!ran || ran.deny !== undefined || ran.isError === true) await ask(`${name}: open`)
+  }
+  const strip = bartenders.length === 0
+    ? <Text>no Bartenders yet</Text>
+    : <Text key="dots">{dots(p.bartenders, p.reports, p.running).join(' ')}</Text>
+  // Row 2 is the most useful fact: the next step of the ticket's open ledger item, else the last report's RESULT or
+  // wait reason, else nothing (the dot already says whether a turn runs).
+  const sub = (c: Column) => {
+    const id = c.ids.length === 1 ? c.ids[0]! : undefined
+    // A pr item whose PR is merged or closed is stale (the ledger closes it later), so it is never the next step.
+    const live = ticketLedger(p.ledgerLines ?? [], c.ticket).filter(l => {
+      const url = /: - \[open\] pr \| (\S+) \|/.exec(l)?.[1]
+      const state = url ? p.prs?.[url]?.state : undefined
+      return !state || /^open$/i.test(state)
+    })
+    // Else the last RESULT, else the ticket title, so no card is only its header.
+    return id ? ledgerNext(live) ?? p.notes?.[id] ?? parseBartender(p.bartenders[id] ?? '')?.name ?? '' : ''
+  }
+  const isTerminal = e.surface === 'terminal'
+  // Linear's look off the terminal; the terminal keeps its own colours.
+  const t = isTerminal ? undefined : LINEAR[p.dark ? 'dark' : 'light']
+  // Details shows in the pane, or in the band on the terminal and where no pane shows.
+  const showDetails = inPane || (!!p.details && (isTerminal || !!p.paneless))
+  const detailsLabel = showDetails ? 'Compact' : 'Details'
+  // A quiet switch: no fill, dim text that turns full strength under the pointer.
+  const detailsButton = <Button key="details" plain dimColor label={detailsLabel} onPress={flip} />
+  const { Link } = $.ui.resolve(e)
+  // Every link in the accent: a bare Link takes the surface's own colour, which drew grey in Details.
+  const link = (href: string, label: string) =>
+    t ? <Link href={href}><Text color={t.accent}>{label}</Text></Link> : <Link href={href} label={label} />
+  // Only the ledger items due now (`bouncer-ledger due`), as what the user must do; open items that are not due are in
+  // their card's row 2. Each row: the key as a link (the PR, else the Linear issue) and its next step.
+  const dueButton = due.length > 0 && (
+    <Button key="ledger" plain onPress={() => toggle('ledgerOpen')}><Text color="error">{`${due.length} to act`}</Text></Button>
+  )
+  const dueRows = dueLines.map(line => {
+    const it = ledgerItem(line)
+    if (!it) return <Text key={`due:${line}`} wrap="truncate">{line}</Text>
+    const pr = /^https:\/\/github\.com\/\S+\/pull\/(\d+)$/.exec(it.key)
+    const state = pr ? p.prs?.[it.key]?.state?.toLowerCase() : undefined
+    const label = pr ? `#${pr[1]}${state && state !== 'open' ? ` ${state}` : ''}` : LINEAR_KEY.test(it.key) ? it.key : it.record
+    const href = pr ? it.key : linear && LINEAR_KEY.test(label) ? `${linear}/issue/${label}` : undefined
+    return (
+      <Box key={`due:${line}`} flexDirection="row" alignItems="center" gap="sm">
+        <Box flexShrink={0}>{href ? link(href, label) : <Text color={t?.ink}>{label}</Text>}</Box>
+        <Box flexGrow={1} flexShrink={1} minWidth={0}><Text color={t?.muted} wrap="truncate-end">{it.next}</Text></Box>
+        <Button key={`due:ask:${it.key}`} plain dimColor onPress={() => ask(`${it.record}: due ${it.kind}${it.key === it.record ? '' : ` ${it.key}`}: ${it.next}`)}>Ask Bouncer</Button>
+      </Box>
+    )
+  })
+  // The clock only when a card shows a time.
+  const now = Object.values(p.sessions ?? {}).some(x => x.at) ? await $.clock.now() : 0
+  // A Bartender as Rounds row pieces: the title (dot and key, the key a link to its Linear issue), the status code as a
+  // chip, the PR (`#17860 +1`, glyph in the PR state colour). The title is not a Button: a desktop Button adds its own
+  // inset, so the rows would not align.
+  const isLinked = (c: Column) => !!c.ticket && !!linear && LINEAR_KEY.test(c.ticket)
+  const titleOf = (c: Column) => isLinked(c)
+    ? <Box flexDirection="row"><Text>{`${c.dot} `}</Text>{link(`${linear}/issue/${c.ticket}`, c.ticket)}</Box>
+    : <Text weight="medium" color={t?.ink} wrap="truncate-end">{c.value}</Text>
+  const chipOf = (c: Column) => (
+    <Box key={`chip:${c.key}`} flexShrink={0} paddingX="xs" {...(t ? { backgroundColor: t.hairline } : {})}>
+      <Text size="footnote" color={t?.muted}>{c.label}</Text>
+    </Box>
+  )
+  const prOf = (c: Column) => {
+    const id = c.ids.length === 1 ? c.ids[0]! : undefined
+    const s = id ? p.sessions?.[id] : undefined
+    const [glyph, glyphColor] = prMark(s?.pr?.state)
+    // PR links only from full URLs in its report or its ticket's ledger lines; never from the folder's remote.
+    const urls = prUrls([id ? p.reportTexts?.[id] ?? '' : '', ...ticketLedger(p.ledgerLines ?? [], c.ticket)])
+    const n = s?.pr?.number ?? Number(/\d+$/.exec(urls[0] ?? '')?.[0] ?? 0)
+    const href = n ? prUrl(n, urls) : undefined
+    const others = urls.filter(u => u !== href).length
+    return {
+      cells: n ? `⑂ #${n}${others ? ` +${others}` : ''}`.length + 1 : 0,
+      time: s?.at ? ago(s.at, now) : '',
+      el: n > 0 && (
+        <Box key={`pr:${c.key}`} flexDirection="row" flexShrink={0}>
+          <Text color={glyphColor}>{`${glyph} `}</Text>
+          {href ? link(href, `#${n}`) : <Text color={t?.muted}>{`#${n}`}</Text>}
+          {others > 0 && <Text color={t?.muted}>{` +${others}`}</Text>}
+        </Box>
+      ),
+    }
+  }
+
+  // Details lists every open PR of the ticket (its open pr ledger items, and the session's own PR), each a link in the
+  // PR state colour with its base (`#17860 → dev`), on a row of its own under row 1. Compact keeps `#17860 +1`.
+  const prsOf = (c: Column) => {
+    const id = c.ids.length === 1 ? c.ids[0]! : undefined
+    const s = id ? p.sessions?.[id] : undefined
+    const urls = openPrUrls(p.ledgerLines ?? [], c.ticket)
+    const own = s?.pr?.number
+    const ownHref = own ? prUrl(own, [id ? p.reportTexts?.[id] ?? '' : '', ...ticketLedger(p.ledgerLines ?? [], c.ticket)]) : undefined
+    const list = [
+      ...(own && !(ownHref && urls.includes(ownHref)) ? [{ n: own, href: ownHref, state: s?.pr?.state }] : []),
+      ...urls.map(u => ({ n: Number(/\d+$/.exec(u)?.[0] ?? 0), href: u as string | undefined, state: u === ownHref ? s?.pr?.state : undefined })),
+    ]
+    return list.map(x => ({ ...x, state: (x.href && p.prs?.[x.href]?.state) || x.state, base: x.href ? p.prs?.[x.href]?.base : undefined }))
+  }
+  const prRow = (c: Column) => {
+    const prs = prsOf(c)
+    return prs.length > 0 && (
+      <Box key={`prs:${c.key}`} flexDirection="row" flexWrap="wrap" gap="md">
+        {prs.map(x => {
+          const [glyph, color] = prMark(x.state)
+          return (
+            <Box key={`pr:${c.key}:${x.n}`} flexDirection="row" flexShrink={0}>
+              <Text color={color}>{`${glyph} `}</Text>
+              {x.href ? link(x.href, `#${x.n}`) : <Text color={t?.muted}>{`#${x.n}`}</Text>}
+              {/* The base only while open: a merged PR's glyph says enough. */}
+              {x.base && (!x.state || /^open$/i.test(x.state)) && <Text color={t?.muted}>{` → ${x.base}`}</Text>}
+            </Box>
+          )
+        })}
+      </Box>
+    )
+  }
+
+  if (!showDetails) {
+    // Compact: one row, as ponytail's compact band. Each Bartender is one pill (dot and key, status code, PR; the code is
+    // plain text, so pills do not nest); on the right what waits on the user, the due count and the switch. It wraps only when narrow.
+    const n = p.waiting
+    const mine = (
+      <Box flexDirection="row" alignItems="center" flexWrap="wrap" gap={isTerminal ? 2 : 'sm'} width={width}>
+        {all.length === 0 && strip}
+        {all.map(c => (
+          <Box key={`row:${c.key}`} flexDirection="row" alignItems="center" gap={isTerminal ? 1 : 'sm'} {...(t
+            ? { borderStyle: 'round' as const, borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'sm' as const, paddingY: 0 }
+            : {})}>
+            <Box key={`title:${c.key}`} flexShrink={isLinked(c) ? 0 : 1} minWidth={0}>{titleOf(c)}</Box>
+            {c.label && <Box key={`chip:${c.key}`} flexShrink={0}><Text color={t?.muted}>{c.label}</Text></Box>}
+            {prOf(c).el}
+          </Box>
+        ))}
+        <Box flexGrow={1} />
+        {n > 0 && (waits?.b
+          ? <Button key="waits" plain onPress={() => open(waits.b!.id, waits.name)}><Text color="error">{`${n} waits on you`}</Text></Button>
+          : <Text key="waits" color="error">{`${n} waits on you`}</Text>)}
+        {dueButton}
+        {detailsButton}
+      </Box>
+    )
+    if (dueLines.length > 0) return <Box flexDirection="column" gap={isTerminal ? 0 : 'xs'}>{mine}{dueRows}{below}</Box>
+    return below ? <Box flexDirection="column">{mine}{below}</Box> : mine
+  }
+
+  // Details. Terminal: ponytail's columns split by `│`. Elsewhere Linear's look: one card a Bartender
+  // (surface, hairline border, round corners, padding), a hairline under the header, nothing below ink-subtle.
+  // The terminal shows 4 columns and counts the rest (`+N`); off the terminal every card shows, in one row.
+  const shown = isTerminal && !inPane ? all.slice(0, 4) : all
+  const more = all.length - shown.length
+  // The terminal draws a rule under the header; elsewhere the cards' borders do that work.
+  const rule = isTerminal && <Text dimColor wrap="truncate-end">{'─'.repeat(e.props.bodyColumns)}</Text>
+  const bar = (i: number) => <Box key={`bar:${i}`} flexDirection="column">{['a', 'b', 'c'].map(k => <Text key={k} dimColor>│</Text>)}</Box>
+  const colWidth = width === undefined ? undefined : Math.max(10, Math.floor(width / Math.max(1, shown.length)) - 3)
+  // One card a Bartender, as a Rounds session row in two rows. Row 1: title, chip, PR, the time, `⋯` (the menu).
+  // Row 2: the next step or the last result. Width 0 and grow 1 give equal cards (no flexBasis prop).
+  // shortcut: no prop gives a card's drawn width, so what fits is guessed from the band's cells (one character a cell);
+  // when row 1 is too long the time goes first, then the chip. Measure the card once the engine gives its width.
+  // The pane holds two cards a row.
+  const perRow = inPane ? Math.min(2, shown.length) : shown.length
+  const room = Math.floor((e.props?.bodyColumns ?? e.viewport?.columns ?? 120) / Math.max(1, perRow)) - 3
+  const card = (c: Column) => {
+    const { time } = prOf(c)
+    // Row 1 does not hold the PR in Details: the PRs have a row of their own.
+    const prCells = 0
+    const showChip = !!c.label && c.value.length + c.label.length + 3 + prCells <= room
+    // The time also needs room for `⋯` and the gaps (4 cells), so it shows only when row 1 is short.
+    const showTime = !!time && c.value.length + (showChip ? c.label.length + 3 : 0) + prCells + time.length + 5 <= room
+    const line = sub(c)
+    return (
+      <Box key={`col:${c.key}`} flexDirection="column" minWidth={0} {...(t
+        ? { flexGrow: 1, flexShrink: 1, width: 0, minWidth: inPane ? 0 : 24, gap: 'sm' as const, borderStyle: 'round', borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'md' as const, paddingY: 'md' as const }
+        : colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
+        <Box flexDirection="row" alignItems="center" gap="sm">
+          {/* A Link wraps instead of truncating: a linked key keeps its width. */}
+          <Box key={`title:${c.key}`} flexGrow={1} flexShrink={isLinked(c) || !isTerminal ? 0 : 1} minWidth={0}>{titleOf(c)}</Box>
+          {showChip && chipOf(c)}
+          {showTime && <Text size="footnote" color={t?.muted}>{time}</Text>}
+          <Button key={c.key} plain dimColor label="⋯" onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))} />
+        </Box>
+        {prRow(c)}
+        {line && <Box key={`line:${c.key}`}><Text size="footnote" color={t?.muted} wrap="wrap" maxLines={2}>{line}</Text></Box>}
+        {/* The menu is a row of its own under the next step: secondary buttons on one row; the card grows to fit.
+            The terminal keeps plain ones. */}
+        {p.menu === c.key && (
+          <Box key={`menu:${c.key}`} flexDirection="row" gap="sm" flexWrap="nowrap">
+            {/* A desktop Button keeps its label's width (no width prop), so each cell draws the button: equal (width 0, grow 1, as the cards),
+                a plain Button centred in it, in a Box that never shrinks, so the label never truncates. The keyed cell is the hover scope, so the
+                whole cell lights; only the label takes the click (a Box has no onPress, a Button holds only text). Stop and Reset ask first. */}
+            {menuCells(c).map(o => (
+              <Box key={`cell:${c.key}:${o.value}`} flexDirection="row" width={0} flexGrow={1} alignItems="center" justifyContent="center"
+                {...(t ? { backgroundColor: t.hairline, borderStyle: 'round', borderColor: o.red ? 'error' : t.hairline, paddingX: 0 as const, paddingY: 'xs' as const, hover: { backgroundColor: t.hover } } : {})}>
+                <Box flexShrink={0}>
+                  <Button key={`${c.key}:${o.value}`} plain onPress={o.press} {...(t ? { hover: { backgroundColor: t.hover } } : {})}>
+                    {o.red ? <Text color="error">{o.label}</Text> : o.label}
+                  </Button>
+                </Box>
+              </Box>
+            ))}
+          </Box>
+        )}
+      </Box>
+    )
+  }
+  const mine = (
+    <Box flexDirection="column" width={width} gap={isTerminal ? 0 : 'sm'} paddingY={isTerminal ? 0 : 'xs'}>
+      <Box flexDirection="row" alignItems="center" gap={isTerminal ? 1 : 'sm'}>
+        {strip}
+        <Text bold weight="semibold" color={t?.ink}>Bouncer</Text>
+        <Text color={t?.muted}>{ownRepo}</Text>
+        <Box flexGrow={1} />
+        {p.queue > 0 && <Button key="queue" plain onPress={() => toggle('queueOpen')}><Text color={t?.muted}>{`Queue ${p.queue}`}</Text></Button>}
+        {dueButton}
+        {!inPane && detailsButton}
+      </Box>
+      {rule}
+      {dueRows.length > 0 && <Box key="due" flexDirection="column" gap={isTerminal ? 0 : 'xs'}>{dueRows}</Box>}
+      {waits && (
+        <Box backgroundColor="diffRemovedDimmed" paddingX={isTerminal ? 'xs' : 'lg'} paddingY={isTerminal ? 0 : 'sm'} {...(t ? { borderStyle: 'round', borderColor: t.hairline } : {})}>
+          {waits.b
+            ? <Button key={`open:${waits.b.id}`} plain onPress={() => open(waits.b!.id, waits.name)}>
+                <Text wrap="truncate" color={t?.ink}>{`🔴 ${waits.name}: ${waits.question}`}</Text>
+              </Button>
+            : <Text wrap="truncate" color={t?.ink}>{`🔴 ${waits.name}: ${waits.question}`}</Text>}
+        </Box>
+      )}
+      {shown.length > 0 && !inPane && (
+        // Where no pane shows, the band's cards keep their width and scroll sideways.
+        <Box flexDirection="row" gap={isTerminal ? 2 : 'md'} flexWrap="nowrap" {...(isTerminal ? {} : { overflowX: 'scroll' as const })}>
+          {shown.flatMap((c, i) => [...(isTerminal && i > 0 ? [bar(i)] : []), card(c)])}
+          {more > 0 && <Text key="more" color={t?.muted}>{`+${more}`}</Text>}
+        </Box>
+      )}
+      {inPane && Array.from({ length: Math.ceil(shown.length / 2) }, (_, r) => (
+        <Box key={`cards:${r}`} flexDirection="row" gap="md">
+          {shown.slice(r * 2, r * 2 + 2).map(card)}
+          {shown.length > 1 && r * 2 + 1 >= shown.length && <Box key="pad" flexGrow={1} width={0} paddingX="md" />}
+        </Box>
+      ))}
+      {lines.map((line, i) => {
+        const ticket = line.split('|')[0]?.trim() ?? ''
+        return (
+          <Box flexDirection="row" alignItems="center" gap={1}>
+            <Box flexShrink={1} minWidth={0}><Text wrap="truncate">{queueSummary(line)}</Text></Box>
+            {i === 0 && <Button key="queue:pop" plain onPress={() => ask('queue: pop')}>Pop</Button>}
+            <Button key={`queue:remove:${ticket}`} plain onPress={() => ask(`queue: remove ${ticket}`)}>Remove</Button>
+          </Box>
+        )
+      })}
+    </Box>
+  )
+  return below ? <Box flexDirection="column">{mine}{below}</Box> : mine
+}
+
 export const register: Register = (on, options) => {
   const linear = String(options.linear_workspace_url ?? '').replace(/\/+$/, '')
   const records = String(options.records_dir ?? '').trim()
@@ -198,334 +551,9 @@ export const register: Register = (on, options) => {
     return next(e)
   })
 
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    const p = await read($, pool)
-    if (e.props.hasSurvey || !p.isOn) return next(e)
-    // Other mods share this slot (ponytail's band): draw theirs below ours.
-    const below = await next(e).catch(() => undefined)
-
-    const { Box, Text, Button } = $.ui.resolve(e)
-    const width = e.surface === 'terminal' ? e.props.bodyColumns : undefined
-    const bartenders = Object.entries(p.bartenders).flatMap(([id, t]) => {
-      const b = parseBartender(t)
-      return b ? [{ id, ...b }] : []
-    })
-    // Only the Bouncer talks to Bartenders: the band asks it with a plain prompt. Prompts are sequential:
-    // none while a question waits on the user, while the Bouncer works, or before the last one's turn ended.
-    const isWorking = e.props.isWorking
-    const ask = async (text: string) => {
-      const now = await read($, pool)
-      if (now.waiting > 0) return $.ui.toast('Answer the waiting question first')
-      if (isWorking || now.pending) return $.ui.toast('Wait for the Bouncer to finish its turn')
-      await update($, pool, q => ({ ...q, pending: true }))
-      await $.prompt.submit({ text }).catch(() => update($, pool, q => ({ ...q, pending: false })))
-    }
-    const ownRepo = await repoOf($)
-    if (p.isOther) {
-      const take = async () => { await writeOwner($, await $.session.id()); await refreshData($, records) }
-      const row = (
-        <Box flexDirection="row" alignItems="center" gap={2} flexWrap="wrap" width={width}>
-          <Text bold>Bouncer</Text>
-          <Text>{`another session is the Bouncer of ${ownRepo}`}</Text>
-          <Button key="takeover" plain onPress={take}>Take Over</Button>
-        </Box>
-      )
-      return below ? <Box flexDirection="column">{row}{below}</Box> : row
-    }
-    // Questions block in order: the band shows only the oldest (the head of questions.md); the next shows once it is answered.
-    const [headId, headQuestion] = Object.entries(p.questions ?? {})[0] ?? []
-    const headB = bartenders.find(b => b.id === headId)
-    const ctaB = bartenders.find(b => b.cta)
-    const waits = headQuestion !== undefined
-      ? { b: headB, name: headB ? headB.ticket || headB.repo : headId === 'self' ? 'Bouncer' : headId ?? '', question: headQuestion }
-      : ctaB && { b: ctaB, name: ctaB.ticket || ctaB.repo, question: 'waits on you' }
-    const lines = p.queueOpen ? p.queueLines ?? [] : []
-    const due = p.due ?? []
-    const dueLines = p.ledgerOpen ? due : []
-    const all = columns(p.bartenders, p.reports, p.running)
-    // Compact (the default) is one line; Details adds the ask row and the columns. Kept across sessions.
-    const flip = async () => {
-      const details = !(await read($, pool)).details
-      await update($, pool, q => ({ ...q, details }))
-      await $.store.set('details', details).catch(() => undefined)
-    }
-    // A column's actions name one session each (a ticket key, else its session id),
-    // so an action on the grouped idle column is never ambiguous.
-    const actions = (c: Column) => [
-      ...c.ids.flatMap(id => ACTIONS.map(([a, label]) =>
-        ({ value: `${a} ${id}`, label: c.ids.length > 1 ? `${label} ${id.replace(/^local_/, '').slice(0, 8)}` : label }))),
-    ]
-    // Stop and Reset send only on a second click: the first shows "Confirm …?" and Cancel, for 5 seconds.
-    const menuCells = (c: Column) => {
-      const o = actions(c).find(x => x.value === p.confirm)
-      if (o) return [
-        { value: o.value, label: `Confirm ${o.label.toLowerCase()}?`, red: o.value.startsWith('reset'), press: () => pick(c, o.value) },
-        { value: 'cancel', label: 'Cancel', red: false, press: () => update($, pool, q => ({ ...q, confirm: undefined })) },
-      ]
-      return actions(c).map(x => ({
-        ...x, red: x.value.startsWith('reset'),
-        press: x.value.startsWith('status') ? () => pick(c, x.value) : async () => {
-          await update($, pool, q => ({ ...q, confirm: x.value }))
-          $.clock.after(5000, () => { void update($, pool, q => (q.confirm === x.value ? { ...q, confirm: undefined } : q)) })
-        },
-      }))
-    }
-    const pick = async (c: Column, v: string) => {
-      await update($, pool, q => ({ ...q, menu: undefined, confirm: undefined }))
-      const [a, id] = v.split(' ')
-      if (a && id) await ask(`${c.ticket || id}: ${a}`)
-    }
-    const toggle = async (k: 'queueOpen' | 'ledgerOpen') => {
-      await update($, pool, q => ({ ...q, [k]: !q[k] }))
-      await refreshData($, records)
-    }
-    // `open claude://…` does not switch the app (tried 2026-11-26), so show the Bartender in split view.
-    // The window tool takes only sessions the Bouncer started; when the call fails, the Bouncer opens it.
-    const open = async (id: string, name: string) => {
-      const ran = await $.tool.call({ tool: 'mcp__ccd_window__open_session_in', session_id: id, target: 'split' } as any)
-        .catch(() => undefined)
-      if (!ran || ran.deny !== undefined || ran.isError === true) await ask(`${name}: open`)
-    }
-    const strip = bartenders.length === 0
-      ? <Text>no Bartenders yet</Text>
-      : <Text key="dots">{dots(p.bartenders, p.reports, p.running).join(' ')}</Text>
-    // Row 2 is the most useful fact: the next step of the ticket's open ledger item, else the last report's RESULT or
-    // wait reason, else nothing (the dot already says whether a turn runs).
-    const sub = (c: Column) => {
-      const id = c.ids.length === 1 ? c.ids[0]! : undefined
-      // A pr item whose PR is merged or closed is stale (the ledger closes it later), so it is never the next step.
-      const live = ticketLedger(p.ledgerLines ?? [], c.ticket).filter(l => {
-        const url = /: - \[open\] pr \| (\S+) \|/.exec(l)?.[1]
-        const state = url ? p.prs?.[url]?.state : undefined
-        return !state || /^open$/i.test(state)
-      })
-      // Else the last RESULT, else the ticket title, so no card is only its header.
-      return id ? ledgerNext(live) ?? p.notes?.[id] ?? parseBartender(p.bartenders[id] ?? '')?.name ?? '' : ''
-    }
-    const isTerminal = e.surface === 'terminal'
-    // Linear's look off the terminal; the terminal keeps its own colours.
-    const t = isTerminal ? undefined : LINEAR[p.dark ? 'dark' : 'light']
-    const detailsLabel = p.details ? 'Compact' : 'Details'
-    // A quiet switch: no fill, dim text that turns full strength under the pointer.
-    const detailsButton = <Button key="details" plain dimColor label={detailsLabel} onPress={flip} />
-    const { Link } = $.ui.resolve(e)
-    // Every link in the accent: a bare Link takes the surface's own colour, which drew grey in Details.
-    const link = (href: string, label: string) =>
-      t ? <Link href={href}><Text color={t.accent}>{label}</Text></Link> : <Link href={href} label={label} />
-    // Only the ledger items due now (`bouncer-ledger due`), as what the user must do; open items that are not due are in
-    // their card's row 2. Each row: the key as a link (the PR, else the Linear issue) and its next step.
-    const dueButton = due.length > 0 && (
-      <Button key="ledger" plain onPress={() => toggle('ledgerOpen')}><Text color="error">{`${due.length} to act`}</Text></Button>
-    )
-    const dueRows = dueLines.map(line => {
-      const it = ledgerItem(line)
-      if (!it) return <Text key={`due:${line}`} wrap="truncate">{line}</Text>
-      const pr = /^https:\/\/github\.com\/\S+\/pull\/(\d+)$/.exec(it.key)
-      const state = pr ? p.prs?.[it.key]?.state?.toLowerCase() : undefined
-      const label = pr ? `#${pr[1]}${state && state !== 'open' ? ` ${state}` : ''}` : LINEAR_KEY.test(it.key) ? it.key : it.record
-      const href = pr ? it.key : linear && LINEAR_KEY.test(label) ? `${linear}/issue/${label}` : undefined
-      return (
-        <Box key={`due:${line}`} flexDirection="row" alignItems="center" gap="sm">
-          <Box flexShrink={0}>{href ? link(href, label) : <Text color={t?.ink}>{label}</Text>}</Box>
-          <Box flexGrow={1} flexShrink={1} minWidth={0}><Text color={t?.muted} wrap="truncate-end">{it.next}</Text></Box>
-          <Button key={`due:ask:${it.key}`} plain dimColor onPress={() => ask(`${it.record}: due ${it.kind}${it.key === it.record ? '' : ` ${it.key}`}: ${it.next}`)}>Ask Bouncer</Button>
-        </Box>
-      )
-    })
-    // The clock only when a card shows a time.
-    const now = Object.values(p.sessions ?? {}).some(x => x.at) ? await $.clock.now() : 0
-    // A Bartender as Rounds row pieces: the title (dot and key, the key a link to its Linear issue), the status code as a
-    // chip, the PR (`#17860 +1`, glyph in the PR state colour). The title is not a Button: a desktop Button adds its own
-    // inset, so the rows would not align.
-    const isLinked = (c: Column) => !!c.ticket && !!linear && LINEAR_KEY.test(c.ticket)
-    const titleOf = (c: Column) => isLinked(c)
-      ? <Box flexDirection="row"><Text>{`${c.dot} `}</Text>{link(`${linear}/issue/${c.ticket}`, c.ticket)}</Box>
-      : <Text weight="medium" color={t?.ink} wrap="truncate-end">{c.value}</Text>
-    const chipOf = (c: Column) => (
-      <Box key={`chip:${c.key}`} flexShrink={0} paddingX="xs" {...(t ? { backgroundColor: t.hairline } : {})}>
-        <Text size="footnote" color={t?.muted}>{c.label}</Text>
-      </Box>
-    )
-    const prOf = (c: Column) => {
-      const id = c.ids.length === 1 ? c.ids[0]! : undefined
-      const s = id ? p.sessions?.[id] : undefined
-      const [glyph, glyphColor] = prMark(s?.pr?.state)
-      // PR links only from full URLs in its report or its ticket's ledger lines; never from the folder's remote.
-      const urls = prUrls([id ? p.reportTexts?.[id] ?? '' : '', ...ticketLedger(p.ledgerLines ?? [], c.ticket)])
-      const n = s?.pr?.number ?? Number(/\d+$/.exec(urls[0] ?? '')?.[0] ?? 0)
-      const href = n ? prUrl(n, urls) : undefined
-      const others = urls.filter(u => u !== href).length
-      return {
-        cells: n ? `⑂ #${n}${others ? ` +${others}` : ''}`.length + 1 : 0,
-        time: s?.at ? ago(s.at, now) : '',
-        el: n > 0 && (
-          <Box key={`pr:${c.key}`} flexDirection="row" flexShrink={0}>
-            <Text color={glyphColor}>{`${glyph} `}</Text>
-            {href ? link(href, `#${n}`) : <Text color={t?.muted}>{`#${n}`}</Text>}
-            {others > 0 && <Text color={t?.muted}>{` +${others}`}</Text>}
-          </Box>
-        ),
-      }
-    }
-
-    // Details lists every open PR of the ticket (its open pr ledger items, and the session's own PR), each a link in the
-    // PR state colour with its base (`#17860 → dev`), on a row of its own under row 1. Compact keeps `#17860 +1`.
-    const prsOf = (c: Column) => {
-      const id = c.ids.length === 1 ? c.ids[0]! : undefined
-      const s = id ? p.sessions?.[id] : undefined
-      const urls = openPrUrls(p.ledgerLines ?? [], c.ticket)
-      const own = s?.pr?.number
-      const ownHref = own ? prUrl(own, [id ? p.reportTexts?.[id] ?? '' : '', ...ticketLedger(p.ledgerLines ?? [], c.ticket)]) : undefined
-      const list = [
-        ...(own && !(ownHref && urls.includes(ownHref)) ? [{ n: own, href: ownHref, state: s?.pr?.state }] : []),
-        ...urls.map(u => ({ n: Number(/\d+$/.exec(u)?.[0] ?? 0), href: u as string | undefined, state: u === ownHref ? s?.pr?.state : undefined })),
-      ]
-      return list.map(x => ({ ...x, state: (x.href && p.prs?.[x.href]?.state) || x.state, base: x.href ? p.prs?.[x.href]?.base : undefined }))
-    }
-    const prRow = (c: Column) => {
-      const prs = prsOf(c)
-      return prs.length > 0 && (
-        <Box key={`prs:${c.key}`} flexDirection="row" flexWrap="wrap" gap="md">
-          {prs.map(x => {
-            const [glyph, color] = prMark(x.state)
-            return (
-              <Box key={`pr:${c.key}:${x.n}`} flexDirection="row" flexShrink={0}>
-                <Text color={color}>{`${glyph} `}</Text>
-                {x.href ? link(x.href, `#${x.n}`) : <Text color={t?.muted}>{`#${x.n}`}</Text>}
-                {/* The base only while open: a merged PR's glyph says enough. */}
-                {x.base && (!x.state || /^open$/i.test(x.state)) && <Text color={t?.muted}>{` → ${x.base}`}</Text>}
-              </Box>
-            )
-          })}
-        </Box>
-      )
-    }
-
-    if (!p.details) {
-      // Compact: one row, as ponytail's compact band. Each Bartender is one pill (dot and key, status code, PR; the code is
-      // plain text, so pills do not nest); on the right what waits on the user, the due count and the switch. It wraps only when narrow.
-      const n = p.waiting
-      const mine = (
-        <Box flexDirection="row" alignItems="center" flexWrap="wrap" gap={isTerminal ? 2 : 'sm'} width={width}>
-          {all.length === 0 && strip}
-          {all.map(c => (
-            <Box key={`row:${c.key}`} flexDirection="row" alignItems="center" gap={isTerminal ? 1 : 'sm'} {...(t
-              ? { borderStyle: 'round' as const, borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'sm' as const, paddingY: 0 }
-              : {})}>
-              <Box key={`title:${c.key}`} flexShrink={isLinked(c) ? 0 : 1} minWidth={0}>{titleOf(c)}</Box>
-              {c.label && <Box key={`chip:${c.key}`} flexShrink={0}><Text color={t?.muted}>{c.label}</Text></Box>}
-              {prOf(c).el}
-            </Box>
-          ))}
-          <Box flexGrow={1} />
-          {n > 0 && (waits?.b
-            ? <Button key="waits" plain onPress={() => open(waits.b!.id, waits.name)}><Text color="error">{`${n} waits on you`}</Text></Button>
-            : <Text key="waits" color="error">{`${n} waits on you`}</Text>)}
-          {dueButton}
-          {detailsButton}
-        </Box>
-      )
-      if (dueLines.length > 0) return <Box flexDirection="column" gap={isTerminal ? 0 : 'xs'}>{mine}{dueRows}{below}</Box>
-      return below ? <Box flexDirection="column">{mine}{below}</Box> : mine
-    }
-
-    // Details. Terminal: ponytail's columns split by `│`. Elsewhere Linear's look: one card a Bartender
-    // (surface, hairline border, round corners, padding), a hairline under the header, nothing below ink-subtle.
-    // The terminal shows 4 columns and counts the rest (`+N`); off the terminal every card shows, in one row.
-    const shown = isTerminal ? all.slice(0, 4) : all
-    const more = all.length - shown.length
-    // The terminal draws a rule under the header; elsewhere the cards' borders do that work.
-    const rule = isTerminal && <Text dimColor wrap="truncate-end">{'─'.repeat(e.props.bodyColumns)}</Text>
-    const bar = (i: number) => <Box key={`bar:${i}`} flexDirection="column">{['a', 'b', 'c'].map(k => <Text key={k} dimColor>│</Text>)}</Box>
-    const colWidth = width === undefined ? undefined : Math.max(10, Math.floor(width / Math.max(1, shown.length)) - 3)
-    // One card a Bartender, as a Rounds session row in two rows. Row 1: title, chip, PR, the time, `⋯` (the menu).
-    // Row 2: the next step or the last result. Width 0 and grow 1 give equal cards (no flexBasis prop).
-    // shortcut: no prop gives a card's drawn width, so what fits is guessed from the band's cells (one character a cell);
-    // when row 1 is too long the time goes first, then the chip. Measure the card once the engine gives its width.
-    const room = Math.floor((e.props.bodyColumns ?? 120) / Math.max(1, shown.length)) - 3
-    const card = (c: Column) => {
-      const { time } = prOf(c)
-      // Row 1 does not hold the PR in Details: the PRs have a row of their own.
-      const prCells = 0
-      const showChip = !!c.label && c.value.length + c.label.length + 3 + prCells <= room
-      // The time also needs room for `⋯` and the gaps (4 cells), so it shows only when row 1 is short.
-      const showTime = !!time && c.value.length + (showChip ? c.label.length + 3 : 0) + prCells + time.length + 5 <= room
-      const line = sub(c)
-      return (
-        <Box key={`col:${c.key}`} flexDirection="column" minWidth={0} {...(t
-          ? { flexGrow: 1, flexShrink: 1, width: 0, minWidth: 0, gap: 'sm' as const, borderStyle: 'round', borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'md' as const, paddingY: 'md' as const }
-          : colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
-          <Box flexDirection="row" alignItems="center" gap="sm">
-            {/* A Link wraps instead of truncating: a linked key keeps its width. */}
-            <Box key={`title:${c.key}`} flexGrow={1} flexShrink={isLinked(c) || !isTerminal ? 0 : 1} minWidth={0}>{titleOf(c)}</Box>
-            {showChip && chipOf(c)}
-            {showTime && <Text size="footnote" color={t?.muted}>{time}</Text>}
-            <Button key={c.key} plain dimColor label="⋯" onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))} />
-          </Box>
-          {prRow(c)}
-          {line && <Box key={`line:${c.key}`}><Text size="footnote" color={t?.muted} wrap="wrap" maxLines={2}>{line}</Text></Box>}
-          {/* The menu is a row of its own under the next step: secondary buttons on one row; the card grows to fit.
-              The terminal keeps plain ones. */}
-          {p.menu === c.key && (
-            <Box key={`menu:${c.key}`} flexDirection="row" gap="sm" flexWrap="nowrap">
-              {/* A desktop Button keeps its label's width (no width prop), so each cell draws the button: equal (width 0, grow 1, as the cards),
-                  a plain Button centred in it, in a Box that never shrinks, so the label never truncates. The keyed cell is the hover scope, so the
-                  whole cell lights; only the label takes the click (a Box has no onPress, a Button holds only text). Stop and Reset ask first. */}
-              {menuCells(c).map(o => (
-                <Box key={`cell:${c.key}:${o.value}`} flexDirection="row" width={0} flexGrow={1} alignItems="center" justifyContent="center"
-                  {...(t ? { backgroundColor: t.hairline, borderStyle: 'round', borderColor: o.red ? 'error' : t.hairline, paddingX: 0 as const, paddingY: 'xs' as const, hover: { backgroundColor: t.hover } } : {})}>
-                  <Box flexShrink={0}>
-                    <Button key={`${c.key}:${o.value}`} plain onPress={o.press} {...(t ? { hover: { backgroundColor: t.hover } } : {})}>
-                      {o.red ? <Text color="error">{o.label}</Text> : o.label}
-                    </Button>
-                  </Box>
-                </Box>
-              ))}
-            </Box>
-          )}
-        </Box>
-      )
-    }
-    const mine = (
-      <Box flexDirection="column" width={width} gap={isTerminal ? 0 : 'sm'} paddingY={isTerminal ? 0 : 'xs'}>
-        <Box flexDirection="row" alignItems="center" gap={isTerminal ? 1 : 'sm'}>
-          {strip}
-          <Text bold weight="semibold" color={t?.ink}>Bouncer</Text>
-          <Text color={t?.muted}>{ownRepo}</Text>
-          <Box flexGrow={1} />
-          {p.queue > 0 && <Button key="queue" plain onPress={() => toggle('queueOpen')}><Text color={t?.muted}>{`Queue ${p.queue}`}</Text></Button>}
-          {dueButton}
-          {detailsButton}
-        </Box>
-        {rule}
-        {dueRows.length > 0 && <Box key="due" flexDirection="column" gap={isTerminal ? 0 : 'xs'}>{dueRows}</Box>}
-        {waits && (
-          <Box backgroundColor="diffRemovedDimmed" paddingX={isTerminal ? 'xs' : 'lg'} paddingY={isTerminal ? 0 : 'sm'} {...(t ? { borderStyle: 'round', borderColor: t.hairline } : {})}>
-            {waits.b
-              ? <Button key={`open:${waits.b.id}`} plain onPress={() => open(waits.b!.id, waits.name)}>
-                  <Text wrap="truncate" color={t?.ink}>{`🔴 ${waits.name}: ${waits.question}`}</Text>
-                </Button>
-              : <Text wrap="truncate" color={t?.ink}>{`🔴 ${waits.name}: ${waits.question}`}</Text>}
-          </Box>
-        )}
-        {shown.length > 0 && (
-          <Box flexDirection="row" gap={isTerminal ? 2 : 'md'} flexWrap="nowrap">
-            {shown.flatMap((c, i) => [...(isTerminal && i > 0 ? [bar(i)] : []), card(c)])}
-            {more > 0 && <Text key="more" color={t?.muted}>{`+${more}`}</Text>}
-          </Box>
-        )}
-        {lines.map((line, i) => {
-          const ticket = line.split('|')[0]?.trim() ?? ''
-          return (
-            <Box flexDirection="row" alignItems="center" gap={1}>
-              <Box flexShrink={1} minWidth={0}><Text wrap="truncate">{queueSummary(line)}</Text></Box>
-              {i === 0 && <Button key="queue:pop" plain onPress={() => ask('queue: pop')}>Pop</Button>}
-              <Button key={`queue:remove:${ticket}`} plain onPress={() => ask(`queue: remove ${ticket}`)}>Remove</Button>
-            </Box>
-          )
-        })}
-      </Box>
-    )
-    return below ? <Box flexDirection="column">{mine}{below}</Box> : mine
+  on('ui.render', { component: 'AbovePrompt' }, ($, e, next) => draw($, e, next, false, records, linear))
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    const { Text } = $.ui.resolve(e)
+    return (await read($, pool)).isOn ? draw($, e, next, true, records, linear) : <Text>This session is not the Bouncer.</Text>
   })
 }

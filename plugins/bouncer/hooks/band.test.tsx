@@ -3,6 +3,7 @@ import { expect, test } from 'claude-code/testing'
 import { EMPTY, dot, parseBartender, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
 
 const BAND = { plugin: 'bouncer', component: 'AbovePrompt', props: { hasSurvey: false, bodyColumns: 120 } } as const
+const PANE = { plugin: 'bouncer', component: 'Pane', requestId: 'bouncer', props: { bodyColumns: 120 } } as const
 
 // This session's id, and writes of the Bouncer owner file.
 const base = (on: any, store: Record<string, unknown> = {}) => {
@@ -394,6 +395,31 @@ test('the band shows only the due ledger items as a count to act on, each a link
   await ui.unmount()
 })
 
+test('off the terminal Details opens the Bouncer pane, two cards a row, and the band stays one row', async ($, on) => {
+  engine(on)
+  const opened: unknown[] = []
+  on('ui.open', (_: unknown, e: any) => { opened.push(e.id); return { value: { isPlaced: true } } })
+  for (const k of ['a', 'b', 'c', 'd', 'e']) await title($, k, `🍸 [MIDI-${k.charCodeAt(0)}] [Dev] Ticket ${k}`)
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  await band.press({ key: 'details' })
+  expect(opened).toEqual(['bouncer'])
+  expect((await band.find({ key: 'details' }))?.text).toBe('Details')
+  expect((await band.findAll({ type: 'Box' })).some((b: any) => b.props?.key?.startsWith('col:'))).toBe(false)
+  await band.unmount()
+  const pane = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
+  const rows = ['cards:0', 'cards:1', 'cards:2']
+  expect(await Promise.all(rows.map(async k => ((await pane.find({ key: k }))?.children ?? []).filter((c: any) => c.props?.key?.startsWith('col:')).length))).toEqual([2, 2, 1])
+  await pane.unmount()
+})
+
+test('where no pane shows, Details stays in the band and its cards scroll sideways', async ($, on) => {
+  engine(on)
+  await title($, 'a', '🍸 [MIDI-1] [Dev] Ticket a')
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  expect((await ui.findAll({ type: 'Box' })).find((b: any) => b.props?.overflowX)?.props?.overflowX).toBe('scroll')
+  await ui.unmount()
+})
+
 test('off the terminal every Bartender has a card, and a card with no next step shows its ticket title', async ($, on) => {
   engine(on)
   for (const k of ['a', 'b', 'c', 'd', 'e']) await title($, k, `🍸 [MIDI-${k.charCodeAt(0)}] [Dev] Ticket ${k}`)
@@ -531,7 +557,7 @@ test('the band fills from the linked sessions: titles, green when no turn runs, 
   await title($, 'self', '🚪 Bouncer')
   await title($, 'local_old', '[Dev] 🍸 MIDI-9 rounds')
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
   expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢]( [🔴🟡🟢])*$/u }))?.text).toBe('🟡 🟢')
   expect(await cols(ui)).toEqual([['Dev', '🟡 band', undefined], ['QA', '🟢 MIDI-1', undefined]])
   await ui.unmount()
@@ -702,7 +728,7 @@ test('Details: the ask row shows only while a question waits; a report fills the
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
   await title($, 'self', '🚪 Bouncer')
   await title($, 'local_a', '[Dev] 🍸 MIDI-1 rounds')
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
   expect(await ui.find({ type: 'Text', text: /^🔴 / })).toBe(undefined)
 
   await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: DONE\nTICKET: MIDI-1' } as any)
@@ -731,14 +757,15 @@ test("Details off the terminal takes Linear's tokens for the system appearance: 
   await title($, 'self', '🚪 Bouncer')
   await title($, 'a', '[Dev] 🍸 MIDI-1 rounds')
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  // Off the terminal Details is the Bouncer pane.
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
   const color = async (text: RegExp) => (await ui.find({ type: 'Text', text }))?.props?.color
   expect(await color(/^Bouncer$/)).toBe('#f7f8f8')
   expect(await color(/^Dev$/)).toBe('#d0d6e0')
   const cards = (await ui.findAll({ type: 'Box' })).filter((b: any) => b.props?.borderStyle === 'round' && b.props?.backgroundColor === '#0f1011')
-  // One card, sized for equal widths (width 0, grow 1); the Compact switch is a quiet plain Button with no box of its own.
+  // One card, sized for equal widths (width 0, grow 1); the pane has no Compact switch.
   expect(cards.map((b: any) => [b.props.width, b.props.flexGrow])).toEqual([[0, 1]])
-  expect((await ui.find({ key: 'details' }))?.props?.dimColor).toBe(true)
+  expect(await ui.find({ key: 'details' })).toBe(undefined)
   style = ''
   await endTurn($)
   expect(await color(/^Bouncer$/)).toBe('#000000')
@@ -780,7 +807,7 @@ test('a card links its ticket to Linear and its PR to the URL that its ledger li
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
   // A report whose EVIDENCE names the full PR URL.
   await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: WORKING\nTICKET: band' } as any)
-  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
   const links = (await ui.findAll({ type: 'Link' })).map((l: any) => [linkText(l), l.props.href])
   expect(links).toEqual(expect.arrayContaining([['MIDI-1', 'https://linear.app/acme/issue/MIDI-1'], ['#17', 'https://github.com/acme/backend/pull/17'], ['#3', 'https://github.com/acme/plugins/pull/3']]))
   expect(links.some(([, h]: any) => /acme\/rounds|pull\/5$/.test(h))).toBe(false)
