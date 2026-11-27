@@ -59,6 +59,8 @@ Bouncer mode titles (decided 2026-11-25): Bouncer mode runs as the `bouncer` plu
 - Bartender: a side session titled `🍸 [<TICKET>] [<status>] <ticket title>` or `🍸 [Idle] <repo>`, with an optional `!` (a call to action) before it (before plugin 0.10.5: `[<status>] 🍸 <TICKET> <repo>`, still read). The emoji is the Bartender type: 🍸 Ticket, 🔧 Skill (the ticket is a task name), 🧹 Cleanup. It is a subagent of its Bouncer (3.2): the user never opens it.
 - Bouncer: `!<n> 🚪 Bouncer <repo>` while `n` questions wait on the user, else `🚪 Bouncer <repo>` (one Bouncer a repo; a title from before plugin 0.10.4 has no repo). A count above 0 is a question (rule 9).
 
+The Bouncer runs [on-call triage](../plugins/bouncer/README.md#on-call-triage) in its own session through the configured skill when that skill supports the prompt.
+
 ### 2.2 Transcript tail (read only)
 
 Path: `~/.claude/projects/<cwd with "/" and "." replaced by "-">/<cliSessionId>.jsonl`. Read the last 64 KiB only. When the last line is longer than that (no complete line), read the last 1 MiB one time. Used for:
