@@ -8,7 +8,8 @@ One call for Bouncer start and after each clear. Run it in the session folder.
   questions, queue: the count and the head line; grants: every line
   records:   the folder of the ticket records
   context:   the size of the Bouncer's context (bouncer-session context)
-A part with nothing in it prints "<part>: none". Exit 0; 1 when preflight has a fix line; 2 on bad usage."""
+A part with nothing in it prints "<part>: none"; one that cannot be read, "<part>: unknown (<error>)".
+Exit 0; 1 when preflight has a fix line; 2 on bad usage or a bad --turn time."""
 import os, re, subprocess, sys
 
 HERE = os.path.dirname(os.path.realpath(__file__))
@@ -27,10 +28,13 @@ if any(x != "--turn" for x in turns[0::2]) or len(turns) % 2 or not all(re.fullm
 code, out, err = run("bouncer-preflight")
 fixes = [l for l in out.splitlines() if l.startswith("fix ")]
 part("preflight", fixes or (["ok"] if code == 0 else [err or f"exit {code}"]))
-part("decisions", run("bouncer-decisions", "list")[1].splitlines())
-_, out, err = run("bouncer-ledger", "due")
-part("due", out.splitlines() + [l for l in err.splitlines() if l.startswith("unsure")])
-part("stale", run("bouncer-ledger", "stale", *turns)[1].splitlines())
+code, out, err = run("bouncer-decisions", "list")   # exit 1: no decision yet
+part("decisions", out.splitlines() if code in (0, 1) else [f"unknown ({err})"])
+code, out, err = run("bouncer-ledger", "due")
+part("due", out.splitlines() + [l for l in err.splitlines() if l.startswith("unsure")] if code == 0 else [f"unknown ({err})"])
+code, out, err = run("bouncer-ledger", "stale", *turns)
+if code: print(err, file=sys.stderr); sys.exit(2)   # a bad --turn time
+part("stale", out.splitlines())
 for name, script, head in (("questions", "bouncer-questions", "next"), ("queue", "bouncer-queue", "list")):
     code, out, err = run(script, "list")
     lines = out.splitlines()

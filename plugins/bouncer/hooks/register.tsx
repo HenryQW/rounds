@@ -28,14 +28,18 @@ const dataFile = async ($: EngineInterface, name: string) => {
 }
 // Ledger items live in the ticket records; bouncer-ledger list --all prints one line each (done ones keep their PR URLs),
 // and due only the open items to act on.
-const ledgerList = async ($: EngineInterface, records: string, cmd: 'list' | 'due' = 'list') => {
+const ledgerRun = async ($: EngineInterface, records: string, cmd: 'list' | 'due') => {
   const env = await $.process.hookEnv()
   if (!env.CLAUDE_PLUGIN_ROOT) return undefined
   const script = `${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-ledger`
   // `due` runs each item's check (gh calls): a login shell finds gh where the app's PATH may not, as the PR queries do.
   const argv = cmd === 'list' ? [script, 'list', '--all'] : ['/bin/bash', '-lc', 'exec "$0" due', script]
   const ran = await $.process.run(argv, { env: records ? { ...env, BOUNCER_RECORDS: records } : env }).catch(() => undefined)
-  return ran?.exitCode === 0 ? queueLines(ran.stdout) : undefined
+  return ran?.exitCode === 0 ? ran : undefined
+}
+const ledgerList = async ($: EngineInterface, records: string) => {
+  const ran = await ledgerRun($, records, 'list')
+  return ran ? queueLines(ran.stdout) : undefined
 }
 // One Bouncer a repo: `bouncer` in <data>/<repo>/ holds the engine session id of that repo's Bouncer.
 // A session claims it when it is free; another one takes it over only on the user's Take Over.
@@ -92,8 +96,9 @@ const refreshData = async ($: EngineInterface, records = '') => {
 
 // `due` runs each item's check (gh calls), so it runs once a turn, never on a render or a tool call.
 const refreshDue = async ($: EngineInterface, records = '') => {
-  const due = await ledgerList($, records, 'due')
-  if (due) await update($, pool, p => ({ ...p, due }))
+  // A check that did not answer is an `unsure` line on stderr: the Bouncer checks that item by hand.
+  const ran = await ledgerRun($, records, 'due')
+  if (ran) await update($, pool, p => ({ ...p, due: queueLines(ran.stdout), unsure: queueLines(ran.stderr).filter(l => l.startsWith('unsure ')) }))
   // Each open pr item's state and base for Details; a login shell finds gh where the app's PATH may not.
   const p = await read($, pool)
   const urls = [...new Set(Object.values(p.bartenders).flatMap(t => openPrUrls(p.ledgerLines ?? [], parseBartender(t)?.ticket ?? '')))]
@@ -113,9 +118,11 @@ const syncTitles = async ($: EngineInterface, report?: Report) => {
 }
 
 // One report of a Bartender: keep it for the band, then set the titles. `text` holds the full PR URLs of its EVIDENCE.
-const applyReport = async ($: EngineInterface, report: Report, text: string) => {
+// A report is a Bartender's own text: with its sender known (`from`), it counts only for that sender's own ticket.
+const applyReport = async ($: EngineInterface, report: Report, text: string, from?: string) => {
   // Keep the STATUS for the band's dot and the sub-line for its column, on the session whose title has the report's ticket.
   const id = Object.entries((await read($, pool)).bartenders).find(([, t]) => report.ticket && parseBartender(t)?.ticket === report.ticket)?.[0]
+  if (from !== undefined && id !== from) return
   // A turn-end note means its turn ended: the dot leaves 🟡 now, not at the Bouncer's next list_sessions read.
   if (id) await update($, pool, p => ({ ...p, reports: { ...p.reports, [id]: report.status }, notes: { ...p.notes, [id]: reportLine(report) }, reportTexts: { ...p.reportTexts, [id]: text }, running: { ...p.running, [id]: false } }))
   await syncTitles($, report)
@@ -139,7 +146,7 @@ const onNote = async ($: EngineInterface, text: string) => {
 // bouncer-note reads all that the Bouncer needs before it acts on the note (the report, from the Bartender's last answer
 // when the quote lost it; the acceptance check; the grant; the record), and the digest goes with the prompt, so the
 // Bouncer spends no call on it. The acceptance check runs gh: a login shell finds it, as for the ledger.
-const IS_NOTE = /you started \(local_[\w-]+\) finished a turn/
+const IS_NOTE = /^\s*The session ".*" you started \(local_[\w-]+\) finished a turn/m
 const NOTE = 'Bouncer note digest (`bouncer-note` ran on this turn-end note; do not run it again):'
 const noteContext = async ($: EngineInterface, text: string, records: string) => {
   if (!(await read($, pool)).isOn) return undefined
@@ -149,12 +156,14 @@ const noteContext = async ($: EngineInterface, text: string, records: string) =>
     stdin: text, env: { ...env, BOUNCER_REPO: await repoOf($), ...(records ? { BOUNCER_RECORDS: records } : {}) },
   }).catch(() => undefined)
   if (!ran || ran.exitCode !== 0 || !ran.stdout.trim()) return undefined
+  let from = ''
   for (const line of ran.stdout.split('\n')) {
+    from = /^session: (local_[\w-]+)$/.exec(line)?.[1] ?? from
     const json = /^report: (\{.*\}) \(from /.exec(line)?.[1]
-    if (!json) continue
+    if (!json || !from) continue
     let report: Report
     try { report = JSON.parse(json) as Report } catch { continue /* not a report */ }
-    await applyReport($, report, `${text}\n${json}`).catch(() => undefined)
+    await applyReport($, report, json, from).catch(() => undefined)
   }
   return `${NOTE}\n${ran.stdout.trim()}`
 }
@@ -164,7 +173,7 @@ const noteContext = async ($: EngineInterface, text: string, records: string) =>
 const DUE = 'Bouncer ledger due (`bouncer-ledger due`, read at the last turn end; act on each item now, and do not run it again this turn):'
 const dueContext = async ($: EngineInterface) => {
   const p = await read($, pool)
-  const due = (p.due ?? []).join('\n')
+  const due = [...(p.due ?? []), ...(p.unsure ?? [])].join('\n')
   const dueFor = `${await $.session.id()}\n${due}`
   if (p.dueFor === dueFor) return undefined
   await update($, pool, q => ({ ...q, dueFor }))

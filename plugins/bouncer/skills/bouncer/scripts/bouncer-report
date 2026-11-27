@@ -12,7 +12,7 @@ import json, re, sys
 
 KEYS = ["STATUS", "TICKET", "LINEAR", "RESULT", "QUESTION", "EVIDENCE"]
 errs, got, lines = [], {}, []
-text = re.sub(r'(?s)(instructions\): )"(.*?)"((?: \(first \d+ of \d+ characters\))? Read it with )',
+text = re.sub(r'(instructions\): )"(.*)"((?: \(first \d+ of \d+ characters\))? Read it with )',
               lambda m: m.group(1) + "\n" + re.sub(r" ?⏎ ?", "\n", m.group(2)) + "\n" + m.group(3), sys.stdin.read())
 for line in text.splitlines():
     m = re.match(r"^\s*([A-Z_]+):\s*(.*?)\s*$", line)

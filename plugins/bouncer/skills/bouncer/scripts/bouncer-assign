@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bouncer-assign [--type Ticket|Skill|Cleanup] [--drop <old ticket>] "<TICKET> | <repo> | <mode> | <status> | <ticket title> | <goal> | <done means>"
+"""bouncer-assign [--type Ticket|Skill|Cleanup] [--drop <old ticket>] <TICKET> <repo> <mode> <status> <ticket title> <goal> <done means>
 One call for an assignment ("Reset and assign", and the `start` action): all that the Bouncer sets on the Bartender.
   title:  the session title (bouncer-title); "title: none (<error>)" when the status has no code
   model:  the full model id, and
@@ -9,7 +9,8 @@ One call for an assignment ("Reset and assign", and the `start` action): all tha
           the ticket record path, the real path of the skill folder, and the report shape of SKILL.md
 <mode>: Code, Spike or Mechanical. For a Skill Bartender, Mechanical means an edit and the others a design; for a
 Cleanup Bartender, Mechanical means a plain sweep and the others a sweep that needs judgment.
-<status>: the tracker's status name, as for bouncer-title. <done means> keeps any further "|".
+<status>: the tracker's status name, as for bouncer-title. One argument a field: quote each one that has a space.
+<TICKET> is also the name of the ticket record (a-z, A-Z, 0-9, _ . -; no leading .), as for bouncer-ledger.
 --drop: the Bartender could not be cleared; the brief starts with the line that drops the old ticket's context.
 It writes nothing. Exit 2: bad usage. Exit 3: brief.md or SKILL.md lost a part that the script fills in."""
 import json, os, re, subprocess, sys
@@ -39,18 +40,17 @@ def model(kind, mode):
     if kind == "Skill": return (SONNET, "medium") if mode == "Mechanical" else (OPUS, "medium")
     return (HAIKU, "low") if mode == "Mechanical" else (SONNET, "medium")
 
-USAGE = 'usage: bouncer-assign [--type Ticket|Skill|Cleanup] [--drop <old ticket>] "<TICKET> | <repo> | <mode> | <status> | <ticket title> | <goal> | <done means>"'
+USAGE = "usage: bouncer-assign [--type Ticket|Skill|Cleanup] [--drop <old ticket>] <TICKET> <repo> <mode> <status> <ticket title> <goal> <done means>"
 a, kind, drop = sys.argv[1:], "Ticket", ""
 while len(a) > 2 and a[0] in ("--type", "--drop"):
     if a[0] == "--type": kind = a[1]
     else: drop = a[1].strip()
     a = a[2:]
-if len(a) != 1 or kind not in ("Ticket", "Skill", "Cleanup"): die(USAGE)
-fields = [f.strip() for f in a[0].split("|", 6)]
-if len(fields) != 7 or not all(fields): die(USAGE)
+fields = [f.strip() for f in a]
+if len(fields) != 7 or not all(fields) or kind not in ("Ticket", "Skill", "Cleanup"): die(USAGE)
 ticket, repo, mode, status, name, goal, done = fields
 if mode not in MODES: die(f"bad mode: {mode} ({', '.join(MODES)})")
-if not re.fullmatch(r"[^\s\]]+", ticket): die(f"bad ticket: {ticket!r} (one word, no ])")
+if not re.fullmatch(r"[\w.-]+", ticket) or ticket.startswith("."): die(f"bad ticket: {ticket!r} (a-z, A-Z, 0-9, _ . -; no leading .)")
 
 def fenced(path, after=""):
     """The first fenced block of a file, after a heading if one is given."""

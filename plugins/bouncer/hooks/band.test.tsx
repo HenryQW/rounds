@@ -932,12 +932,14 @@ test('a prompt carries the note digest, the due items when they change, and the 
   on('prompt.submit', (_: unknown, e: { text: string; context?: unknown }) => { contexts.push(e.context); return { text: e.text } })
   on('fs.read', () => { throw new Error('missing') })
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
-  const ran = (stdout: string, exitCode = 0) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
-  const digest = 'session: local_a\nreport: {"status": "DONE", "ticket": "MIDI-1", "linear": "CR", "result": "PR 3", "question": null, "evidence": "rec"} (from the last answer)\naccept: pass\n'
+  const ran = (stdout: string, exitCode = 0, stderr = '') => ({ value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false } })
+  const unsure = 'unsure - [open] verify | flag | trigger: t | check: false2 | next: read it | 2026-11-28'
+  // A second session reports the first one's ticket: its report sets nothing.
+  const digest = 'session: local_b\nreport: {"status": "BLOCKED", "ticket": "MIDI-1", "linear": "Done", "result": null, "question": null, "evidence": "x"} (from the note)\nsession: local_a\nreport: {"status": "DONE", "ticket": "MIDI-1", "linear": "CR", "result": "PR 3", "question": null, "evidence": "rec"} (from the last answer)\naccept: pass\n'
   on('process.run', (_: unknown, e: any) => {
     const argv = e.argv.join(' ')
     if (argv.endsWith('/plugin/skills/bouncer/scripts/bouncer-note')) return ran(digest)
-    if (argv.endsWith('due /plugin/skills/bouncer/scripts/bouncer-ledger')) return ran(due)
+    if (argv.endsWith('due /plugin/skills/bouncer/scripts/bouncer-ledger')) return ran(due, 0, `gh: noise\n${unsure}\n`)
     if (argv === '/plugin/skills/bouncer/scripts/bouncer-session context me') return ran(size)
     return ran('', 1)
   })
@@ -949,7 +951,7 @@ test('a prompt carries the note digest, the due items when they change, and the 
   // The due items go once; the size says nothing under the cap.
   await $.prompt.submit({ text: 'first' } as any)
   await $.prompt.submit({ text: 'second' } as any)
-  expect(contexts).toEqual([[DUE + due.trim()], undefined])
+  expect(contexts).toEqual([[`${DUE}${due}${unsure}`], undefined])
 
   // The app's note: the quote lost the report, the digest has it from the last answer, and the title takes its status code.
   // A Bartender still runs, so the size is not read.

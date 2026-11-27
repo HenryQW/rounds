@@ -5,6 +5,9 @@ bouncer-session context [--cap N] [<session id>]   print "context: <n> tok": the
     session id; default: the Bouncer of this repo (<data>/<repo>/bouncer, which the plugin writes).
 bouncer-session last <local session id>   print the last answer of a Claude desktop session (the id that list_sessions
     and a turn-end note give, local_...): its text, without tool calls.
+bouncer-session title <local session id>  print that session's title.
+bouncer-session quote <local session id>  print what the app quotes of that session's last turn in a turn-end note
+    (at most 400 characters), so a caller can tell whether a note is about the last turn.
 Transcripts are <config>/projects/*/<session id>.jsonl (CLAUDE_CONFIG_DIR, else ~/.claude). The desktop app keeps
 each session's Claude Code id in claude-code-sessions/*/*/<local id>.json ($BOUNCER_DESKTOP_SESSIONS names that folder,
 else ~/Library/Application Support/Claude/claude-code-sessions).
@@ -50,11 +53,16 @@ if cmd == "context":
         if n:
             print(f"context: {n} tok" + (f" (over {cap})" if n > cap else "")); sys.exit(0)
     print("context: unknown"); sys.exit(1)
-elif cmd == "last" and len(a) == 2:
-    if not re.fullmatch(r"local_[\w-]+", a[1]): die("usage: bouncer-session last <local session id>")
+elif cmd in ("last", "title", "quote") and len(a) == 2:
+    if not re.fullmatch(r"local_[\w-]+", a[1]): die(f"usage: bouncer-session {cmd} <local session id>")
     for path in glob.glob(os.path.join(DESKTOP, "*", "*", a[1] + ".json")):
         try: d = json.load(open(path))
         except (OSError, ValueError): continue
+        if cmd != "last":
+            value = d.get("title" if cmd == "title" else "lastTurnReport")
+            if isinstance(value, str) and value.strip():
+                print(value.strip()); sys.exit(0)
+            continue
         # A clear gives the session a new Claude Code id; the last answer may be under the one before it.
         for sid in dict.fromkeys([d.get("lastAssistantCliSessionId"), d.get("cliSessionId")]):
             for row in rows(sid or ""):
@@ -64,4 +72,4 @@ elif cmd == "last" and len(a) == 2:
                     print(text.strip()); sys.exit(0)
     sys.exit(1)
 else:
-    die("usage: bouncer-session context [--cap N] [<session id>] | last <local session id>")
+    die("usage: bouncer-session context [--cap N] [<session id>] | last|title|quote <local session id>")
