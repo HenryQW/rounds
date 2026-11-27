@@ -293,8 +293,14 @@ export const register: Register = (on, options) => {
     // wait reason, else nothing (the dot already says whether a turn runs).
     const sub = (c: Column) => {
       const id = c.ids.length === 1 ? c.ids[0]! : undefined
-      // Else the ticket title, so no card is only its header.
-      return id ? ledgerNext(ticketLedger(p.ledgerLines ?? [], c.ticket)) ?? p.notes?.[id] ?? parseBartender(p.bartenders[id] ?? '')?.name ?? '' : ''
+      // A pr item whose PR is merged or closed is stale (the ledger closes it later), so it is never the next step.
+      const live = ticketLedger(p.ledgerLines ?? [], c.ticket).filter(l => {
+        const url = /: - \[open\] pr \| (\S+) \|/.exec(l)?.[1]
+        const state = url ? p.prs?.[url]?.state : undefined
+        return !state || /^open$/i.test(state)
+      })
+      // Else the last RESULT, else the ticket title, so no card is only its header.
+      return id ? ledgerNext(live) ?? p.notes?.[id] ?? parseBartender(p.bartenders[id] ?? '')?.name ?? '' : ''
     }
     const isTerminal = e.surface === 'terminal'
     // Linear's look off the terminal; the terminal keeps its own colours.
@@ -386,7 +392,8 @@ export const register: Register = (on, options) => {
               <Box key={`pr:${c.key}:${x.n}`} flexDirection="row" flexShrink={0}>
                 <Text color={color}>{`${glyph} `}</Text>
                 {x.href ? link(x.href, `#${x.n}`) : <Text color={t?.muted}>{`#${x.n}`}</Text>}
-                {x.base && <Text color={t?.muted}>{` → ${x.base}`}</Text>}
+                {/* The base only while open: a merged PR's glyph says enough. */}
+                {x.base && (!x.state || /^open$/i.test(x.state)) && <Text color={t?.muted}>{` → ${x.base}`}</Text>}
               </Box>
             )
           })}

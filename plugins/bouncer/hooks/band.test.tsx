@@ -789,11 +789,12 @@ test('a card links its ticket to Linear and its PR to the URL that its ledger li
   // Row 1 holds the status chip and the PR with the count of the ticket's other PRs; row 2 is the ledger's next step,
   // else the report line. No branch shows. The key shows once, as the title's link; the time is short and not mono.
   expect((await ui.find({ key: 'chip:act:local_a' }))?.text).toBe('CR')
-  // Details lists each open PR of the ticket with its state colour and base, not `+1`.
-  expect((await ui.find({ key: 'pr:act:local_a:17' }))?.text).toMatch(/^⤵ .*#17 → dev$/)
+  // Details lists each open PR of the ticket with its state colour, the base only while open, not `+1`.
+  expect((await ui.find({ key: 'pr:act:local_a:17' }))?.text).toMatch(/^⤵ .*#17$/)
   expect((await ui.find({ key: 'pr:act:local_a:18' }))?.text).toMatch(/^⑂ .*#18 → staging$/)
   expect((await ui.find({ key: 'prs:act:local_a' }))?.text).not.toContain('+1')
-  expect((await ui.find({ key: 'line:act:local_a' }))?.text).toBe('review, then merge #17')
+  // #17 is merged, so its still-open ledger item is stale: the next step is the next open item.
+  expect((await ui.find({ key: 'line:act:local_a' }))?.text).toBe('merge #18')
   expect((await ui.find({ key: 'line:act:local_b' }))?.text).toBe('PR up')
   expect(await ui.find({ type: 'Text', text: /⎇|henry\/midi-1-fix/ })).toBe(undefined)
   expect((await ui.findAll({ type: 'Text', text: /MIDI-1$/ })).map((x: any) => x.props.color)).toEqual(['#5e6ad2'])
