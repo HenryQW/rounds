@@ -431,7 +431,16 @@ test('a card title opens its Bartender session in split view', async ($, on) => 
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
   await pane.press({ key: 'go:local_a' })
   await pane.press({ key: 'go:local_b' })
-  expect(opened).toEqual([['local_a', 'split'], ['local_b', 'split']])
+  // The session title line is on every card, for a ticket and a non-ticket Bartender, and opens the session too.
+  expect((await pane.find({ key: 'jump:local_a' }))?.text).toBe('aspire')
+  expect((await pane.find({ key: 'jump:local_b' }))?.text).toBe('S96 prep')
+  await pane.press({ key: 'jump:local_a' })
+  await pane.press({ key: 'jump:local_b' })
+  // The band pill's key opens the session.
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  await band.press({ key: 'go:local_a' })
+  await band.unmount()
+  expect(opened).toEqual([['local_a', 'split'], ['local_b', 'split'], ['local_a', 'split'], ['local_b', 'split'], ['local_a', 'split']])
   expect(prompts).toEqual([])
   await pane.unmount()
 })
@@ -448,13 +457,13 @@ test('a pane that does not show says so; the band stays one line', async ($, on)
   await ui.unmount()
 })
 
-test('off the terminal every Bartender has a card, and a card with no next step shows its ticket title', async ($, on) => {
+test('off the terminal every Bartender has a card with its session title, which is never its next step', async ($, on) => {
   engine(on)
   for (const k of ['a', 'b', 'c', 'd', 'e']) await title($, k, `🍸 [MIDI-${k.charCodeAt(0)}] [Dev] Ticket ${k}`)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
   expect((await ui.findAll({ type: 'Box' })).filter((b: any) => b.props?.key?.startsWith('col:')).length).toBe(5)
   expect(await ui.find({ key: 'more' })).toBe(undefined)
-  expect((await ui.find({ type: 'Text', text: 'Ticket e' }))?.text).toBe('Ticket e')
+  expect((await ui.findAll({ type: 'Text', text: 'Ticket e' })).length).toBe(1)
   await ui.unmount()
 })
 
@@ -862,10 +871,20 @@ test('a card links its ticket to Linear and its PR to the URL that its ledger li
   // The next step wraps to two lines.
   expect(((await ui.find({ key: 'line:act:local_a' }))?.children?.[0] as any)?.props).toMatchObject({ maxLines: 2 })
   await ui.unmount()
-  // The band draws the same links, none inside a Button, and keeps `+1`.
+  // The band draws the PR links, none inside a Button, and keeps `+1`; its key opens the session (the Linear link is in the pane).
   const band = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect((await band.find({ key: 'pr:act:local_a' }))?.text).toContain('+1')
-  expect((await band.findAll({ type: 'Link' })).map((l: any) => linkText(l))).toEqual(expect.arrayContaining(['MIDI-1', '#17', '#3']))
+  expect((await band.findAll({ type: 'Link' })).map((l: any) => linkText(l))).toEqual(expect.arrayContaining(['#17', '#3']))
+  expect((await band.find({ key: 'go:local_a' }))?.text).toBe('🟢 MIDI-1')
+  // A narrower band drops the PR links before any jump.
+  const jumps = async (cols: number) => {
+    const b = await $.ui.mount({ ...BAND, surface: 'desktop', props: { ...BAND.props, bodyColumns: cols } } as any)
+    const r = [(await b.findAll({ type: 'Button' })).map((x: any) => x.key).filter((k: string) => k?.startsWith('go:')).length, (await b.findAll({ type: 'Link' })).length]
+    await b.unmount()
+    return r
+  }
+  expect(await jumps(75)).toEqual([3, 0])
+  expect(await jumps(90)).toEqual([3, 2])
   expect(await linkInButton(band)).toBe(false)
   await band.unmount()
 })

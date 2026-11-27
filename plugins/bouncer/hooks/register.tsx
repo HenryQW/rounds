@@ -236,8 +236,8 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
       const state = url ? p.prs?.[url]?.state : undefined
       return !state || /^open$/i.test(state)
     })
-    // Else the last RESULT, else the ticket title, so no card is only its header.
-    return id ? ledgerNext(live) ?? p.notes?.[id] ?? parseBartender(p.bartenders[id] ?? '')?.name ?? '' : ''
+    // Else the last RESULT; the session title has a line of its own, so it is never the next step.
+    return id ? ledgerNext(live) ?? p.notes?.[id] ?? '' : ''
   }
   const isTerminal = e.surface === 'terminal'
   // Linear's look off the terminal; the terminal keeps its own colours.
@@ -285,6 +285,15 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
       ? <Box flexDirection="row">{press ? <Button key={`go:${id}`} plain onPress={press}>{`${c.dot} `}</Button> : <Text>{`${c.dot} `}</Text>}{link(`${linear}/issue/${c.ticket}`, c.ticket)}</Box>
       : press ? <Button key={`go:${id}`} plain onPress={press}>{name}</Button> : name
   }
+  // A Bartender's session title without its marks: `Fix it` of `🍸 [MIDI-1] [QA] Fix it`, `web` of `🔧 [Idle] web`.
+  const sessionTitle = (id: string) => {
+    const b = parseBartender(p.bartenders[id] ?? '')
+    return b?.name || b?.repo || (p.bartenders[id] ?? '')
+  }
+  // The band pill's dot and key (or name) as one button that opens the Bartender's session; none for the idle group.
+  const jumpOf = (c: Column) => c.ids.length === 1
+    ? <Button key={`go:${c.ids[0]}`} plain label={c.value} onPress={() => open(c.ids[0]!, c.ticket || c.value)} />
+    : undefined
   const chipOf = (c: Column) => (
     <Box key={`chip:${c.key}`} flexShrink={0} paddingX="xs" {...(t ? { backgroundColor: t.hairline } : {})}>
       <Text size="footnote" color={t?.muted}>{c.label}</Text>
@@ -355,11 +364,16 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
     const n = p.waiting
     const w = (chars: number) => (isTerminal ? chars : Math.ceil(chars * 0.8))
     const right = w((n > 0 ? `${n} waits on you`.length + 2 : 0) + (due.length > 0 ? `${due.length} to act`.length + 2 : 0) + 'Details'.length + 2)
-    const cells = (c: Column) => 2 + w(c.value.length + (c.label ? c.label.length + 1 : 0) + prOf(c).cells) + 3
     const budget = (e.props?.bodyColumns ?? 120) - right - 5
-    let fit = 0
-    for (let used = 0; fit < all.length && (used += cells(all[fit]!)) <= budget; fit++);
-    const shown = all.slice(0, Math.max(fit, Math.min(1, all.length)))
+    const fitOf = (withPr: boolean) => {
+      const cells = (c: Column) => 2 + w(c.value.length + (c.label ? c.label.length + 1 : 0) + (withPr ? prOf(c).cells : 0)) + 3
+      let fit = 0
+      for (let used = 0; fit < all.length && (used += cells(all[fit]!)) <= budget; fit++);
+      return fit
+    }
+    // The jump never goes: when the pills do not all fit, they drop their PR links first (the pane keeps them).
+    const withPr = fitOf(true) >= all.length || fitOf(false) <= fitOf(true)
+    const shown = all.slice(0, Math.max(fitOf(withPr), Math.min(1, all.length)))
     const more = all.length - shown.length
     const mine = (
       <Box flexDirection="row" alignItems="center" flexWrap="nowrap" gap={isTerminal ? 2 : 'sm'} width={width}>
@@ -369,9 +383,10 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
             <Box key={`row:${c.key}`} flexDirection="row" alignItems="center" flexShrink={0} gap={isTerminal ? 1 : 'sm'} {...(t
               ? { borderStyle: 'round' as const, borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'sm' as const, paddingY: 0 }
               : {})}>
-              <Box key={`title:${c.key}`} flexShrink={0}>{titleOf(c)}</Box>
+              {/* The dot and key (or name) open the Bartender's session; the Linear link is in the pane. */}
+              <Box key={`title:${c.key}`} flexShrink={0}>{jumpOf(c) ?? titleOf(c)}</Box>
               {c.label && <Box key={`chip:${c.key}`} flexShrink={0}><Text color={t?.muted}>{c.label}</Text></Box>}
-              {prOf(c).el}
+              {withPr && prOf(c).el}
             </Box>
           ))}
         </Box>
@@ -414,6 +429,14 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
           {showTime && <Text size="footnote" color={t?.subtle}>{time}</Text>}
           <Button key={c.key} plain dimColor label="⋯" onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))} />
         </Box>
+        {/* The session title, always: a click opens that Bartender's session. */}
+        {c.ids.length === 1 && (
+          <Box key={`jump:${c.key}`} flexDirection="row">
+            <Button key={`jump:${c.ids[0]}`} plain onPress={() => open(c.ids[0]!, c.ticket || c.value)}>
+              <Text color={t?.ink} wrap="truncate-end">{sessionTitle(c.ids[0]!)}</Text>
+            </Button>
+          </Box>
+        )}
         {prRow(c)}
         {line && <Box key={`line:${c.key}`}><Text size="footnote" color={t?.muted} wrap="wrap" maxLines={2}>{line}</Text></Box>}
         {/* The menu is a row of its own under the next step: secondary buttons on one row; the card grows to fit.
