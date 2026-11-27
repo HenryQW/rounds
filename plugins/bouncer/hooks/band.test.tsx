@@ -824,6 +824,32 @@ test("Details off the terminal takes Linear's tokens for the system appearance: 
   await ui.unmount()
 })
 
+test('with no PR of its own, the band pill takes the open ledger PR, not an older done one', async ($, on) => {
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({ result: JSON.stringify([
+    { sessionId: 'local_a', title: '[CR] 🍸 MIDI-1 rounds', isRunning: false, cwd: '/w' },
+  ]) }))
+  const out = (stdout: string) => ({ value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+  on('process.run', (_: unknown, e: any) => {
+    const cmd = String(e.argv[0])
+    if (cmd.endsWith('bouncer-ledger')) return out('/r/MIDI-1.md: - [done] pr | https://github.com/acme/backend/pull/3 | trigger: merged | check:  | next: merge | 2026-11-25\n'
+      + '/r/MIDI-1.md: - [open] pr | https://github.com/acme/backend/pull/4 | trigger: merged | check:  | next: review #4 | 2026-11-26\n')
+    if (cmd === '/bin/bash') return out('{"state":"OPEN","baseRefName":"dev"}')
+    return { value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  on('tool.call', () => ({ result: {} }))
+  on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
+  base(on, { details: true })
+  on('fs.read', () => { throw new Error('missing') })
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
+  on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  await title($, 'self', '🚪 Bouncer')
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
+  await endTurn($)
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect((await band.find({ key: 'pr:act:local_a' }))?.text).toContain('#4 +1')
+  await band.unmount()
+})
+
 test('a card links its ticket to Linear and its PR to the URL that its ledger line or report names, never to its folder remote', { options: { linear_workspace_url: 'https://linear.app/acme' } }, async ($, on) => {
   on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({ result: JSON.stringify([
     { sessionId: 'local_a', title: '[CR] 🍸 MIDI-1 rounds', isRunning: false, cwd: '/w/.claude/worktrees/midi-1', branch: 'henry/midi-1-fix', lastActivityAt: '2026-11-26T10:00:00Z', prNumber: 17, prState: 'MERGED' },

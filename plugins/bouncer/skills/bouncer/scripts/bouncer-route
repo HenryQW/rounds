@@ -23,8 +23,9 @@ if not ticket or not repo or active < 1 or kind not in TYPES:
     bad(f"ticket, repo, caps.active >= 1 and a type of {'|'.join(TYPES)} are required")
 
 def idle(s):
-    words = (s.get("title") or "").split()
-    return "[Idle]" in words[:2] and not s.get("isRunning")
+    # A `!` title has a question that waits on the user: never free, in either title format.
+    title = s.get("title") or ""
+    return not title.startswith("!") and "[Idle]" in title.split()[:2] and not s.get("isRunning")
 
 def emoji(s):
     words = (s.get("title") or "").lstrip("!").split()

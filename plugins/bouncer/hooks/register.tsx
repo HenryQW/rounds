@@ -303,8 +303,12 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
     const id = c.ids.length === 1 ? c.ids[0]! : undefined
     const s = id ? p.sessions?.[id] : undefined
     // PR links only from full URLs in its report or its ticket's ledger lines; never from the folder's remote.
-    const urls = prUrls([id ? p.reportTexts?.[id] ?? '' : '', ...ledgerOf(c)])
-    const n = s?.pr?.number ?? Number(/\d+$/.exec(urls[0] ?? '')?.[0] ?? 0)
+    const report = id ? p.reportTexts?.[id] ?? '' : ''
+    const ledger = ledgerOf(c)
+    const urls = prUrls([report, ...ledger])
+    // With no PR of its own, the report's or an open ledger item's PR; a done item's only when nothing is open.
+    const current = prUrls([report, ...ledger.filter(l => /: - \[open\] pr \| /.test(l))])[0] ?? urls[0]
+    const n = s?.pr?.number ?? Number(/\d+$/.exec(current ?? '')?.[0] ?? 0)
     const href = n ? prUrl(n, urls) : undefined
     // The state gh read for the URL first, as the pane does; the session's own PR state else.
     const [glyph, glyphColor] = prMark((href && p.prs?.[href]?.state) || s?.pr?.state)
