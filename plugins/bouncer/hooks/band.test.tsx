@@ -357,6 +357,7 @@ test('the band shows only the due ledger items as a count to act on, each a link
   base(on)
   on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
   on('fs.read', () => { throw new Error('missing') })
+  const { prompts } = record(on)
   const runs: unknown[] = []
   let due = ''
   on('process.run', (_: unknown, e: any) => {
@@ -384,6 +385,21 @@ test('the band shows only the due ledger items as a count to act on, each a link
   expect(links).toEqual(expect.arrayContaining([['#17', 'https://github.com/acme/backend/pull/17'], ['MIDI-2', 'https://linear.app/acme/issue/MIDI-2']]))
   expect((await ui.find({ type: 'Text', text: /post the QA reply/ }))?.text).toBe('post the QA reply')
   expect(await ui.find({ type: 'Text', text: /check prod|K-2/ })).toBe(undefined)
+  // In Details the list sits under the header, above the cards: at the bottom it scrolled out of the band's rows.
+  expect((await ui.find({ key: 'due' }))?.text).toMatch(/post the QA reply/)
+  // Each row can go to the Bouncer.
+  await ui.press({ key: 'due:ask:17-freeze' })
+  expect(prompts).toEqual(['MIDI-2: due ledger item 17-freeze'])
+  await ui.unmount()
+})
+
+test('off the terminal every Bartender has a card, and a card with no next step shows its ticket title', async ($, on) => {
+  engine(on)
+  for (const k of ['a', 'b', 'c', 'd', 'e']) await title($, k, `🍸 [MIDI-${k.charCodeAt(0)}] [Dev] Ticket ${k}`)
+  const ui = await details(await $.ui.mount({ ...BAND, surface: 'desktop' } as any))
+  expect((await ui.findAll({ type: 'Box' })).filter((b: any) => b.props?.key?.startsWith('col:')).length).toBe(5)
+  expect(await ui.find({ key: 'more' })).toBe(undefined)
+  expect((await ui.find({ type: 'Text', text: 'Ticket e' }))?.text).toBe('Ticket e')
   await ui.unmount()
 })
 

@@ -293,7 +293,8 @@ export const register: Register = (on, options) => {
     // wait reason, else nothing (the dot already says whether a turn runs).
     const sub = (c: Column) => {
       const id = c.ids.length === 1 ? c.ids[0]! : undefined
-      return id ? ledgerNext(ticketLedger(p.ledgerLines ?? [], c.ticket)) ?? p.notes?.[id] ?? '' : ''
+      // Else the ticket title, so no card is only its header.
+      return id ? ledgerNext(ticketLedger(p.ledgerLines ?? [], c.ticket)) ?? p.notes?.[id] ?? parseBartender(p.bartenders[id] ?? '')?.name ?? '' : ''
     }
     const isTerminal = e.surface === 'terminal'
     // Linear's look off the terminal; the terminal keeps its own colours.
@@ -314,12 +315,14 @@ export const register: Register = (on, options) => {
       const it = ledgerItem(line)
       if (!it) return <Text key={`due:${line}`} wrap="truncate">{line}</Text>
       const pr = /^https:\/\/github\.com\/\S+\/pull\/(\d+)$/.exec(it.key)
-      const label = pr ? `#${pr[1]}` : LINEAR_KEY.test(it.key) ? it.key : it.record
+      const state = pr ? p.prs?.[it.key]?.state?.toLowerCase() : undefined
+      const label = pr ? `#${pr[1]}${state && state !== 'open' ? ` ${state}` : ''}` : LINEAR_KEY.test(it.key) ? it.key : it.record
       const href = pr ? it.key : linear && LINEAR_KEY.test(label) ? `${linear}/issue/${label}` : undefined
       return (
         <Box key={`due:${line}`} flexDirection="row" alignItems="center" gap="sm">
           <Box flexShrink={0}>{href ? link(href, label) : <Text color={t?.ink}>{label}</Text>}</Box>
-          <Box flexShrink={1} minWidth={0}><Text color={t?.muted} wrap="truncate-end">{it.next}</Text></Box>
+          <Box flexGrow={1} flexShrink={1} minWidth={0}><Text color={t?.muted} wrap="truncate-end">{it.next}</Text></Box>
+          <Button key={`due:ask:${it.key}`} plain dimColor onPress={() => ask(`${it.record}: due ledger item ${it.key}`)}>Ask Bouncer</Button>
         </Box>
       )
     })
@@ -421,8 +424,8 @@ export const register: Register = (on, options) => {
 
     // Details. Terminal: ponytail's columns split by `│`. Elsewhere Linear's look: one card a Bartender
     // (surface, hairline border, round corners, padding), a hairline under the header, nothing below ink-subtle.
-    // shortcut: the hidden columns are only counted (`+N`); a fifth active Bartender has no menu until one ends.
-    const shown = all.slice(0, 4)
+    // The terminal shows 4 columns and counts the rest (`+N`); off the terminal every card shows, in one row.
+    const shown = isTerminal ? all.slice(0, 4) : all
     const more = all.length - shown.length
     // The terminal draws a rule under the header; elsewhere the cards' borders do that work.
     const rule = isTerminal && <Text dimColor wrap="truncate-end">{'─'.repeat(e.props.bodyColumns)}</Text>
@@ -443,11 +446,11 @@ export const register: Register = (on, options) => {
       const line = sub(c)
       return (
         <Box key={`col:${c.key}`} flexDirection="column" minWidth={0} {...(t
-          ? { flexGrow: 1, flexShrink: 1, width: 0, minWidth: 24, gap: 'md' as const, borderStyle: 'round', borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'lg' as const, paddingY: 'lg' as const }
+          ? { flexGrow: 1, flexShrink: 1, width: 0, minWidth: 0, gap: 'sm' as const, borderStyle: 'round', borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'md' as const, paddingY: 'md' as const }
           : colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
           <Box flexDirection="row" alignItems="center" gap="sm">
             {/* A Link wraps instead of truncating: a linked key keeps its width. */}
-            <Box key={`title:${c.key}`} flexGrow={1} flexShrink={isLinked(c) ? 0 : 1} minWidth={0}>{titleOf(c)}</Box>
+            <Box key={`title:${c.key}`} flexGrow={1} flexShrink={isLinked(c) || !isTerminal ? 0 : 1} minWidth={0}>{titleOf(c)}</Box>
             {showChip && chipOf(c)}
             {showTime && <Text size="footnote" color={t?.muted}>{time}</Text>}
             <Button key={c.key} plain dimColor label="⋯" onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))} />
@@ -488,6 +491,7 @@ export const register: Register = (on, options) => {
           {detailsButton}
         </Box>
         {rule}
+        {dueRows.length > 0 && <Box key="due" flexDirection="column" gap={isTerminal ? 0 : 'xs'}>{dueRows}</Box>}
         {waits && (
           <Box backgroundColor="diffRemovedDimmed" paddingX={isTerminal ? 'xs' : 'lg'} paddingY={isTerminal ? 0 : 'sm'} {...(t ? { borderStyle: 'round', borderColor: t.hairline } : {})}>
             {waits.b
@@ -498,7 +502,7 @@ export const register: Register = (on, options) => {
           </Box>
         )}
         {shown.length > 0 && (
-          <Box flexDirection="row" gap={isTerminal ? 2 : 'md'} flexWrap={isTerminal ? 'nowrap' : 'wrap'}>
+          <Box flexDirection="row" gap={isTerminal ? 2 : 'md'} flexWrap="nowrap">
             {shown.flatMap((c, i) => [...(isTerminal && i > 0 ? [bar(i)] : []), card(c)])}
             {more > 0 && <Text key="more" color={t?.muted}>{`+${more}`}</Text>}
           </Box>
@@ -513,7 +517,6 @@ export const register: Register = (on, options) => {
             </Box>
           )
         })}
-        {dueRows}
       </Box>
     )
     return below ? <Box flexDirection="column">{mine}{below}</Box> : mine
