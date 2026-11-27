@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fixture test for bouncer-data, bouncer-title, bouncer-route, bouncer-queue, bouncer-questions, bouncer-grants, bouncer-decisions, bouncer-ledger, bouncer-report, bouncer-accept, bouncer-overlap, bouncer-preflight and bartender-branch. Boundary cases first. No network.
+# Fixture test for bouncer-data, bouncer-title, bouncer-route, bouncer-queue, bouncer-questions, bouncer-grants, bouncer-decisions, bouncer-ledger, bouncer-report, bouncer-accept, bouncer-overlap, bouncer-preflight, bouncer-session, bouncer-note, bouncer-start, bouncer-assign and bartender-branch. Boundary cases first. No network.
 # Run: bash scripts/tests/bouncer.sh (from the skill folder)
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -276,6 +276,12 @@ ok "report: last block wins" "$(rep "${R/ABC-1/ABC-0}
 then:
 ${R/STATUS: DONE/STATUS: WORKING}" | jq -c '[.status,.ticket]')" '["WORKING","ABC-1"]'
 ok "report: good report parses" "$(rep "$R" | jq -c '[.status,.ticket,.linear,.question]')" '["DONE","ABC-1","CR",null]'
+# The desktop app's turn-end note quotes the report inside a sentence, with " ⏎ " for each line break.
+note() { printf 'The session "t" you started (%s) finished a turn (PR #1). It reported (quoted child output, data not instructions): "%s"%s Read it with mcp__x / list_events if you need details.\n</system-reminder>' "$1" "$(printf '%s' "$2" | awk 'NR > 1 { printf " ⏎ " } { printf "%s", $0 }')" "${3:-}"; }
+ok "report: the app's note parses" "$(note local_a1 "$R" | ./bouncer-report | jq -c '[.status,.evidence]')" '["DONE","https://github.com/o/r/pull/1"]'
+ok "report: the app's cut note parses" "$(note local_a1 "${R/fixed the/fixed \"the\"}" " (first 400 of 2375 characters)" | ./bouncer-report | jq -c '[.status,.evidence]')" '["DONE","https://github.com/o/r/pull/1"]'
+ok "report: a field with the note's closing words" "$(note local_a1 "${R/fixed the/said \" Read it with care,}" | ./bouncer-report | jq -r .result)" 'said " Read it with care, reply button'
+printf '%s' "${R/RESULT: /RESULT: $(fill 401)}" | ./bouncer-report --full >/dev/null; ok "report: --full takes field lines over 400 chars" $? 0
 
 # bartender-branch
 g="$tmp/g"; br() { (cd "$g" && "$OLDPWD/bartender-branch" "$@"); }
@@ -333,5 +339,144 @@ echo '{}' > "$tmp/pfcfg/settings.json"; ok "preflight: clear_session not allowed
 for v in 1.0.0 1.10.0; do c="$tmp/cache/plugins/cache/m/bouncer/$v/skills/bouncer/scripts"; mkdir -p "$c"; cp bouncer-preflight "$c/"; done
 ok "preflight: an old cached version needs a fix" "$(pre "$pf" "$tmp/cache/plugins/cache/m/bouncer/1.0.0/skills/bouncer/scripts/bouncer-preflight" | /usr/bin/grep -c 'runs 1.0.0 but 1.10.0')" 1
 ok "preflight: the newest cached version is ok" "$(pre "$pf" "$tmp/cache/plugins/cache/m/bouncer/1.10.0/skills/bouncer/scripts/bouncer-preflight" | /usr/bin/grep -c '^ok plugin-version')" 1
+
+# bouncer-session: transcripts and desktop sessions are fixtures
+sc="$tmp/scfg"; sd="$tmp/desk"; mkdir -p "$sc/projects/p" "$sd/acct/org" "$tmp/sdata/r"
+row() { printf '{"type":"assistant"%s,"message":{"content":[{"type":"tool_use","name":"Bash"},{"type":"text","text":%s}],"usage":{"input_tokens":%s,"cache_read_input_tokens":%s,"cache_creation_input_tokens":10,"output_tokens":5}}}\n' "${4:-}" "$(printf '%s' "$1" | jq -Rs .)" "$2" "$3"; }
+ses() { BOUNCER_DATA="$tmp/sdata" BOUNCER_REPO=r CLAUDE_CONFIG_DIR="$sc" BOUNCER_DESKTOP_SESSIONS="$sd" PATH="$fb:$PATH" "$@"; }
+{ row "old" 5 100; row "new" 5 150000; row "side" 5 9 ',"isSidechain":true'; echo '{"type":"user"}'; } > "$sc/projects/p/own.jsonl"
+ok "session: context is the last main answer's usage" "$(ses ./bouncer-session context own)" "context: 150020 tok (over 150000)"
+ok "session: context at the cap is not over" "$(ses ./bouncer-session context --cap 150020 own)" "context: 150020 tok"
+echo own > "$tmp/sdata/r/bouncer"
+ok "session: context defaults to this repo's Bouncer" "$(ses ./bouncer-session context --cap 200000)" "context: 150020 tok"
+ok "session: no transcript prints unknown" "$(ses ./bouncer-session context nope)" "context: unknown"
+ses ./bouncer-session context nope >/dev/null; ok "session: no transcript exits 1" $? 1
+ses ./bouncer-session context ../x >/dev/null; ok "session: a path as an id exits 1" $? 1
+ses ./bouncer-session >/dev/null 2>&1; ok "session: no command exits 2" $? 2
+ses ./bouncer-session last own >/dev/null 2>&1; ok "session: last takes a local id only" $? 2
+LONG="Checked the build and the tests first, as the brief says. $(fill 600)
+
+${R/RESULT: /RESULT: $(fill 401)}"
+row "$LONG" 1 1 > "$sc/projects/p/cli-a1.jsonl"; row "no report here" 1 1 > "$sc/projects/p/cli-a2.jsonl"
+desk() { jq -n --arg t "$2" --arg q "$3" --arg c "$4" '{cliSessionId: $c, lastAssistantCliSessionId: $c, title: $t, lastTurnReport: $q}' > "$sd/acct/org/$1.json"; }
+desk local_a1 "🍸 [ABC-1] [Dev] Fix the reply" "Checked the build" cli-a1
+desk local_a2 "!🍸 [ABC-9] [CR] Other" "All good" cli-a2
+ok "session: title" "$(ses ./bouncer-session title local_a1)" "🍸 [ABC-1] [Dev] Fix the reply"
+ok "session: quote" "$(ses ./bouncer-session quote local_a1)" "Checked the build"
+ses ./bouncer-session quote local_none >/dev/null; ok "session: quote of an unknown session exits 1" $? 1
+ok "session: last prints the last answer's text" "$(ses ./bouncer-session last local_a1 | tail -1)" "EVIDENCE: https://github.com/o/r/pull/1"
+ses ./bouncer-session last local_none >/dev/null; ok "session: last of an unknown session exits 1" $? 1
+
+# Exercise the installed Stop command with the desktop id and CLI session id that Claude supplies.
+stop_command=$(jq -er '.hooks.Stop[0].hooks[0].command' ../../../hooks/hooks.json)
+stop_result() {
+    local output
+    output=$(jq -n --arg sid "$1" --arg text "$2" --argjson extra "${3:-null}" \
+        '{hook_event_name: "Stop", session_id: $sid, stop_hook_active: false, last_assistant_message: $text} + $extra' |
+        ses env CLAUDE_PLUGIN_ROOT="$PWD/../../.." CLAUDE_CODE_HOST_SESSION_ID=local_a1 bash -c "$stop_command") || { echo error; return; }
+    if [ -z "$output" ]; then echo allow; else jq -er '.decision' <<< "$output"; fi
+}
+ok "stop: a complete report can end the turn" "$(stop_result cli-a1 "$R")" allow
+ok "stop: invalid report requests one correction" "$(stop_result cli-a1 'Finished')" block
+ok "stop: an incorrect second answer cannot loop" "$(stop_result cli-a1 'Finished' '{"stop_hook_active":true}')" allow
+ok "stop: subagents skip the gate" "$(stop_result cli-a1 'Finished' '{"agent_id":"child"}')" allow
+ok "stop: another session inheriting the host id skips the gate" "$(stop_result cli-a2 'Finished')" allow
+ok "stop: a report behind prose is invisible at the start of the quote" "$(stop_result cli-a1 "Summary
+$R")" block
+ok "stop: the report must name the assigned ticket" "$(stop_result cli-a1 "${R/ABC-1/ABC-2}")" block
+ok "stop: a voluntary end cannot report WORKING" "$(stop_result cli-a1 "${R/STATUS: DONE/STATUS: WORKING}")" block
+ok "stop: NEEDS_INPUT requires a question" "$(stop_result cli-a1 "${R/STATUS: DONE/STATUS: NEEDS_INPUT}")" block
+max_report="$R$(fill 400)"
+ok "stop: a 400 character report passes" "$(stop_result cli-a1 "$max_report")" allow
+ok "stop: an emoji crossing the quote limit needs a correction" "$(stop_result cli-a1 "${max_report%?}🍸")" block
+desk local_a1 "🍸 [Idle] r" '' cli-a1
+ok "stop: idle Bartenders skip the gate" "$(stop_result cli-a1 'Finished')" allow
+desk local_a1 '🚪 Bouncer r' '' cli-a1
+ok "stop: the Bouncer skips the gate" "$(stop_result cli-a1 'Finished')" allow
+desk local_a1 '![Dev] 🔧 ABC-1 r' '' cli-a1
+ok "stop: legacy assigned titles still require a report" "$(stop_result cli-a1 'Finished')" block
+desk local_a1 '🍸 [ABC-1] [Dev] Fix the reply' 'Checked the build' cli-a1
+
+# bouncer-note: one call for a turn-end note
+rm -f "$tmp/sdata/grants.md"; mkdir -p "$tmp/sdata/tickets"
+printf 'STATE\nx\n### not-a-draft\n\n## DRAFTS\n### pr-title\nfix: a\nNOTE\n### pr-body\n- [open] a task in the PR body\n\n## LEDGER\n- [open] pr | https://github.com/o/r/pull/1 | trigger: merged | check: none | next: close | 2026-11-28\n- [done] ci | x | trigger: t | check: none | next: n | 2026-11-27\n' > "$tmp/sdata/tickets/ABC-1.md"
+ses ./bouncer-grants add "ABC-1 | push, pr, merge | fix it and merge" >/dev/null
+ses ./bouncer-queue add "B-2 | r | Code | linear" >/dev/null
+nt() { ses env -u BOUNCER_RECORDS LINEAR_API_KEY=k ./bouncer-note "$@"; }
+echo hi | nt >/dev/null 2>&1; ok "note: no session exits 2" $? 2
+echo hi | nt --session a1 >/dev/null 2>&1; ok "note: a bad --session exits 2" $? 2
+N=$(note local_a1 "$R" | nt)
+ok "note: the report comes from the note's quote" "$(printf '%s\n' "$N" | sed -n 2p | sed 's/.*} //')" "(from the note)"
+ok "note: DONE gets the acceptance check" "$(printf '%s\n' "$N" | /usr/bin/grep '^accept: ')" "accept: note: https://github.com/o/r/pull/1 is MERGED | pass"
+ok "note: the grant" "$(printf '%s\n' "$N" | /usr/bin/grep '^grant: ')" "grant: ABC-1 | push, pr, merge | fix it and merge"
+ok "note: the record, its drafts and open ledger lines" "$(printf '%s\n' "$N" | /usr/bin/grep -A1 '^record: ' | tr '\n' ';')" "record: $tmp/sdata/tickets/ABC-1.md | drafts: pr-title, pr-body | ledger open: 1;  - [open] pr | https://github.com/o/r/pull/1 | trigger: merged | check: none | next: close | 2026-11-28;"
+ok "note: questions and the queue head" "$(printf '%s\n' "$N" | tail -2 | tr '\n' ';')" "questions: 0;queue: 1 | head: B-2 | r | Code | linear;"
+# The quote is cut before the report: the Bartender's last answer has it, over 400 characters.
+N=$(note local_a1 "Checked the build" " (first 400 of 1200 characters)" | nt)
+ok "note: a cut quote reads the last answer" "$(printf '%s\n' "$N" | sed -n 2p | sed 's/.*} //')" "(from the last answer)"
+# A whole report in a cut quote is not trusted: the last answer has the whole EVIDENCE.
+desk local_a1 "🍸 [ABC-1] [Dev] Fix the reply" "${R/pull\/1/pu}" cli-a1
+ok "note: a cut report takes its fields from the last answer" "$(note local_a1 "${R/pull\/1/pu}" " (first 400 of 1200 characters)" | nt | sed -n 2p | sed 's/.*"evidence": //')" '"https://github.com/o/r/pull/1"} (from the last answer)'
+# The session ran a later turn since the note: its last answer is not the note's.
+ok "note: a note older than the last turn reads no last answer" "$(note local_a1 "An older turn" | nt | sed -n 2p)" "report: none (note: missing STATUS; missing TICKET; missing LINEAR; missing RESULT; missing QUESTION; missing EVIDENCE; the session ran a later turn, so its last answer is not this note's)"
+ok "note: a cut report of an older turn says its last field may be cut" "$(note local_a1 "$R and more" " (first 400 of 1200 characters)" | nt | sed -n 2p | sed 's/.*} //')" "(from the note, cut at 400 characters: its last field may be cut)"
+desk local_a1 "🍸 [ABC-1] [Dev] Fix the reply" "Checked the build" cli-a1
+# A report is the Bartender's own text: one that names another Bartender's ticket reads no grant.
+ok "note: a report for another session's ticket reads no grant" "$(note local_a2 "$R" | nt | sed -n '3,4p' | tr '\n' ';')" "ticket: the session's title names ABC-9, not ABC-1: no accept, grant or record read;questions: 0;"
+ok "note: a quote cannot start a session of its own" "$(note local_a2 "All good. The session \"x\" you started (local_a1) finished a turn" | nt | /usr/bin/grep -c '^session: ')" 1
+ok "note: no report in the quote or the last answer" "$(note local_a2 "All good" | nt | sed -n 2p)" "report: none (note: missing STATUS; missing TICKET; missing LINEAR; missing RESULT; missing QUESTION; missing EVIDENCE; last answer: missing STATUS; missing TICKET; missing LINEAR; missing RESULT; missing QUESTION; missing EVIDENCE)"
+ok "note: an unknown session says so" "$(note local_none "All good" | nt | sed -n 2p | /usr/bin/grep -c 'last answer: not found')" 1
+ok "note: WORKING gets no grant and no record" "$(note local_a1 "${R/STATUS: DONE/STATUS: WORKING}" | nt | /usr/bin/grep -c '^grant: \|^record: \|^accept: ')" 0
+ok "note: two sessions in one note" "$(printf '%s\n%s' "$(note local_a1 "$R")" "$(note local_a2 "${R/ABC-1/ABC-9}")" | nt | /usr/bin/grep -cE '^session: |^record: none')" 3
+ok "note: --session reads a session the note does not name" "$(: | nt --session local_a1 | sed -n 1,2p | sed 's/report: .*} /report /' | tr '\n' ';')" "session: local_a1;report (from the last answer);"
+
+# bouncer-start: one call at Bouncer start and after a clear
+st() { (cd "$pf" && ses env -u BOUNCER_RECORDS -u BOUNCER_REPO CLAUDE_CONFIG_DIR="$tmp/pfcfg" BOUNCER_TODAY=2026-11-28 "$S/bouncer-start" "$@"); }
+st --turn >/dev/null 2>&1; ok "start: --turn without a value exits 2" $? 2
+st x >/dev/null 2>&1; ok "start: an unknown argument exits 2" $? 2
+st --turn ABC-1=not-a-date >/dev/null 2>&1; ok "start: a bad --turn time exits 2" $? 2
+st >/dev/null; ok "start: a preflight fix exits 1" $? 1
+ok "start: names the fix" "$(st | sed -n 1p | sed 's/: add .*//')" "preflight: fix clear-allowed"
+echo '{"permissions":{"allow":["mcp__ccd_session_mgmt__clear_session"]}}' > "$tmp/pfcfg/settings.json"
+st >/dev/null; ok "start: all checks pass exits 0" $? 0
+ok "start: empty parts say none" "$(st | /usr/bin/grep -cE '^(decisions|questions|queue): none$|^preflight: ok$')" 4
+ok "start: grants and the records folder" "$(st | /usr/bin/grep '^grants: \|^records: ' | tr '\n' ';')" "grants: ABC-1 | push, pr, merge | fix it and merge;records: $tmp/sdata/tickets;"
+ok "start: the last line is the context" "$(st | tail -1)" "context: unknown"
+BOUNCER_DATA="$tmp/sdata" ./bouncer-decisions add --about "tracker rules" "pf | tracker | Comment before a close | owner said | user 2026-11-28" >/dev/null
+BOUNCER_DATA="$tmp/sdata" BOUNCER_REPO=pf ./bouncer-queue add "B-2 | pf | Code | linear" >/dev/null
+ok "start: decisions and the queue head" "$(st | /usr/bin/grep '^decisions: \|^queue: ' | sed 's/D1 | [0-9-]* /D1 /' | tr '\n' ';')" "decisions: D1 | pf | tracker | Comment before a close;queue: 1 | head: B-2 | pf | Code | linear;"
+ok "start: a stale record with its --turn" "$(st --turn ABC-1=2999-01-01T00:00:00Z | /usr/bin/grep -c '^stale: .*ABC-1')" 1
+
+# bouncer-assign: the title, the model and the filled brief in one call
+ac="$tmp/acfg"; mkdir -p "$ac"
+as() { BOUNCER_DATA="$tmp/sdata" CLAUDE_CONFIG_DIR="$ac" env -u BOUNCER_RECORDS -u BOUNCER_STATUS_CODES ./bouncer-assign "$@"; }
+# asg <ticket> <repo> <mode> <status> [flags]: the other 3 fields are fixed; a title and a goal may hold a "|"
+asg() { local t=$1 r=$2 m=$3 st=$4; shift 4; as "$@" "$t" "$r" "$m" "$st" "Fix A | B view" "Fix the slide" "The drawer hides in 200 ms | and a test passes."; }
+as >/dev/null 2>&1; ok "assign: no field exits 2" $? 2
+as ABC-1 pf Code "In Progress" t goal >/dev/null 2>&1; ok "assign: 6 fields exit 2" $? 2
+as ABC-1 pf Code "In Progress" t goal "" >/dev/null 2>&1; ok "assign: an empty field exits 2" $? 2
+asg ABC-1 pf Fast "In Progress" >/dev/null 2>&1; ok "assign: a bad mode exits 2" $? 2
+asg "ABC 1" pf Code "In Progress" >/dev/null 2>&1; ok "assign: a ticket with a space exits 2" $? 2
+asg ../ABC-1 pf Code "In Progress" >/dev/null 2>&1; ok "assign: a ticket that is a path exits 2" $? 2
+asg ABC-1 pf Code "In Progress" --type Drinks >/dev/null 2>&1; ok "assign: a bad type exits 2" $? 2
+A=$(asg ABC-1 pf Code "In Progress")
+ok "assign: title, model and the default effort" "$(printf '%s\n' "$A" | sed -n 1,4p | tr '\n' ';')" "title: 🍸 [ABC-1] [Dev] Fix A | B view;model: claude-opus-5-5;effort: medium;brief:;"
+ok "assign: no skill option, no load line" "$(printf '%s\n' "$A" | sed -n 5p)" "You are a Bartender in Bouncer mode. Ticket: ABC-1. Mode: Code. Repo: pf."
+ok "assign: the goal, and done means keeps its |" "$(printf '%s\n' "$A" | sed -n 6p)" "Goal: Fix the slide. Done means: The drawer hides in 200 ms | and a test passes."
+ok "assign: the decisions in force for the repo" "$(printf '%s\n' "$A" | sed -n 7,8p | sed 's/D1 | [0-9-]* /D1 /' | tr '\n' ';')" "Decisions in force:;D1 | pf | tracker | Comment before a close;"
+ok "assign: the record path and the skill folder are real paths" "$(printf '%s\n' "$A" | /usr/bin/grep -c "$tmp/sdata/tickets/ABC-1.md\|$(pwd -P | sed 's|/scripts$||')/scripts/bartender-branch ABC-1 ")" 2
+ok "assign: the report shape ends the brief" "$(printf '%s\n' "$A" | tail -6 | sed -n '1p;2p;6p' | tr '\n' ';')" "STATUS: WORKING | NEEDS_INPUT | DONE | BLOCKED;TICKET: ABC-1;EVIDENCE: <record link, PR, or file:line>;"
+ok "assign: no part is left to fill in" "$(printf '%s\n' "$A" | /usr/bin/grep -c '<TICKET>\|<mode>\|<repo>\|<skill>\|<report shape>\|<ticket record path>\|CLAUDE_SKILL_DIR\|<acceptance criteria>')" 0
+echo '{"pluginConfigs":{"bouncer@rounds":{"options":{"bartender_skill":"henry","ticket_effort":"high"}}}}' > "$ac/settings.json"
+A=$(asg ABC-1 web Code "In Progress" --drop OLD-1)
+ok "assign: the ticket_effort option" "$(printf '%s\n' "$A" | sed -n 3p)" "effort: high"
+ok "assign: --drop, then the skill's load line" "$(printf '%s\n' "$A" | sed -n 5,6p | sed 's/ (Skill tool).*//' | tr '\n' ';')" "Drop the context of OLD-1; it is closed.;Load the \`henry\` skill;"
+ok "assign: another repo has no decision" "$(printf '%s\n' "$A" | /usr/bin/grep -c '^Decisions in force: none\. Work or')" 1
+ok "assign: a Mechanical ticket" "$(asg ABC-1 pf Mechanical "In Progress" | sed -n 2,3p | tr '\n' ';')" "model: claude-sonnet-5-5;effort: medium;"
+ok "assign: a Skill design has no load line" "$(asg ABC-1 pf Code "In Progress" --type Skill | sed -n '1,3p;5p' | sed 's/\. Ticket: .*//' | tr '\n' ';')" "title: 🔧 [ABC-1] [Dev] Fix A | B view;model: claude-opus-5-5;effort: medium;You are a Bartender in Bouncer mode;"
+ok "assign: a plain Cleanup sweep" "$(asg sweep pf Mechanical "In Progress" --type Cleanup | sed -n 2,3p | tr '\n' ';')" "model: claude-haiku-5-5;effort: low;"
+ok "assign: a Cleanup sweep that needs judgment" "$(asg sweep pf Code "In Progress" --type Cleanup | sed -n 2,3p | tr '\n' ';')" "model: claude-sonnet-5-5;effort: medium;"
+ok "assign: an unknown status gives no title, and the brief still prints" "$(asg ABC-1 pf Code Nope | sed -n '1p;4p' | tr '\n' ';')" "title: none (unknown status: Nope (add it to the status_codes plugin option));brief:;"
+ok "assign: SKILL.md names each model the script gives" "$(for m in $(/usr/bin/grep -o 'claude-[a-z]*-[0-9]-[0-9]' bouncer-assign | sort -u); do /usr/bin/grep -q "\`$m\`" ../SKILL.md || echo "$m"; done)" ""
 
 exit $fail

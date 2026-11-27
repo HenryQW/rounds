@@ -1,6 +1,6 @@
 <!-- On-demand part of SKILL.md (the bouncer skill). ${CLAUDE_SKILL_DIR} is the folder of SKILL.md; write its real path. Section names in quotes are sections of SKILL.md. -->
 # Bartender brief (template)
-Fill in the `<...>` parts, and write the absolute path of the folder of SKILL.md for each `${CLAUDE_SKILL_DIR}`. `<report shape>` is the code block of "Report shape (Bartender turn end)" in SKILL.md. When the `bartender_skill` option is set ("Options"), a Ticket Bartender brief starts with the `[...]` line, with the option's value as `<skill>`; else drop that line.
+`scripts/bouncer-assign` fills in this template and prints the brief: never fill it in by hand. It writes the absolute path of the folder of SKILL.md for each `${CLAUDE_SKILL_DIR}`, and the code block of "Report shape (Bartender turn end)" in SKILL.md for `<report shape>`. When the `bartender_skill` option is set ("Options"), a Ticket Bartender brief starts with the `[...]` line, with the option's value as `<skill>`; else the script drops that line. The script exits 3 when a part that it fills in is not in the template: keep `<TICKET>`, `<mode>`, `<repo>`, `<one line>`, `<acceptance criteria>`, `<ticket record path>`, `<report shape>`, the decisions part and the `[...]` line as they are.
 ```
 [Load the `<skill>` skill (Skill tool) before any work and follow its routing and gates, including its post-merge checks and approvals.]
 You are a Bartender in Bouncer mode. Ticket: <TICKET>. Mode: <mode>. Repo: <repo>.

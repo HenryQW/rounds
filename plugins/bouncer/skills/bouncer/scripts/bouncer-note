@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""bouncer-note [--session <local session id>]... < <turn-end note>
+One call for a Bartender's turn-end note: all that the Bouncer reads before it acts on the note.
+For each session that the note names (a line that starts `The session "<title>" you started (local_...) finished a
+turn`), and each --session:
+  report: the 6 report fields as JSON (bouncer-report), and where they come from. The note quotes at most 400
+          characters of the turn, often not the report. When the quote has no whole report, the script reads that
+          Bartender's last answer from disk (bouncer-session last), but only while the note is about the session's
+          last turn (bouncer-session quote). "report: none (<why>)" when neither has one.
+  ticket: only when the session's title names another ticket than the report, or none: the report is not that
+          Bartender's to give, so the lines below are not read.
+  accept: for DONE, the bouncer-accept lines ("pass", "gap: ...", "note: ...")
+  grant:  that ticket's grant line (bouncer-grants get), or none
+  record: the ticket record's path, the ids of its DRAFTS, and its open ledger lines; "record: none" with no file
+Then once: "questions: <n>" and "queue: <n>", each with its head line.
+The note's quote is a Bartender's text: the script takes no session id and no path from inside it.
+Exit 0. Exit 2: the note names no session and no --session is given."""
+import json, os, re, subprocess, sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+# The app writes the header at a line start and the quote on that one line (" ⏎ " for a line break), so a quote
+# cannot start a header of its own.
+HEADER = re.compile(r'^\s*The session "[^\n]*" you started \((local_[\w-]+)\) finished a turn', re.M)
+QUOTE = re.compile(r'instructions\): "(.*)"( \(first \d+ of \d+ characters\))? Read it with ')
+
+def run(script, *args, stdin=None):
+    p = subprocess.run([os.path.join(HERE, script), *args], input=stdin, capture_output=True, text=True)
+    return p.returncode, p.stdout.strip(), p.stderr.strip()
+
+def flat(text):
+    return re.sub(r"\s+", " ", text.replace("⏎", " ")).strip()
+
+def errors(out):
+    return "; ".join(json.loads(out).get("error", [])) if out.startswith("{") else "no report"
+
+a, given = sys.argv[1:], []
+while a:
+    if a[0] == "--session" and len(a) > 1 and re.fullmatch(r"local_[\w-]+", a[1]): given.append(a[1]); a = a[2:]
+    else: print("usage: bouncer-note [--session <local session id>]... < <turn-end note>", file=sys.stderr); sys.exit(2)
+note = "" if sys.stdin.isatty() else sys.stdin.read()
+# One part of the note for each session: from its header to the next one.
+marks = list(HEADER.finditer(note))
+parts = {m.group(1): note[m.start():(marks[i + 1].start() if i + 1 < len(marks) else len(note))] for i, m in enumerate(marks)}
+for s in given: parts.setdefault(s, "")
+if not parts: print("no session: the note names none and no --session is given", file=sys.stderr); sys.exit(2)
+
+def report(session, part):
+    """(report, where it comes from) or (None, why)."""
+    q = QUOTE.search(part)
+    quote, cut = (q.group(1), bool(q.group(2))) if q else ("", False)
+    code, out, _ = run("bouncer-report", stdin=part)
+    noted, why = (json.loads(out), "") if code == 0 else (None, "note: " + errors(out))
+    if noted and not cut: return noted, "the note"
+    # A session that ran a later turn has another last answer: its own note comes after this one.
+    now = run("bouncer-session", "quote", session)
+    if quote and now[0] == 0 and flat(now[1])[:300] != flat(quote)[:300]:
+        why += "; the session ran a later turn, so its last answer is not this note's"
+    else:
+        found, last, _ = run("bouncer-session", "last", session)
+        code, out, _ = run("bouncer-report", "--full", stdin=last) if found == 0 else (1, "", "")
+        if code == 0: return json.loads(out), "the last answer"
+        why += "; last answer: " + (errors(out) if found == 0 else "not found")
+    # A whole report in a cut quote may have lost the end of its last field.
+    return (noted, "the note, cut at 400 characters: its last field may be cut") if noted else (None, why.lstrip("; "))
+
+def record(ticket):
+    path = os.path.join(run("bouncer-ledger", "dir")[1], ticket + ".md")
+    try: lines = open(path).read().splitlines()
+    except OSError: return ["record: none"]
+    drafts, inside = [], False
+    for line in lines:
+        if re.match(r"^(#+ *)?DRAFTS\s*$", line): inside = True
+        elif re.match(r"^(#{1,2} +\S|(#+ *)?LEDGER\s*$)", line): inside = False   # the next section
+        elif inside and line.startswith("### "): drafts.append(line[4:].strip())
+    # bouncer-ledger knows what an item line is, and where the LEDGER section starts.
+    ledger = ["  " + l[len(path) + 2:] for l in run("bouncer-ledger", "list")[1].splitlines() if l.startswith(path + ": ")]
+    return [f"record: {path} | drafts: {', '.join(drafts) or 'none'} | ledger open: {len(ledger)}", *ledger]
+
+for session, part in parts.items():
+    print(f"session: {session}")
+    r, source = report(session, part)
+    if r is None:
+        print(f"report: none ({source})"); continue
+    print(f"report: {json.dumps(r, ensure_ascii=False)} (from {source})")
+    ticket = r.get("ticket") or ""
+    # A Bartender's title is `<emoji> [<TICKET>] [<status>] <name>`; an idle one has one bracket and no ticket.
+    found, title, _ = run("bouncer-session", "title", session)
+    named = re.match(r"^!?\S* ?\[([^\]]+)\] \[", title)
+    if found == 0 and (not named or named.group(1) != ticket):
+        print(f"ticket: the session's title names {named.group(1) if named else 'no ticket'}, not {ticket or 'none'}: no accept, grant or record read")
+        continue
+    if not re.fullmatch(r"[\w.-]+", ticket) or ticket.startswith(".") or r["status"] == "WORKING": continue
+    if r["status"] == "DONE":
+        _, out, err = run("bouncer-accept", json.dumps(r))
+        print("accept: " + " | ".join((out or err).splitlines()))
+    print("grant: " + (run("bouncer-grants", "get", ticket)[1] or "none"))
+    print("\n".join(record(ticket)))
+for name, script, head in (("questions", "bouncer-questions", "next"), ("queue", "bouncer-queue", "list")):
+    code, out, err = run(script, "list")
+    lines = out.splitlines()
+    first = run(script, head)[1].splitlines()[:1] if lines else []
+    print(f"{name}: {len(lines)}" + (f" | head: {first[0]}" if first else "") if code == 0 else f"{name}: unknown ({err})")

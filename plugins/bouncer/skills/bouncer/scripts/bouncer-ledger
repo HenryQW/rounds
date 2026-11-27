@@ -11,6 +11,7 @@ bouncer-ledger due                   run each open check; print "<record path>: 
 bouncer-ledger list [--all]          print "<record path>: <line>" for each open item (--all: done items too)
 bouncer-ledger stale [--days N] [--turn <record>=<ISO time>]...   print each record with open items that is older
                                      than N days (default 7) or than the owning Bartender's last turn
+bouncer-ledger dir                   print the records folder
 The records are in $BOUNCER_RECORDS, else the records_dir plugin option, else <data>/tickets (bouncer-data).
 <record> is the record's file name without .md: a ticket key, or <repo>-<branch> for work with no ticket.
 A check that exits with another code, or runs over 60 s, prints "unsure <path>: <line>" on stderr.
@@ -100,6 +101,8 @@ elif cmd == "done" and len(a) == 3:
     with open(path, "w") as f: f.write("\n".join(lines) + "\n")
 elif cmd == "list" and a[1:] in ([], ["--all"]):
     for path, l in all_open(done=a[1:] == ["--all"]): print(f"{path}: {l}")
+elif cmd == "dir" and len(a) == 1:
+    print(records_dir())
 elif cmd == "due" and len(a) == 1:
     for path, l in all_open():
         if is_due(l): print(f"{path}: {l}")
@@ -119,4 +122,4 @@ elif cmd == "stale":
         if now - age > days * 86400: print(f"{path}: older than {days:g} days")
         elif name in turns and age < turns[name]: print(f"{path}: older than its Bartender's last turn")
 else:
-    die("usage: bouncer-ledger add|done|due|list|stale ...")
+    die("usage: bouncer-ledger add|done|due|list|stale|dir ...")

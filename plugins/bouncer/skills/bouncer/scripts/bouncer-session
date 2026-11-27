@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""What a session's transcript says, read from disk so the Bouncer spends no model call on it.
+bouncer-session context [--cap N] [<session id>]   print "context: <n> tok": the size of that session's context, from the
+    usage of its last answer; above the cap (default 150000) it adds " (over <cap>)". <session id> is a Claude Code
+    session id; default: the Bouncer of this repo (<data>/<repo>/bouncer, which the plugin writes).
+bouncer-session last <local session id>   print the last answer of a Claude desktop session (the id that list_sessions
+    and a turn-end note give, local_...): its text, without tool calls.
+bouncer-session title <local session id>  print that session's title.
+bouncer-session assigned <local session id> <Claude Code session id>  print the ticket in the current Bartender title.
+bouncer-session quote <local session id>  print what the app quotes of that session's last turn in a turn-end note
+    (at most 400 characters), so a caller can tell whether a note is about the last turn.
+Transcripts are <config>/projects/*/<session id>.jsonl (CLAUDE_CONFIG_DIR, else ~/.claude). The desktop app keeps
+each session's Claude Code id in claude-code-sessions/*/*/<local id>.json ($BOUNCER_DESKTOP_SESSIONS names that folder,
+else ~/Library/Application Support/Claude/claude-code-sessions).
+Exit 1: the session, its transcript or the value is not found. Exit 2: bad usage."""
+import glob, json, os, re, subprocess, sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+CONFIG = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
+DESKTOP = os.environ.get("BOUNCER_DESKTOP_SESSIONS") or os.path.expanduser("~/Library/Application Support/Claude/claude-code-sessions")
+TAIL = 4 << 20   # an answer and its usage are in the last rows; a transcript can be many MB
+
+def die(msg, code=2):
+    print(msg, file=sys.stderr); sys.exit(code)
+
+def rows(session_id):
+    """The main-chain assistant rows of a transcript's tail, newest first."""
+    if not re.fullmatch(r"[\w-]+", session_id or ""): return
+    for path in glob.glob(os.path.join(CONFIG, "projects", "*", session_id + ".jsonl")):
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END); f.seek(max(0, f.tell() - TAIL))
+            lines = f.read().decode("utf-8", "replace").splitlines()
+        for line in reversed(lines):
+            try: row = json.loads(line)
+            except ValueError: continue   # the tail's first line may be cut
+            if isinstance(row, dict) and row.get("type") == "assistant" and not row.get("isSidechain"): yield row
+
+a = sys.argv[1:]
+cmd = a[0] if a else ""
+if cmd == "context":
+    cap, ids = 150000, []
+    rest = a[1:]
+    while rest:
+        if rest[0] == "--cap" and len(rest) > 1 and rest[1].isdigit(): cap = int(rest[1]); rest = rest[2:]
+        elif not rest[0].startswith("-") and not ids: ids.append(rest[0]); rest = rest[1:]
+        else: die("usage: bouncer-session context [--cap N] [<session id>]")
+    if not ids:
+        data = subprocess.run([os.path.join(HERE, "bouncer-data"), "--repo"], capture_output=True, text=True).stdout.strip()
+        try: ids.append(open(os.path.join(data, "bouncer")).read().strip())
+        except OSError: pass
+    for row in rows(ids[0] if ids else ""):
+        u = (row.get("message") or {}).get("usage") or {}
+        n = sum(int(u.get(k) or 0) for k in ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens", "output_tokens"))
+        if n:
+            print(f"context: {n} tok" + (f" (over {cap})" if n > cap else "")); sys.exit(0)
+    print("context: unknown"); sys.exit(1)
+elif (cmd in ("last", "title", "quote") and len(a) == 2) or (cmd == "assigned" and len(a) == 3):
+    if not re.fullmatch(r"local_[\w-]+", a[1]): die(f"usage: bouncer-session {cmd} <local session id>")
+    for path in glob.glob(os.path.join(DESKTOP, "*", "*", a[1] + ".json")):
+        try: d = json.load(open(path))
+        except (OSError, ValueError): continue
+        if cmd == "assigned":
+            # A nested Claude process can inherit the desktop id. Only its current main session owns the ticket.
+            if not a[2] or d.get("cliSessionId") != a[2] or d.get("isArchived"): continue
+            title = d.get("title") or ""
+            match = re.fullmatch(r"!?[🍸🔧🧹] \[([^\]\s]+)\] \[[^\]]+\] .+", title)
+            if not match:  # Titles before 0.10.5 put the status first.
+                match = re.fullmatch(r"!?\[(?!Idle\])[^\]]+\] [🍸🔧🧹] (\S+) \S+", title)
+            if match: print(match[1]); sys.exit(0)
+            continue
+        if cmd != "last":
+            value = d.get("title" if cmd == "title" else "lastTurnReport")
+            if isinstance(value, str) and value.strip():
+                print(value.strip()); sys.exit(0)
+            continue
+        # A clear gives the session a new Claude Code id; the last answer may be under the one before it.
+        for sid in dict.fromkeys([d.get("lastAssistantCliSessionId"), d.get("cliSessionId")]):
+            for row in rows(sid or ""):
+                content = (row.get("message") or {}).get("content") or []
+                text = "".join(c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") == "text")
+                if text.strip():
+                    print(text.strip()); sys.exit(0)
+    sys.exit(1)
+else:
+    die("usage: bouncer-session context [--cap N] [<session id>] | last|title|quote <local session id> | assigned <local session id> <Claude Code session id>")

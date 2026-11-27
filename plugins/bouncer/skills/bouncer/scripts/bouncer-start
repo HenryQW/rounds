@@ -1,0 +1,46 @@
+#!/usr/bin/env python3
+"""bouncer-start [--turn <record>=<ISO time>]...
+One call for Bouncer start and after each clear. Run it in the session folder.
+  preflight: "ok", or each "fix <check>: ..." line (bouncer-preflight)
+  decisions: every active decision (bouncer-decisions list)
+  due:       the ledger items to act on now (bouncer-ledger due), with "unsure" lines
+  stale:     the records to refresh (bouncer-ledger stale, with the --turn values: one for each Bartender)
+  questions, queue: the count and the head line; grants: every line
+  records:   the folder of the ticket records
+  context:   the size of the Bouncer's context (bouncer-session context)
+A part with nothing in it prints "<part>: none"; one that cannot be read, "<part>: unknown (<error>)".
+Exit 0; 1 when preflight has a fix line; 2 on bad usage or a bad --turn time."""
+import os, re, subprocess, sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+
+def run(script, *args):
+    p = subprocess.run([os.path.join(HERE, script), *args], capture_output=True, text=True)
+    return p.returncode, p.stdout.strip(), p.stderr.strip()
+
+def part(name, lines):
+    print(f"{name}: none" if not lines else f"{name}: {lines[0]}" if len(lines) == 1 else f"{name} ({len(lines)}):\n" + "\n".join(lines))
+
+turns = sys.argv[1:]
+if any(x != "--turn" for x in turns[0::2]) or len(turns) % 2 or not all(re.fullmatch(r"[^=\s]+=\S+", x) for x in turns[1::2]):
+    print("usage: bouncer-start [--turn <record>=<ISO time>]...", file=sys.stderr); sys.exit(2)
+
+code, out, err = run("bouncer-preflight")
+fixes = [l for l in out.splitlines() if l.startswith("fix ")]
+part("preflight", fixes or (["ok"] if code == 0 else [err or f"exit {code}"]))
+code, out, err = run("bouncer-decisions", "list")   # exit 1: no decision yet
+part("decisions", out.splitlines() if code in (0, 1) else [f"unknown ({err})"])
+code, out, err = run("bouncer-ledger", "due")
+part("due", out.splitlines() + [l for l in err.splitlines() if l.startswith("unsure")] if code == 0 else [f"unknown ({err})"])
+code, out, err = run("bouncer-ledger", "stale", *turns)
+if code: print(err, file=sys.stderr); sys.exit(2)   # a bad --turn time
+part("stale", out.splitlines())
+for name, script, head in (("questions", "bouncer-questions", "next"), ("queue", "bouncer-queue", "list")):
+    code, out, err = run(script, "list")
+    lines = out.splitlines()
+    first = run(script, head)[1].splitlines()[:1]
+    part(name, [f"unknown ({err})"] if code else [f"{len(lines)} | head: {first[0]}"] if lines and first else [])
+part("grants", run("bouncer-grants", "list")[1].splitlines())
+part("records", [run("bouncer-ledger", "dir")[1]])
+print(run("bouncer-session", "context")[1])
+sys.exit(1 if fixes else 0)
