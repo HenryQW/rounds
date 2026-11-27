@@ -88,7 +88,7 @@ The plugin draws the band above your prompt. The band is always one line: the Ba
 | 🔴 | needs the user: `!` CTA (a line in `questions.md`) |
 | 🟢 | idle, free for work: `[Idle]` title |
 | 🔴 | needs the user: the last STATUS is `NEEDS_INPUT` or `BLOCKED` |
-| 🟢 | no turn runs (it waits on others: CI, review, QA) |
+| ⚪ | no turn runs, but it still holds its ticket (an open PR, a gate, open ledger items); only `[Idle]` is green |
 | 🟡 | a turn runs, or not known yet |
 
 Keep titles and `questions.md` current: the dots follow them.

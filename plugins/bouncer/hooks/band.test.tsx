@@ -571,7 +571,7 @@ test('one Bouncer a repo: a second session of the same repo shows Take Over, and
   expect(writes).toEqual(['me', ''])
 })
 
-test('dots: red needs the user, yellow works or waits on others, green is idle', () => {
+test('dots: red needs the user, yellow works, white holds a ticket with no turn running, green only when idle and free', () => {
   const d = (title: string, report?: string) => dot(parseBartender(title)!, report)
   expect(d('![Dev] 🍸 A-1 r')).toBe('🔴')
   expect(d('![Idle] 🍸 r')).toBe('🔴')
@@ -583,8 +583,16 @@ test('dots: red needs the user, yellow works or waits on others, green is idle',
   expect(d('[Idle] 🍸 r')).toBe('🟢')
   expect(d('[Idle] 🍸 r', 'BLOCKED')).toBe('🟢')
   const s = (title: string, report: string | undefined, isRunning: boolean) => dot(parseBartender(title)!, report, isRunning)
-  expect(s('[QA] 🍸 A-1 r', undefined, false)).toBe('🟢')
-  expect(s('[Dev] 🍸 A-1 r', 'DONE', false)).toBe('🟢')
+  // Not free while the ticket is still its own, whatever waits: an open PR (CR), a gate (QA, Staging), a DONE turn.
+  expect(s('[CR] 🍸 A-1 r', undefined, false)).toBe('⚪')
+  expect(s('[QA] 🍸 A-1 r', undefined, false)).toBe('⚪')
+  expect(s('🍸 [A-1] [Staging] Fix it', 'WORKING', false)).toBe('⚪')
+  expect(s('[Dev] 🍸 A-1 r', 'DONE', false)).toBe('⚪')
+  expect(s('🔧 [band] [Dev] Band layout', undefined, false)).toBe('⚪')
+  // A question that waits on the user stays red.
+  expect(s('[Dev] 🍸 A-1 r', 'NEEDS_INPUT', false)).toBe('🔴')
+  // Free: the Bouncer set it Idle.
+  expect(s('🍸 [Idle] r', undefined, false)).toBe('🟢')
   expect(s('[Dev] 🍸 A-1 r', undefined, true)).toBe('🟡')
   expect(s('[Dev] 🍸 A-1 r', 'BLOCKED', false)).toBe('🔴')
   expect(s('![Dev] 🍸 A-1 r', undefined, false)).toBe('🔴')
@@ -600,7 +608,7 @@ test('linked sessions parse from list_sessions JSON, bare or in text blocks', ()
   expect(sessionRows('not json')).toBe(undefined)
 })
 
-test('the band fills from the linked sessions: titles, green when no turn runs, no filler in row 2', async ($, on) => {
+test('the band fills from the linked sessions: titles, white when no turn runs, no filler in row 2', async ($, on) => {
   on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({ result: JSON.stringify([
     { sessionId: 'local_a', title: '[QA] 🍸 MIDI-1 rounds', isRunning: false, prNumber: 12, prState: 'OPEN' },
     { sessionId: 'local_b', title: '[Dev] 🔧 band rounds', isRunning: true },
@@ -612,8 +620,8 @@ test('the band fills from the linked sessions: titles, green when no turn runs, 
   await title($, 'local_old', '[Dev] 🍸 MIDI-9 rounds')
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
-  expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢]( [🔴🟡🟢])*$/u }))?.text).toBe('🟡 🟢')
-  expect(await cols(ui)).toEqual([['Dev', '🟡 band', undefined], ['QA', '🟢 MIDI-1', undefined]])
+  expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢⚪]( [🔴🟡🟢⚪])*$/u }))?.text).toBe('🟡 ⚪')
+  expect(await cols(ui)).toEqual([['Dev', '🟡 band', undefined], ['QA', '⚪ MIDI-1', undefined]])
   await ui.unmount()
 })
 
@@ -775,7 +783,7 @@ test('Details: the ask row shows only while a question waits; a report fills the
   expect(await ui.find({ type: 'Text', text: /^🔴 / })).toBe(undefined)
 
   await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: DONE\nTICKET: MIDI-1' } as any)
-  expect(await cols(ui)).toEqual([['Dev', '🟢 MIDI-1', 'PR 31 open, CI green']])
+  expect(await cols(ui)).toEqual([['Dev', '⚪ MIDI-1', 'PR 31 open, CI green']])
 
   await ui.press({ key: 'act:local_a' })
   expect((await ui.find({ type: 'Text', text: /PR 31/ }))?.text).toBe('PR 31 open, CI green')
@@ -887,7 +895,7 @@ test('a card links its ticket to Linear and its PR to the URL that its ledger li
   const band = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect((await band.find({ key: 'pr:act:local_a' }))?.text).toContain('+1')
   expect((await band.findAll({ type: 'Link' })).map((l: any) => linkText(l))).toEqual(expect.arrayContaining(['#17', '#3']))
-  expect((await band.find({ key: 'go:local_a' }))?.text).toBe('🟢 MIDI-1')
+  expect((await band.find({ key: 'go:local_a' }))?.text).toBe('⚪ MIDI-1')
   // A narrower band drops the PR links before any jump.
   const jumps = async (cols: number) => {
     const b = await $.ui.mount({ ...BAND, surface: 'desktop', props: { ...BAND.props, bodyColumns: cols } } as any)
@@ -913,7 +921,7 @@ test('a Bartender title parses in the new format and the old one; a sync keeps t
   expect(synced(pool, 'MIDI-2 | b | Merge?\n', report)).toEqual([['a', '🍸 [MIDI-1] [QA] Fix it'], ['b', '![Dev] 🍸 MIDI-2 rounds'], ['self', '!1 🚪 Bouncer']])
 })
 
-test('a Bartender turn-end note turns its dot from yellow to green at once', async ($, on) => {
+test('a Bartender turn-end note turns its dot from yellow to white at once', async ($, on) => {
   on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({ result: JSON.stringify([
     { sessionId: 'local_a', title: '🍸 [MIDI-1] [Dev] Fix it', isRunning: true, cwd: '/w' },
   ]) }))
@@ -930,11 +938,11 @@ test('a Bartender turn-end note turns its dot from yellow to green at once', asy
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect(chip(await ui.find({ key: 'title:act:local_a' }))).toBe('🟡 MIDI-1')
   await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: DONE\nTICKET: MIDI-1\nRESULT: shipped' } as any)
-  expect(chip(await ui.find({ key: 'title:act:local_a' }))).toBe('🟢 MIDI-1')
+  expect(chip(await ui.find({ key: 'title:act:local_a' }))).toBe('⚪ MIDI-1')
   await ui.unmount()
 })
 
-test('a prompt into the Bouncer reads list_sessions again, so a Bartender that ended its turn turns green', async ($, on) => {
+test('a prompt into the Bouncer reads list_sessions again, so a Bartender that ended its turn leaves yellow', async ($, on) => {
   let isRunning = true
   on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({ result: JSON.stringify([
     { sessionId: 'local_a', title: '🍸 [MIDI-1] [Dev] Fix it', isRunning, cwd: '/w' },
@@ -949,7 +957,7 @@ test('a prompt into the Bouncer reads list_sessions again, so a Bartender that e
   expect(chip(await ui.find({ key: 'title:act:local_a' }))).toBe('🟡 MIDI-1')
   isRunning = false
   await $.prompt.submit({ text: '<side-sessions-event>local_a ended its turn</side-sessions-event>' } as any)
-  expect(chip(await ui.find({ key: 'title:act:local_a' }))).toBe('🟢 MIDI-1')
+  expect(chip(await ui.find({ key: 'title:act:local_a' }))).toBe('⚪ MIDI-1')
   await ui.unmount()
 })
 

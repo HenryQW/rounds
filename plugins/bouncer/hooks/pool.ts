@@ -54,15 +54,16 @@ export const archived = (pool: Pool, sessionId: string): Pool => {
 /** One band column: an active Bartender, or all idle Bartenders. `label` grey, `value` bold, the sub-line comes from its last report. */
 export type Column = { key: string; dot: string; label: string; value: string; ticket: string; ids: string[] }
 
-// Traffic light, in band order: needs the user, works (or waits on others), idle and free for work.
-const DOTS = ['🔴', '🟡', '🟢']
+// Traffic light, in band order: needs the user, works, holds a ticket with no turn running, idle and free for work.
+const DOTS = ['🔴', '🟡', '⚪', '🟢']
 
 /** A Bartender's dot from its title, its last report STATUS and whether its session runs a turn (the mapping is in SKILL.md, "Band"). */
+// Green is only free: a Bartender with a ticket still holds it (open PR, a gate, ledger items) until the Bouncer sets it Idle.
 export const dot = (b: Bartender, report?: string, isRunning?: boolean) =>
   b.cta ? '🔴'
   : b.status === 'Idle' ? '🟢'
   : report === 'NEEDS_INPUT' || report === 'BLOCKED' ? '🔴'
-  : isRunning === false ? '🟢'
+  : isRunning === false ? '⚪'
   : '🟡'
 
 const byDot = <T extends { dot: string }>(a: T, b: T) => DOTS.indexOf(a.dot) - DOTS.indexOf(b.dot)
