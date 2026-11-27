@@ -112,9 +112,19 @@ const syncTitles = async ($: EngineInterface, report?: Report) => {
   }
 }
 
-// A Bartender's turn-end note reaches the Bouncer as a delivery or a prompt: parse it with bouncer-report, then set titles.
+// One report of a Bartender: keep it for the band, then set the titles. `text` holds the full PR URLs of its EVIDENCE.
+const applyReport = async ($: EngineInterface, report: Report, text: string) => {
+  // Keep the STATUS for the band's dot and the sub-line for its column, on the session whose title has the report's ticket.
+  const id = Object.entries((await read($, pool)).bartenders).find(([, t]) => report.ticket && parseBartender(t)?.ticket === report.ticket)?.[0]
+  // A turn-end note means its turn ended: the dot leaves 🟡 now, not at the Bouncer's next list_sessions read.
+  if (id) await update($, pool, p => ({ ...p, reports: { ...p.reports, [id]: report.status }, notes: { ...p.notes, [id]: reportLine(report) }, reportTexts: { ...p.reportTexts, [id]: text }, running: { ...p.running, [id]: false } }))
+  await syncTitles($, report)
+}
+
+// A plain report (a delivery, or a prompt that is not the desktop app's turn-end note): parse it with bouncer-report.
+// The app's note quotes the report inside a sentence, so the field names are not always at a line start.
 const onNote = async ($: EngineInterface, text: string) => {
-  if (!(await read($, pool)).isOn || !/^\s*STATUS:/m.test(text) || !/^\s*TICKET:/m.test(text)) return
+  if (!(await read($, pool)).isOn || !/\bSTATUS:/.test(text) || !/\bTICKET:/.test(text)) return
   const env = await $.process.hookEnv()
   if (!env.CLAUDE_PLUGIN_ROOT) return
   const ran = await $.process.run([`${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-report`], { stdin: text, env })
@@ -122,11 +132,56 @@ const onNote = async ($: EngineInterface, text: string) => {
   if (!ran || ran.exitCode !== 0) return
   let report: Report
   try { report = JSON.parse(ran.stdout) as Report } catch { return /* not a report */ }
-  // Keep the STATUS for the band's dot and the sub-line for its column, on the session whose title has the report's ticket.
-  const id = Object.entries((await read($, pool)).bartenders).find(([, t]) => report.ticket && parseBartender(t)?.ticket === report.ticket)?.[0]
-  // A turn-end note means its turn ended: the dot leaves 🟡 now, not at the Bouncer's next list_sessions read.
-  if (id) await update($, pool, p => ({ ...p, reports: { ...p.reports, [id]: report.status }, notes: { ...p.notes, [id]: reportLine(report) }, reportTexts: { ...p.reportTexts, [id]: text }, running: { ...p.running, [id]: false } }))
-  await syncTitles($, report)
+  await applyReport($, report, text)
+}
+
+// The desktop app's turn-end note names its session and quotes only 400 characters of the Bartender's answer.
+// bouncer-note reads all that the Bouncer needs before it acts on the note (the report, from the Bartender's last answer
+// when the quote lost it; the acceptance check; the grant; the record), and the digest goes with the prompt, so the
+// Bouncer spends no call on it. The acceptance check runs gh: a login shell finds it, as for the ledger.
+const IS_NOTE = /you started \(local_[\w-]+\) finished a turn/
+const NOTE = 'Bouncer note digest (`bouncer-note` ran on this turn-end note; do not run it again):'
+const noteContext = async ($: EngineInterface, text: string, records: string) => {
+  if (!(await read($, pool)).isOn) return undefined
+  const env = await $.process.hookEnv()
+  if (!env.CLAUDE_PLUGIN_ROOT) return undefined
+  const ran = await $.process.run(['/bin/bash', '-lc', 'exec "$0"', `${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-note`], {
+    stdin: text, env: { ...env, BOUNCER_REPO: await repoOf($), ...(records ? { BOUNCER_RECORDS: records } : {}) },
+  }).catch(() => undefined)
+  if (!ran || ran.exitCode !== 0 || !ran.stdout.trim()) return undefined
+  for (const line of ran.stdout.split('\n')) {
+    const json = /^report: (\{.*\}) \(from /.exec(line)?.[1]
+    if (!json) continue
+    let report: Report
+    try { report = JSON.parse(json) as Report } catch { continue /* not a report */ }
+    await applyReport($, report, `${text}\n${json}`).catch(() => undefined)
+  }
+  return `${NOTE}\n${ran.stdout.trim()}`
+}
+
+// The due ledger items go with a prompt when they differ from the ones this session last got, so the Bouncer runs no
+// `bouncer-ledger due` on a user turn. turn.complete reads them (refreshDue); a clear gives a new id, so they go again.
+const DUE = 'Bouncer ledger due (`bouncer-ledger due`, read at the last turn end; act on each item now, and do not run it again this turn):'
+const dueContext = async ($: EngineInterface) => {
+  const p = await read($, pool)
+  const due = (p.due ?? []).join('\n')
+  const dueFor = `${await $.session.id()}\n${due}`
+  if (p.dueFor === dueFor) return undefined
+  await update($, pool, q => ({ ...q, dueFor }))
+  return due ? `${DUE}\n${due}` : undefined
+}
+
+// The Bouncer cannot see the size of its own context: bouncer-session reads it from the transcript. Past the cap, with
+// no Bartender at work, the prompt says so, and the Bouncer clears itself ("Token rules" in SKILL.md).
+const sizeContext = async ($: EngineInterface) => {
+  if (Object.values((await read($, pool)).running ?? {}).some(Boolean)) return undefined
+  const env = await $.process.hookEnv()
+  if (!env.CLAUDE_PLUGIN_ROOT) return undefined
+  const ran = await $.process.run([`${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-session`, 'context', await $.session.id()], { env })
+    .catch(() => undefined)
+  return ran?.exitCode === 0 && /\(over \d+\)/.test(ran.stdout)
+    ? `Bouncer ${ran.stdout.trim()}, and no Bartender works: clear yourself at the end of this turn (\`clear_session "self"\`, "Token rules").`
+    : undefined
 }
 
 // The decision memory goes with the first prompt of each session that is already the Bouncer (a clear or a restart gives
@@ -624,13 +679,20 @@ export const register: Register = (on, options) => {
   })
   // A Bartender's turn-end note reaches the Bouncer inside its next turn (a side-sessions event), not always as a
   // report that onNote parses: read list_sessions there too, so a finished Bartender's dot leaves 🟡 at once.
+  // The prompt also carries what the Bouncer would else spend a call to read: the decision memory, the note digest,
+  // the due ledger items and the context size.
   on('prompt.submit', async ($, e, next) => {
-    await onNote($, e.text).catch(() => undefined)
+    const isNote = IS_NOTE.test(e.text)
+    const note = isNote ? await noteContext($, e.text, records).catch(() => undefined) : undefined
+    if (!isNote) await onNote($, e.text).catch(() => undefined)
     await update($, pool, p => (p.working ? p : { ...p, working: true }))
     if ((await read($, pool)).isOn) {
       await refreshSessions($).catch(() => undefined)
-      const memory = await memoryContext($).catch(() => undefined)
-      if (memory) return next({ ...e, context: [...(e.context === undefined ? [] : [e.context].flat()), memory] })
+      const added = [
+        await memoryContext($).catch(() => undefined), note,
+        await dueContext($).catch(() => undefined), await sizeContext($).catch(() => undefined),
+      ].filter((c): c is string => c !== undefined)
+      if (added.length) return next({ ...e, context: [...(e.context === undefined ? [] : [e.context].flat()), ...added] })
     }
     return next(e)
   })

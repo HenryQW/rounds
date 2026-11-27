@@ -67,10 +67,22 @@ The plugin keeps its state in the data folder that Claude Code gives it: `~/.cla
 
 The pool is in the session titles, so it needs no file. Every Bouncer sees the same folder; the queue and the questions are per repo, in `<repo>/`. The first run of 0.10.4 moves an older `queue.md` and `questions.md` into the first Bouncer's repo folder, once. Plugin updates keep the folder. `claude plugin uninstall bouncer@rounds` deletes it unless you add `--keep-data`.
 
+## Token use
+Each model call of the Bouncer reads its whole context again, so a call costs more than the text it writes. The plugin does in a script each step that needs no judgment, and one script covers one event:
+
+| Event | One call | It prints |
+|---|---|---|
+| Bouncer start, and after a clear | `bouncer-start` | The preflight checks, the decisions, the due and stale ledger items, the questions, the queue, the grants and the context size |
+| A Bartender's turn-end note | `bouncer-note` | The report (from the Bartender's last answer when the note's 400 characters lost it), the acceptance check, the grant, the record's drafts and open ledger items |
+| An assignment | `bouncer-assign` | The title, the model, the effort and the filled brief |
+
+The plugin hook runs `bouncer-note` on a turn-end note and attaches the result to the prompt, so the Bouncer spends no call on it. In the same way it attaches the due ledger items when they change, and one line when the Bouncer's context is past 150K and no Bartender works (`bouncer-session context`); the Bouncer then clears itself.
+
 ## Known limits
 
 - The Bouncer must be a session that you open, in the main checkout of the repo it routes. Do not move it with `change_directory`: hook paths stay on the old folder and Bash breaks. `bouncer-preflight` checks the folder, the hook paths, the plugin version and the `clear_session` allow rule. With Remote Control on, a session that another session started cannot start Bartenders. A request for another repo goes to that repo's Bouncer.
 - Never detach a Bartender: its reports then do not reach the Bouncer.
+- `bouncer-session` reads the Claude desktop app's session files (`~/Library/Application Support/Claude/claude-code-sessions`, macOS) and the transcripts in `~/.claude/projects`. If the app changes them, `bouncer-note` prints `report: none` for a note that lost its report, and the Bouncer checks the evidence itself.
 - Outside `bypassPermissions` mode, the app asks you before each Bartender reset (`clear_session`) and before a model or effort above the Bouncer's own.
 
 ## Develop and test

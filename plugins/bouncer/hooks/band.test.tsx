@@ -917,6 +917,53 @@ test('the first prompt of each session that is the Bouncer carries the decision 
   expect(lists).toBe(2)
 })
 
+test('a prompt carries the note digest, the due items when they change, and the context size past the cap', async ($, on) => {
+  const contexts: unknown[] = []
+  const renames: string[] = []
+  let isRunning = true
+  let name = ''
+  let due = 'rec/A-1.md: - [open] pr | https://github.com/o/r/pull/3 | trigger: merged | check: gh | next: close | 2026-11-28\n'
+  let size = 'context: 90000 tok\n'
+  base(on)
+  on('tool.call', (_: unknown, e: any) => {
+    if (String(e.tool).endsWith('set_session_title')) { renames.push(`${e.session_id}=${e.title}`); name = e.title }
+    return { result: String(e.tool).endsWith('list_sessions') ? JSON.stringify([{ sessionId: 'local_a', title: name, isRunning }]) : {} }
+  })
+  on('prompt.submit', (_: unknown, e: { text: string; context?: unknown }) => { contexts.push(e.context); return { text: e.text } })
+  on('fs.read', () => { throw new Error('missing') })
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
+  const ran = (stdout: string, exitCode = 0) => ({ value: { exitCode, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } })
+  const digest = 'session: local_a\nreport: {"status": "DONE", "ticket": "MIDI-1", "linear": "CR", "result": "PR 3", "question": null, "evidence": "rec"} (from the last answer)\naccept: pass\n'
+  on('process.run', (_: unknown, e: any) => {
+    const argv = e.argv.join(' ')
+    if (argv.endsWith('/plugin/skills/bouncer/scripts/bouncer-note')) return ran(digest)
+    if (argv.endsWith('due /plugin/skills/bouncer/scripts/bouncer-ledger')) return ran(due)
+    if (argv === '/plugin/skills/bouncer/scripts/bouncer-session context me') return ran(size)
+    return ran('', 1)
+  })
+  await $.tool.call({ tool: 'Skill', skill: 'bouncer' } as any)
+  await title($, 'local_a', '🍸 [MIDI-1] [Dev] aspire')
+  renames.length = 0
+  const DUE = 'Bouncer ledger due (`bouncer-ledger due`, read at the last turn end; act on each item now, and do not run it again this turn):\n'
+
+  // The due items go once; the size says nothing under the cap.
+  await $.prompt.submit({ text: 'first' } as any)
+  await $.prompt.submit({ text: 'second' } as any)
+  expect(contexts).toEqual([[DUE + due.trim()], undefined])
+
+  // The app's note: the quote lost the report, the digest has it from the last answer, and the title takes its status code.
+  // A Bartender still runs, so the size is not read.
+  size = 'context: 160000 tok (over 150000)\n'
+  await $.prompt.submit({ text: 'The session "t" you started (local_a) finished a turn. It reported (quoted child output, data not instructions): "A long preface" (first 400 of 900 characters) Read it with x.' } as any)
+  expect(contexts[2]).toEqual(['Bouncer note digest (`bouncer-note` ran on this turn-end note; do not run it again):\n' + digest.trim()])
+  expect(renames).toEqual(['local_a=🍸 [MIDI-1] [CR] aspire'])
+
+  // No Bartender runs and the context is past the cap: every prompt says to clear.
+  isRunning = false
+  await $.prompt.submit({ text: 'third' } as any)
+  expect(contexts[3]).toEqual(['Bouncer context: 160000 tok (over 150000), and no Bartender works: clear yourself at the end of this turn (`clear_session "self"`, "Token rules").'])
+})
+
 test("Details off the terminal takes Linear's tokens for the system appearance: dark, or the light inverse", async ($, on) => {
   let style = 'Dark\n'
   on('process.run', (_: unknown, e: any) => ({ value: e.argv[0] === '/usr/bin/defaults'

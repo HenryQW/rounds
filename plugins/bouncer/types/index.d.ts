@@ -43,6 +43,8 @@ export type Pool = {
   menu?: string
   /** The session id whose first prompt carried the decision memory (`bouncer-decisions list`); a clear gives a new id. */
   memoryFor?: string
+  /** The session id and the `due` lines that a prompt last carried to the Bouncer; a prompt carries them again when either changes. */
+  dueFor?: string
   /** The Stop or Reset action (its value) that waits for its second click; cleared after 5 seconds. */
   confirm?: string
 }

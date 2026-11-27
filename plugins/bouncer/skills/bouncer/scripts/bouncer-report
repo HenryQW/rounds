@@ -1,21 +1,26 @@
 #!/usr/bin/env python3
-"""bouncer-report < <Bartender turn-end text>
+"""bouncer-report [--full] < <Bartender turn-end text>
 Finds the 6 field lines anywhere in the text: STATUS (exactly WORKING|NEEDS_INPUT|DONE|BLOCKED, no suffix), TICKET, LINEAR, RESULT,
 QUESTION, EVIDENCE, one line each, in any order. Other lines are ignored. A field that comes again starts a new block,
 so the last block wins. The field lines must be at most 400 characters in all (the turn-end note quotes only 400).
+--full: the text is the Bartender's whole last message, not the note's quote, so the 400 limit does not apply.
+A turn-end note of the Claude desktop app quotes the report inside a sentence, with " ⏎ " for each line break
+(`...: "STATUS: DONE ⏎ TICKET: ... ⏎ EVIDENCE: ..." Read it with ...`); the script first puts that quote back on lines.
 Out: {"status", "ticket", "linear", "result", "question", "evidence"} ("none" becomes null). Exit 2: bad report,
 with {"error": [...]} so the Bouncer checks the evidence instead."""
 import json, re, sys
 
 KEYS = ["STATUS", "TICKET", "LINEAR", "RESULT", "QUESTION", "EVIDENCE"]
 errs, got, lines = [], {}, []
-for line in sys.stdin.read().splitlines():
+text = re.sub(r'(?s)(instructions\): )"(.*?)"((?: \(first \d+ of \d+ characters\))? Read it with )',
+              lambda m: m.group(1) + "\n" + re.sub(r" ?⏎ ?", "\n", m.group(2)) + "\n" + m.group(3), sys.stdin.read())
+for line in text.splitlines():
     m = re.match(r"^\s*([A-Z_]+):\s*(.*?)\s*$", line)
     if m and m.group(1) in KEYS:
         if m.group(1) in got: got, lines = {}, []   # a new block starts
         got[m.group(1)] = m.group(2); lines.append(line.strip())
 size = len("\n".join(lines))
-if size > 400:
+if size > 400 and sys.argv[1:] != ["--full"]:
     errs.append(f"field lines {size} chars, limit 400")
 errs += [f"missing {k}" for k in KEYS if not got.get(k)]
 if got.get("STATUS") and got["STATUS"] not in ("WORKING", "NEEDS_INPUT", "DONE", "BLOCKED"):

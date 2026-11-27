@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""bouncer-assign [--type Ticket|Skill|Cleanup] [--drop <old ticket>] "<TICKET> | <repo> | <mode> | <status> | <ticket title> | <goal> | <done means>"
+One call for an assignment ("Reset and assign", and the `start` action): all that the Bouncer sets on the Bartender.
+  title:  the session title (bouncer-title); "title: none (<error>)" when the status has no code
+  model:  the full model id, and
+  effort: the effort, for that type and mode (the "Decision table" rows of SKILL.md; the user's rules win)
+  brief:  on the lines after it, the Bartender brief (references/brief.md) with every part filled in: the load line of the
+          bartender_skill option (Ticket type only), the decisions in force (bouncer-decisions list <repo> <TICKET>),
+          the ticket record path, the real path of the skill folder, and the report shape of SKILL.md
+<mode>: Code, Spike or Mechanical. For a Skill Bartender, Mechanical means an edit and the others a design; for a
+Cleanup Bartender, Mechanical means a plain sweep and the others a sweep that needs judgment.
+<status>: the tracker's status name, as for bouncer-title. <done means> keeps any further "|".
+--drop: the Bartender could not be cleared; the brief starts with the line that drops the old ticket's context.
+It writes nothing. Exit 2: bad usage. Exit 3: brief.md or SKILL.md lost a part that the script fills in."""
+import json, os, re, subprocess, sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+SKILL = os.path.dirname(HERE)
+OPUS, SONNET, HAIKU = "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"
+MODES = ("Code", "Spike", "Mechanical")
+
+def die(msg, code=2):
+    print(msg, file=sys.stderr); sys.exit(code)
+
+def run(script, *args):
+    p = subprocess.run([os.path.join(HERE, script), *args], capture_output=True, text=True)
+    return p.returncode, p.stdout.strip(), p.stderr.strip()
+
+def option(name):
+    """A plugin option: the stored value, else the default in the plugin manifest."""
+    path = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "settings.json")
+    try: configs = json.load(open(path)).get("pluginConfigs", {})
+    except (OSError, ValueError): configs = {}
+    value = next((str(v.get("options", {}).get(name, "")) for k, v in configs.items() if k.startswith("bouncer@")), "").strip()
+    return value or json.load(open(os.path.join(SKILL, "../../.claude-plugin/plugin.json")))["userConfig"][name]["default"]
+
+def model(kind, mode):
+    if kind == "Ticket": return (SONNET, "medium") if mode == "Mechanical" else (OPUS, option("ticket_effort"))
+    if kind == "Skill": return (SONNET, "medium") if mode == "Mechanical" else (OPUS, "medium")
+    return (HAIKU, "low") if mode == "Mechanical" else (SONNET, "medium")
+
+USAGE = 'usage: bouncer-assign [--type Ticket|Skill|Cleanup] [--drop <old ticket>] "<TICKET> | <repo> | <mode> | <status> | <ticket title> | <goal> | <done means>"'
+a, kind, drop = sys.argv[1:], "Ticket", ""
+while len(a) > 2 and a[0] in ("--type", "--drop"):
+    if a[0] == "--type": kind = a[1]
+    else: drop = a[1].strip()
+    a = a[2:]
+if len(a) != 1 or kind not in ("Ticket", "Skill", "Cleanup"): die(USAGE)
+fields = [f.strip() for f in a[0].split("|", 6)]
+if len(fields) != 7 or not all(fields): die(USAGE)
+ticket, repo, mode, status, name, goal, done = fields
+if mode not in MODES: die(f"bad mode: {mode} ({', '.join(MODES)})")
+if not re.fullmatch(r"[^\s\]]+", ticket): die(f"bad ticket: {ticket!r} (one word, no ])")
+
+def fenced(path, after=""):
+    """The first fenced block of a file, after a heading if one is given."""
+    text = open(path).read()
+    m = re.search(r"```\n(.*?)\n```", text[text.find(after) if after else 0:], re.S)
+    if not m or (after and after not in text): die(f"{path}: no code block" + (f" after {after!r}" if after else ""), 3)
+    return m.group(1)
+
+brief = fenced(os.path.join(SKILL, "references/brief.md"))
+code, decisions, err = run("bouncer-decisions", "list", repo, ticket)
+if code not in (0, 1): die(f"bouncer-decisions list: {err}", 3)   # 1: no decision is in force
+skill = option("bartender_skill") if kind == "Ticket" else ""
+swaps = [   # (pattern, text): each pattern is in the template exactly as brief.md has it
+    (r"\[Load the `<skill>` skill[^\n]*\]\n", lambda m: m.group(0)[1:-2].replace("<skill>", skill) + "\n" if skill else ""),
+    (r" <the lines of `bouncer-decisions list <repo> <TICKET>`, or none>\. ", f"\n{decisions}\n" if decisions else " none. "),
+    (r"<ticket record path>", os.path.join(run("bouncer-ledger", "dir")[1], ticket + ".md")),
+    (r"<report shape>", fenced(os.path.join(SKILL, "SKILL.md"), "## Report shape")),
+    (r"<one line>", goal.rstrip(".")), (r"<acceptance criteria>", done.rstrip(".")),
+    (r"<TICKET>", ticket), (r"<mode>", mode), (r"<repo>", repo), (r"\$\{CLAUDE_SKILL_DIR\}", SKILL),
+]
+for pattern, text in swaps:
+    brief, n = re.subn(pattern, text if callable(text) else (lambda m, t=text: t), brief)
+    if not n: die(f"references/brief.md has no part {pattern}", 3)
+
+code, title, err = run("bouncer-title", "--type", kind, status, ticket, name)
+print(f"title: {title}" if code == 0 else f"title: none ({err})")
+print("model: %s\neffort: %s" % model(kind, mode))
+print("brief:\n" + (f"Drop the context of {drop}; it is closed.\n" if drop else "") + brief)
