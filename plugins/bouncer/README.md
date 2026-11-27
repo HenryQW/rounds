@@ -33,7 +33,7 @@ The Bouncer asks you only before an outward action (a message other people read,
 
 - **One yes for each Bartender ticket.** At routing, the Bouncer asks once for the ticket's closing chain, for example `push, pr, merge`. A request that already says it ("fix it and merge") is the yes. The grant is a line in `grants.md`. The chain stops and asks again when a check fails, the scope changes, an action is outside the grant, or an approved text changed.
 - **The Bouncer runs outward actions.** Bartenders only prepare them: a committed branch, and the PR text and comment drafts in the ticket record. Auto mode refuses an approval that one session relays to another, so the session where you said yes runs the push, the PR, the merge and the comment.
-- **Decisions are kept.** The Bouncer records each of your decisions in `memory.md` (one short line) and in a domain file under `decisions/` (the decision and why). It reads the memory in each new session, and a domain file only when it needs the reason. When a request, a Bartender or a ticket conflicts with a recorded decision, it asks you to keep or replace that decision. It does not pick one itself.
+- **Decisions are kept.** The Bouncer records each of your decisions in `memory.md` (one short line) and in a domain file under `decisions/` (the decision and why). It reads the memory in each new session, and a domain file only when it needs the reason. When a request, a Bartender or a ticket conflicts with a recorded decision, it asks you to keep or replace that decision. It does not pick one itself. The plugin also attaches the memory to the first prompt of each Bouncer session, so a cleared or restarted Bouncer has it at once. The Bouncer closes a question only with the id of the decision that records your answer, or with `--none` for a one-off answer.
 - **"What should I work on"** names only tickets that can be worked now, and lists the others with a one-line reason (blocked, waiting for a release or another ticket).
 - If a hook rewrites Bash commands (rtk runs `git push` as `rtk git push`), an allow rule must name the rewritten form.
 
@@ -46,7 +46,7 @@ The band also lets you act:
 - The band sends one prompt at a time: none while a question waits on you or while the Bouncer works. Open still works then.
 - When the number of questions that wait on you goes up, you get a notification. The plugin sets the `!` and the count itself from `questions.md`, and each Bartender's status code from its turn-end report.
 - The pane's `N to act` list shows the ledger items that are due (`bouncer-ledger due`), one row each: the key, linked to the PR or the Linear issue, its next step and Ask Bouncer. Open items that are not due show as their card's next step.
-- Questions block in order. The red row in the pane shows only the oldest question (the head of `questions.md` in the plugin data folder); click it to open that Bartender. The next one shows after you answer it. Other Bartenders that wait keep their 🔴 dot. The click shows that Bartender's conversation in split view beside the Bouncer; if the app refuses, the band asks the Bouncer to open it. You still answer the Bouncer.
+- Questions block in order. The red row in the pane shows only the oldest question (the head of `questions.md` in the plugin data folder); click it to open that Bartender. The next one shows after you answer it. The head row of the pane's Undecided list has Pick and Default buttons: a click sends that answer to the Bouncer, as if you typed it. Other Bartenders that wait keep their 🔴 dot. The click shows that Bartender's conversation in split view beside the Bouncer; if the app refuses, the band asks the Bouncer to open it. You still answer the Bouncer.
 - In the pane, click `Queue N` to list the queued tickets, one line each (`KEY · repo · mode`). Pop and Remove send the Bouncer `queue: pop` or `queue: remove ABC-123`; the Bouncer runs `bouncer-queue`.
 
 - One Bouncer a repo: a Bouncer runs in a repo's main checkout and routes only that repo; Bouncers of other repos run beside it. Its title is `🚪 Bouncer <repo>`. The first Bouncer of a repo claims `<repo>/bouncer` in the plugin data folder and frees it when its session ends. The band of a second Bouncer of the same repo shows only "another session is the Bouncer of <repo>" and Take Over.
@@ -83,9 +83,10 @@ The pool is in the session titles, so it needs no file. Every Bouncer sees the s
 2. After each change, run the fixture test and the validator from the checkout. The test needs `python3`, `jq` and `git`. It uses no network.
    ```
    bash plugins/bouncer/skills/bouncer/scripts/tests/bouncer.sh
+   claude plugin test plugins/bouncer
    claude plugin validate plugins/bouncer
    ```
-3. Open a new session to try a change to `SKILL.md`. A running session keeps the skill text that it loaded first. A script change applies at once.
+3. Open a new session to try a change to `SKILL.md` or `references/`. The Bouncer reads a file in `references/` only when the router table in `SKILL.md` names its trigger. A running session keeps the skill text that it loaded first. A script change applies at once.
 4. For a full run, open the Bouncer session yourself and point it at a test repo, so that the Bartender branches go there. Start it with `/bouncer:bouncer`, so that no other skill with Bouncer text answers instead.
 5. To test the option, set it, then open a new session:
    ```

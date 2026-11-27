@@ -41,6 +41,8 @@ export type Pool = {
   dark?: boolean
   /** The column whose actions show in place of its sub-line (its key). */
   menu?: string
+  /** The session id whose first prompt carried the decision memory (`bouncer-decisions list`); a clear gives a new id. */
+  memoryFor?: string
   /** The Stop or Reset action (its value) that waits for its second click; cleared after 5 seconds. */
   confirm?: string
 }

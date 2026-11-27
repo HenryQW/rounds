@@ -183,11 +183,16 @@ export const ledgerItem = (line: string) => {
 
 export const queueLines = (text: string) => text.split('\n').filter(l => l.trim() !== '')
 
-/** A `questions.md` line (`<TICKET> | <session_id> | <question>[ | at: <ISO time>]`) as its parts; `at` is absent in a line an earlier version wrote. */
+/** A `questions.md` line (`<TICKET> | <session_id> | <question>[ | Pick: <a>][ | Default: <b>][ | at: <ISO time>]`) as its
+ *  parts; `at` is absent in a line an earlier version wrote. Pick and Default are their own fields, kept verbatim: the
+ *  pane's answer buttons send them. */
 export const questionItem = (line: string) => {
   const m = / \| at: (\S+)\s*$/.exec(line)
   const [ticket = '', id = '', ...q] = (m ? line.slice(0, m.index) : line).split('|').map(s => s.trim())
-  return { ticket, id, question: q.join(' | '), at: m?.[1] }
+  const last = (name: string) => q.length > 1 && q[q.length - 1]!.startsWith(`${name}:`) ? q.pop()!.slice(name.length + 1).trim() : undefined
+  const dflt = last('Default')
+  const pick = last('Pick')
+  return { ticket, id, question: q.join(' | '), pick, default: dflt, at: m?.[1] }
 }
 
 /** `questions.md` lines as session id to its oldest question, in file order. */

@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { EMPTY, dot, parseBartender, ticketLedger, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
+import { EMPTY, dot, questionItem, parseBartender, ticketLedger, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
 
 const BAND = { plugin: 'bouncer', component: 'AbovePrompt', props: { hasSurvey: false, bodyColumns: 120 } } as const
 const PANE = { plugin: 'bouncer', component: 'Pane', requestId: 'bouncer', props: { bodyColumns: 120 } } as const
@@ -846,6 +846,75 @@ test('the pane lists every undecided item, oldest first, with its age; a Bartend
   // shortcut: the test engine has no stand-in for $.ui.scroll, so a press after the Decide reply reaches the scroll call (its error), not the no-reply toast.
   expect(toasts).toEqual(['rounds-36: no reply named it yet', 'rounds-36: HooksError: no implementation for ui.scroll'])
   await ui.unmount()
+})
+
+test('a question line gives the pane its pick and its default as fields, verbatim', () => {
+  expect(questionItem('rounds-36 | self | Replace D3? | Pick: write Default: off in the U.K. | Default: keep D3. | at: 2026-11-27T10:00:00Z'))
+    .toEqual({ ticket: 'rounds-36', id: 'self', question: 'Replace D3?', pick: 'write Default: off in the U.K.', default: 'keep D3.', at: '2026-11-27T10:00:00Z' })
+  expect(questionItem('MIDI-1 | local_a | Merge PR 36? Default: yes')).toMatchObject({ question: 'Merge PR 36? Default: yes', pick: undefined, default: undefined })
+  expect(questionItem('MIDI-1 | local_a | Default: yes')).toMatchObject({ question: 'Default: yes', default: undefined })
+})
+
+test('the head undecided item has Pick and Default buttons that answer it while it waits; a later item has none', async ($, on) => {
+  on('tool.call', () => ({ result: {} }))
+  base(on, { details: true })
+  on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data' } }))
+  let file = 'rounds-36 | self | Replace D3? | Pick: replace with Node 24 | Default: keep D3\nMIDI-1 | local_a | Post the comment? | Default: yes\n'
+  on('fs.read', (_: unknown, e: { path?: string }) => {
+    if (e.path === '/data/rounds/questions.md') return { value: file }
+    throw new Error('missing')
+  })
+  const { prompts, toasts } = record(on)
+  on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
+  await title($, 'self', '!2 🚪 Bouncer')
+  await endTurn($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
+  expect((await ui.find({ key: 'answer:pick:rounds-36' }))?.text).toBe('Pick: replace with Node 24')
+  expect(await ui.find({ key: 'answer:default:MIDI-1' })).toBe(undefined)
+  // Two questions wait, yet the answer goes: it answers the head.
+  await ui.press({ key: 'answer:default:rounds-36' })
+  expect(prompts).toEqual(['Answer to rounds-36 (Default button): keep D3'])
+  expect(toasts).toEqual([])
+  // The head changed after the pane drew it: the old button sends nothing.
+  file = 'rounds-36 | self | Replace D3? | Pick: replace with Node 26 | Default: keep D3\n'
+  await ui.press({ key: 'answer:pick:rounds-36' })
+  expect(prompts).toEqual(['Answer to rounds-36 (Default button): keep D3'])
+  expect(toasts).toEqual(['rounds-36: the question changed; read it again'])
+  await ui.unmount()
+})
+
+test('the first prompt of each session that is the Bouncer carries the decision memory, once', async ($, on) => {
+  let id = 'me'
+  const contexts: unknown[] = []
+  let lists = 0
+  on('session.id', () => ({ value: id }))
+  on('tool.call', () => ({ result: {} }))
+  on('prompt.submit', (_: unknown, e: { text: string; context?: unknown }) => { contexts.push(e.context); return { text: e.text } })
+  // base(on) without its fixed session id.
+  const store: Record<string, unknown> = {}
+  on('session.cwd', () => ({ value: '/w/rounds' }))
+  on('fs.write', () => ({ value: undefined }))
+  on('store.get', (_: unknown, e: any) => ({ value: store[e.key] }))
+  on('store.set', (_: unknown, e: any) => { store[e.key] = e.value; return { value: undefined } })
+  on('fs.read', () => { throw new Error('missing') })
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
+  on('process.run', (_: unknown, e: any) => {
+    const isList = e.argv[0] === '/plugin/skills/bouncer/scripts/bouncer-decisions' && e.argv[1] === 'list'
+    if (isList) lists++
+    return { value: { exitCode: isList ? 0 : 1, stdout: isList ? 'D1 | 2026-11-27 | all | tracker | Move tickets after the PR opens\n' : '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
+  await $.prompt.submit({ text: 'not the Bouncer yet' } as any)
+  await $.tool.call({ tool: 'Skill', skill: 'bouncer' } as any)
+  await $.prompt.submit({ text: 'first' } as any)
+  await $.prompt.submit({ text: 'second' } as any)
+  // A clear gives the session a new id: its first prompt carries the memory again.
+  id = 'cleared'
+  await $.prompt.submit({ text: 'after the clear' } as any)
+  const memory = ['Bouncer decision memory (`bouncer-decisions list`: every active decision; check this turn against it):\nD1 | 2026-11-27 | all | tracker | Move tickets after the PR opens']
+  expect(contexts).toEqual([undefined, memory, undefined, memory])
+  expect(lists).toBe(2)
 })
 
 test("Details off the terminal takes Linear's tokens for the system appearance: dark, or the light inverse", async ($, on) => {

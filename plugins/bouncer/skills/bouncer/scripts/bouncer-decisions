@@ -94,8 +94,11 @@ case $cmd in
     reindex
     echo "D$n" ;;
   list)
-    if [ $# -eq 0 ]; then active | grep . || exit 1
-    else active | S=" $* " awk -F' \\| ' 'index(ENVIRON["S"], " " $3 " ") || $3 == "all"' | grep . || exit 1; fi ;;
+    # Exit 1 only for an empty list; a read failure exits 2, so the plugin hook tries again.
+    out=$(active) || { echo "cannot read $f" >&2; exit 2; }
+    [ $# -eq 0 ] || out=$(printf '%s\n' "$out" | S=" $* " awk -F' \\| ' 'index(ENVIRON["S"], " " $3 " ") || $3 == "all"')
+    [ -n "$out" ] || exit 1
+    printf '%s\n' "$out" ;;
   get)
     [[ ${1:-} =~ ^D[0-9]+$ ]] || usage
     active | grep "^$1 |" || { echo "no active decision $1" >&2; exit 1; } ;;

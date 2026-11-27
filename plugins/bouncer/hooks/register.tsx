@@ -129,6 +129,20 @@ const onNote = async ($: EngineInterface, text: string) => {
   await syncTitles($, report)
 }
 
+// The decision memory goes with the first prompt of each session that is already the Bouncer (a clear or a restart gives
+// a new id), so a fresh context never works without it. Exit 1 is an empty memory; a failure tries again on the next prompt.
+const MEMORY = 'Bouncer decision memory (`bouncer-decisions list`: every active decision; check this turn against it):'
+const memoryContext = async ($: EngineInterface) => {
+  const id = await $.session.id()
+  if ((await read($, pool)).memoryFor === id) return undefined
+  const env = await $.process.hookEnv()
+  if (!env.CLAUDE_PLUGIN_ROOT) return undefined
+  const ran = await $.process.run([`${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-decisions`, 'list'], { env }).catch(() => undefined)
+  if (!ran || (ran.exitCode !== 0 && ran.exitCode !== 1)) return undefined
+  await update($, pool, p => ({ ...p, memoryFor: id }))
+  return ran.exitCode === 0 && ran.stdout.trim() ? `${MEMORY}\n${ran.stdout.trim()}` : undefined
+}
+
 // The band above the prompt; off the terminal Details opens in the Bouncer pane, which this same code draws.
 // shortcut: e and next are untyped here, as one function draws the AbovePrompt and the Pane.
 const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, records: string, linear: string) => {
@@ -147,9 +161,10 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
   // none while a question waits on the user, while the Bouncer works, or before the last one's turn ended.
   // The pane's props do not say whether a turn runs; the pool keeps it from prompt.submit to turn.complete.
   const isWorking = e.props?.isWorking ?? !!p.working
-  const ask = async (text: string) => {
+  // An answer (a pane button on the head question) goes while that question waits; any other prompt waits for it.
+  const ask = async (text: string, isAnswer = false) => {
     const now = await read($, pool)
-    if (now.waiting > 0) return $.ui.toast('Answer the waiting question first')
+    if (now.waiting > 0 && !isAnswer) return $.ui.toast('Answer the waiting question first')
     if (isWorking || now.pending) return $.ui.toast('Wait for the Bouncer to finish its turn')
     await update($, pool, q => ({ ...q, pending: true }))
     await $.prompt.submit({ text }).catch(() => update($, pool, q => ({ ...q, pending: false })))
@@ -483,8 +498,19 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
         <Box key="undecided" flexDirection="column" gap={isTerminal ? 0 : 'sm'}>
           <Box key="undecided:title"><Text size="footnote" weight="medium" color="error">{`Undecided ${undecided.length}`}</Text></Box>
           <Box flexDirection="column" gap={isTerminal ? 0 : 'xs'} backgroundColor="diffRemovedDimmed" paddingX={isTerminal ? 'xs' : 'md'} paddingY={isTerminal ? 0 : 'sm'} {...(t ? { borderStyle: 'round', borderColor: t.hairline } : {})}>
-            {undecided.map(q => {
+            {undecided.map((q, i) => {
               const b = bartenders.find(x => x.id === q.id)
+              // Only the head is asked, so only the head takes an answer. A button shows its whole option and sends it only
+              // while the file's head is still this question with this option.
+              const reply = (kind: 'Pick' | 'Default', text: string) => (
+                <Button key={`answer:${kind.toLowerCase()}:${q.ticket}`} plain {...(t ? { hover: { backgroundColor: t.hover } } : {})} onPress={async () => {
+                  const head = queueLines(await dataFile($, 'questions.md')).map(questionItem)[0]
+                  if (head?.ticket !== q.ticket || (kind === 'Pick' ? head.pick : head.default) !== text) return $.ui.toast(`${q.ticket}: the question changed; read it again`)
+                  return ask(`Answer to ${q.ticket} (${kind} button): ${text}`, true)
+                }}>
+                  <Text color={t?.ink}>{`${kind}: ${text}`}</Text>
+                </Button>
+              )
               const go = q.id === 'self'
                 ? async () => {
                     const at = asks.get(q.ticket)
@@ -493,11 +519,19 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
                   }
                 : () => open(q.id, b ? b.ticket || b.repo : q.ticket)
               return (
-                <Box key={`undecided:${q.ticket}`} flexDirection="row" alignItems="center" gap="sm" {...(t ? { hover: { backgroundColor: t.hover } } : {})}>
-                  <Box flexGrow={1} flexShrink={1} minWidth={0}>
-                    <Button key={`ask:${q.ticket}`} plain onPress={go}><Text wrap="truncate-end" color={t?.ink}>{`🔴 ${q.ticket}: ${q.question}`}</Text></Button>
+                <Box key={`undecided:${q.ticket}`} flexDirection="column">
+                  <Box flexDirection="row" alignItems="center" gap="sm" {...(t ? { hover: { backgroundColor: t.hover } } : {})}>
+                    <Box flexGrow={1} flexShrink={1} minWidth={0}>
+                      <Button key={`ask:${q.ticket}`} plain onPress={go}><Text wrap="truncate-end" color={t?.ink}>{`🔴 ${q.ticket}: ${q.question}`}</Text></Button>
+                    </Box>
+                    {q.at && now > 0 && <Text size="footnote" color={t?.subtle}>{ago(q.at, now)}</Text>}
                   </Box>
-                  {q.at && now > 0 && <Text size="footnote" color={t?.subtle}>{ago(q.at, now)}</Text>}
+                  {i === 0 && (q.pick !== undefined || q.default !== undefined) && (
+                    <Box key={`answers:${q.ticket}`} flexDirection="row" flexWrap="wrap" gap="sm">
+                      {q.pick !== undefined && reply('Pick', q.pick)}
+                      {q.default !== undefined && reply('Default', q.default)}
+                    </Box>
+                  )}
                 </Box>
               )
             })}
@@ -593,7 +627,11 @@ export const register: Register = (on, options) => {
   on('prompt.submit', async ($, e, next) => {
     await onNote($, e.text).catch(() => undefined)
     await update($, pool, p => (p.working ? p : { ...p, working: true }))
-    if ((await read($, pool)).isOn) await refreshSessions($).catch(() => undefined)
+    if ((await read($, pool)).isOn) {
+      await refreshSessions($).catch(() => undefined)
+      const memory = await memoryContext($).catch(() => undefined)
+      if (memory) return next({ ...e, context: [...(e.context === undefined ? [] : [e.context].flat()), memory] })
+    }
     return next(e)
   })
 

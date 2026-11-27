@@ -2,14 +2,17 @@
 # bouncer-questions add "<TICKET> | <session_id> | <question>"   add a question for the user at the end (replaces that ticket's old one in its place);
 #   the line gets " | at: <UTC time>", the time it was added, for the pane's age
 # bouncer-questions next     print the head: the oldest question, the only one the user sees (exit 1 when none is open)
-# bouncer-questions done <TICKET>   remove that ticket's question once the user answered (exit 1 when it has none)
+# bouncer-questions done <TICKET> --decision D<n> | --none   remove that ticket's question once the user answered (exit 1 when
+#   it has none). Name how the answer was kept: --decision D<n>, the active decision that records it (bouncer-decisions);
+#   --none, an answer that holds for this turn only (a one-off go-ahead, a grant in grants.md). Exit 2 without one of them,
+#   or when D<n> is not an active decision: record the answer first.
 # bouncer-questions list     print the open questions, oldest first
 # bouncer-questions count    print the number of open questions
 # The list is questions.md in this Bouncer's repo folder of the plugin's data (bouncer-data --repo); the band reads it to show each question.
 # Exit 2: bad usage or a line without a ticket, a session id and a question.
 set -euo pipefail
 trim() { local s=$1; s=${s#"${s%%[![:space:]]*}"}; printf '%s' "${s%"${s##*[![:space:]]}"}"; }
-usage() { echo "usage: bouncer-questions add|next|done|list|count [line|ticket]" >&2; exit 2; }
+usage() { echo "usage: bouncer-questions add <line> | next | done <ticket> --decision D<n>|--none | list | count" >&2; exit 2; }
 cmd=${1:-}
 [ -n "$cmd" ] || usage
 f="$("$(dirname "$0")/bouncer-data" --repo)/questions.md"
@@ -32,6 +35,13 @@ case $cmd in
     head -n 1 "$f" ;;
   done)
     t=$(trim "${2:-}"); [ -n "$t" ] || usage
+    case ${3:-} in
+      --none) ;;
+      --decision)
+        [[ ${4:-} =~ ^D[0-9]+$ ]] && "$(dirname "$0")/bouncer-decisions" get "$4" >/dev/null 2>&1 \
+          || { echo "no active decision ${4:-}: record the answer with bouncer-decisions add first" >&2; exit 2; } ;;
+      *) echo "done: name how the answer was kept: --decision D<n>, or --none for an answer that holds for this turn only" >&2; exit 2 ;;
+    esac
     has "$t" || { echo "no open question for $t" >&2; exit 1; }
     tmp=$(mktemp); T="$t |" awk 'index($0, ENVIRON["T"]) != 1' "$f" > "$tmp"; mv "$tmp" "$f" ;;
   list) cat "$f" ;;
