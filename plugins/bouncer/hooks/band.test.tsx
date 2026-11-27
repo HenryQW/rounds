@@ -389,7 +389,8 @@ test('the band shows only the due ledger items as a count to act on, each a link
   expect((await ui.find({ key: 'due' }))?.text).toMatch(/post the QA reply/)
   // Each row can go to the Bouncer.
   await ui.press({ key: 'due:ask:17-freeze' })
-  expect(prompts).toEqual(['MIDI-2: due ledger item 17-freeze'])
+  // The prompt names the item (kind, key unless it is the ticket) and its next step.
+  expect(prompts).toEqual(['MIDI-2: due held-message 17-freeze: post the QA reply'])
   await ui.unmount()
 })
 

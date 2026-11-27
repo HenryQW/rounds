@@ -328,7 +328,7 @@ export const register: Register = (on, options) => {
         <Box key={`due:${line}`} flexDirection="row" alignItems="center" gap="sm">
           <Box flexShrink={0}>{href ? link(href, label) : <Text color={t?.ink}>{label}</Text>}</Box>
           <Box flexGrow={1} flexShrink={1} minWidth={0}><Text color={t?.muted} wrap="truncate-end">{it.next}</Text></Box>
-          <Button key={`due:ask:${it.key}`} plain dimColor onPress={() => ask(`${it.record}: due ledger item ${it.key}`)}>Ask Bouncer</Button>
+          <Button key={`due:ask:${it.key}`} plain dimColor onPress={() => ask(`${it.record}: due ${it.kind}${it.key === it.record ? '' : ` ${it.key}`}: ${it.next}`)}>Ask Bouncer</Button>
         </Box>
       )
     })
