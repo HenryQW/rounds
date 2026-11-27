@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register } from 'claude-code'
 
-import { EMPTY, ago, archived, columns, dots, ledgerItem, parseBartender, ledgerNext, openPrUrls, prInfo, prMark, prUrl, prUrls, ticketLedger, queueLines, queueSummary, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
+import { EMPTY, ago, archived, columns, dots, ledgerItem, parseBartender, ledgerNext, openPrUrls, prInfo, ownPr, prMark, prUrl, prUrls, ticketLedger, queueLines, queueSummary, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
 import type { Column, Report } from './pool'
 
 const pool = atom({ plugin: 'bouncer', key: 'pool' } as const, EMPTY)
@@ -308,10 +308,11 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
     const urls = prUrls([report, ...ledger])
     // With no PR of its own, the report's or an open ledger item's PR; a done item's only when nothing is open.
     const current = prUrls([report, ...ledger.filter(l => /: - \[open\] pr \| /.test(l))])[0] ?? urls[0]
-    const n = s?.pr?.number ?? Number(/\d+$/.exec(current ?? '')?.[0] ?? 0)
+    const own = ownPr(s?.pr, [report, ...ledger])
+    const n = own?.number ?? Number(/\d+$/.exec(current ?? '')?.[0] ?? 0)
     const href = n ? prUrl(n, urls) : undefined
     // The state gh read for the URL first, as the pane does; the session's own PR state else.
-    const [glyph, glyphColor] = prMark((href && p.prs?.[href]?.state) || s?.pr?.state)
+    const [glyph, glyphColor] = prMark((href && p.prs?.[href]?.state) || own?.state)
     const others = urls.filter(u => u !== href).length
     return {
       cells: n ? `⑂ #${n}${others ? ` +${others}` : ''}`.length + 1 : 0,
@@ -332,8 +333,9 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
     const id = c.ids.length === 1 ? c.ids[0]! : undefined
     const s = id ? p.sessions?.[id] : undefined
     const urls = openPrUrls(ledgerOf(c), c.ticket)
-    const own = s?.pr?.number
-    const ownHref = own ? prUrl(own, [id ? p.reportTexts?.[id] ?? '' : '', ...ledgerOf(c)]) : undefined
+    const texts = [id ? p.reportTexts?.[id] ?? '' : '', ...ledgerOf(c)]
+    const own = ownPr(s?.pr, texts)?.number
+    const ownHref = own ? prUrl(own, texts) : undefined
     const list = [
       ...(own && !(ownHref && urls.includes(ownHref)) ? [{ n: own, href: ownHref, state: s?.pr?.state }] : []),
       ...urls.map(u => ({ n: Number(/\d+$/.exec(u)?.[0] ?? 0), href: u as string | undefined, state: u === ownHref ? s?.pr?.state : undefined })),
@@ -503,7 +505,8 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
         <Box key="cards" flexDirection="column" gap={isTerminal ? 0 : 'sm'}>
           {section(`Bartenders ${all.length}`)}
           {Array.from({ length: Math.ceil(all.length / 2) }, (_, r) => (
-            <Box key={`cards:${r}`} flexDirection="row" gap={isTerminal ? 1 : 'md'}>
+            // Stretch: the cards of a row share one height, whatever rows each card shows.
+            <Box key={`cards:${r}`} flexDirection="row" alignItems="stretch" gap={isTerminal ? 1 : 'md'}>
               {all.slice(r * 2, r * 2 + 2).map(card)}
               {/* The last card of an odd count keeps a half width: a spacer with the card's frame. */}
               {all.length > 1 && r * 2 + 1 >= all.length && <Box key="pad" flexGrow={1} flexShrink={1} width={0} minWidth={0} {...frame} borderStyle={undefined} backgroundColor={undefined} />}

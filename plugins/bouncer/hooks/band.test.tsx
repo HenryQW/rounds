@@ -835,6 +835,31 @@ test("Details off the terminal takes Linear's tokens for the system appearance: 
   await ui.unmount()
 })
 
+test('a reset Bartender drops the merged PR of its earlier task, and keeps an open one', async ($, on) => {
+  on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({ result: JSON.stringify([
+    { sessionId: 'local_a', title: '[Dev] 🍸 MIDI-1 rounds', isRunning: false, cwd: '/w', prNumber: 31, prState: 'MERGED' },
+    { sessionId: 'local_b', title: '[Dev] 🍸 MIDI-2 rounds', isRunning: false, cwd: '/w', prNumber: 40, prState: 'OPEN' },
+  ]) }))
+  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('tool.call', () => ({ result: {} }))
+  on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
+  base(on, { details: true })
+  on('fs.read', () => { throw new Error('missing') })
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
+  on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  await title($, 'self', '🚪 Bouncer')
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
+  await endTurn($)
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
+  expect(await band.find({ key: 'pr:act:local_a' })).toBe(undefined)
+  expect((await band.find({ key: 'pr:act:local_b' }))?.text).toContain('#40')
+  await band.unmount()
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
+  expect(await ui.find({ key: 'prs:act:local_a' })).toBe(undefined)
+  expect((await ui.find({ key: 'prs:act:local_b' }))?.text).toContain('#40')
+  await ui.unmount()
+})
+
 test('with no PR of its own, the band pill takes the open ledger PR, not an older done one', async ($, on) => {
   on('tool.call', { tool: 'mcp__ccd_session_mgmt__list_sessions' }, () => ({ result: JSON.stringify([
     { sessionId: 'local_a', title: '[CR] 🍸 MIDI-1 rounds', isRunning: false, cwd: '/w' },
