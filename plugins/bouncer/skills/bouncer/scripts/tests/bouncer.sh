@@ -107,6 +107,10 @@ ok "queue: pop removes it" "$(./bouncer-queue list)" "ABC-1 | a | Mechanical | d
 ./bouncer-queue add "ABC-3 | c | Code | x"
 ./bouncer-queue remove ABC-1; ok "queue: remove drops only that line" "$(./bouncer-queue list)" "ABC-3 | c | Code | x"
 ./bouncer-queue remove ABC-3
+./bouncer-queue add "cleanup-old | a | Spike | doc"
+./bouncer-queue add "cleanup.old | b | Spike | doc"
+./bouncer-queue remove cleanup.old; ok "queue: a dotted key can be removed" $? 0
+ok "queue: a ticket key matches literally" "$(./bouncer-queue list)" "cleanup-old | a | Spike | doc"
 BOUNCER_DATA="$tmp/data2" ./bouncer-queue add "T | r | Spike | user's msg" 2>/dev/null; ok "queue: apostrophe is kept" "$(cat "$tmp/data2/r/queue.md")" "T | r | Spike | user's msg"
 
 # bouncer-questions (in the data folder)
@@ -162,6 +166,21 @@ ok "grants: a new grant of the same ticket replaces the old" "$(./bouncer-grants
 ./bouncer-grants has ABC-2 pu; ok "grants: has matches whole actions only" $? 1
 ok "grants: get" "$(./bouncer-grants get ABC-1)" "ABC-1 | close, link, comment | yes, close it"
 ./bouncer-grants done ABC-2; ok "grants: done removes only that ticket" "$(cat "$tmp/q/grants.md")" "ABC-1 | close, link, comment | yes, close it"
+./bouncer-grants add "cleanup-old | push | yes"
+./bouncer-grants has cleanup.old push 2>/dev/null; ok "grants: a different ticket key has no grant" $? 1
+./bouncer-grants add "cleanup.old | comment | yes"
+./bouncer-grants done cleanup.old; ok "grants: a dotted key can be removed" $? 0
+ok "grants: a ticket key matches literally on add and done" "$(./bouncer-grants list)" $'ABC-1 | close, link, comment | yes, close it\ncleanup-old | push | yes'
+./bouncer-grants has 'cleanup-old | push' push 2>/dev/null; ok "grants: a key with a separator matches no grant" $? 1
+./bouncer-grants done cleanup-old
+printf '%s\n' 'clean*up | push | old grant' 'clean*up | comment | latest grant' >> "$tmp/q/grants.md"
+./bouncer-grants has 'clean*up' push 2>/dev/null; ok "grants: duplicate saved grants authorize no action" $? 2
+./bouncer-grants get 'clean*up' 2>/dev/null; ok "grants: duplicate saved grants cannot be read as a grant" $? 2
+./bouncer-grants add 'clean*up | comment | explicit replacement'
+ok "grants: an explicit grant replaces both saved grants" "$(./bouncer-grants get 'clean*up')" 'clean*up | comment | explicit replacement'
+printf '%s\n' 'clean*up | push | old grant' >> "$tmp/q/grants.md"
+./bouncer-grants done 'clean*up'; ok "grants: duplicate saved grants can be removed" $? 0
+ok "grants: removal drops all grants for that key" "$(./bouncer-grants list)" 'ABC-1 | close, link, comment | yes, close it'
 
 # bouncer-decisions (memory.md and decisions/ in the data folder)
 export BOUNCER_TODAY=2026-11-27

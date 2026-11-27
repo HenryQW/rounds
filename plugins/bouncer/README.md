@@ -67,6 +67,8 @@ The plugin keeps its state in the data folder that Claude Code gives it: `~/.cla
 | `decision-table.md` | Rows that the Bouncer adds to its decision table when you answer a question that no row covered |
 | `tickets/<TICKET>.md` | Ticket records, unless the `records_dir` option names another folder. Each record's `LEDGER` section holds its work to revisit (an open PR, a held message, a follow-up, a staging check); `bouncer-ledger due` lists what is due |
 
+Each command matches the ticket key as literal text. Queue and grant replacements go to the end of their lists. A replacement question keeps its position. If an older file has multiple grants for one ticket, the plugin requires a new grant or removal of the saved grants.
+
 The pool is in the session titles, so it needs no file. Every Bouncer sees the same folder; the queue and the questions are per repo, in `<repo>/`. The first run of 0.10.4 moves an older `queue.md` and `questions.md` into the first Bouncer's repo folder, once. Plugin updates keep the folder. `claude plugin uninstall bouncer@rounds` deletes it unless you add `--keep-data`.
 
 ## Token use
