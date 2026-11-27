@@ -75,23 +75,11 @@ final class AppModel {
     private(set) var codexHookError: String?
     let codexHome = URL.homeDirectory.appending(path: ".codex")
     @ObservationIgnored private let turnCache = FileCache<CodexTurn?>()
-    /// pi sessions (spec 2.7), from pi's session files; state from the Rounds pi extension and the file's last message.
+    private let piSource = PiSource()
     private var piSnapshot = SessionSnapshot()
-    /// The extension's last state of each pi session, by session id.
-    @ObservationIgnored private var piStates: [String: PiState] = [:]
-    /// herdr pane id to the session file of the running pi in it (its `HERDR_PANE_ID`), for the herdr agents that
-    /// report no session file.
-    @ObservationIgnored private var piPanes: [String: String] = [:]
     private(set) var piInstalled = false
     private(set) var piExtensionStatus: HookInstallStatus = .missing
-    /// With symlinks resolved, so listed session files compare with `sessionFilePath`.
-    let piHome = URL.homeDirectory.appending(path: ".pi/agent").resolvingSymlinksInPath()
-    private var piExtension: URL { piHome.appending(path: "extensions/rounds.ts") }
-    private let piStateDir = piStateDirectory()
-    @ObservationIgnored private let piCache = FileCache<PiSession?>()
-    /// The parsed session files by path, so a file event reads only the changed files.
-    @ObservationIgnored private var piSessions: [String: PiSession] = [:]
-    @ObservationIgnored private let piStateCache = FileCache<PiState?>()
+    private var piExtension: URL { piSource.extensionFile }
     /// herdr agents (spec 2.5), kept apart because they update from the socket, not from files.
     private var herdrSnapshot = SessionSnapshot()
     private(set) var herdrConnection: HerdrMonitor.Status = .notRunning
@@ -117,9 +105,9 @@ final class AppModel {
             return
         }
         try? FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
-        try? FileManager.default.createDirectory(at: piStateDir, withIntermediateDirectories: true)
+        piSource.prepareStateDirectory()
         refreshAll()
-        prunePiStates()
+        piSource.pruneStates()
         // Delete state of archived or unknown sessions only when both session lists loaded without failures.
         let reliable = !claudeSnapshot.rows.isEmpty && lastFailures.isEmpty && (!codexInstalled || codexThreads != nil)
         let claudeIds = claudeSnapshot.rows.compactMap(\.session).filter { !$0.isArchived }.compactMap(\.cliSessionId)
@@ -131,7 +119,7 @@ final class AppModel {
             // Rollout files change on every Codex event; a longer latency keeps the reads rare.
             DirectoryWatcher(paths: [codexHome.appending(path: "sessions").path], latency: 1) { [weak self] _ in MainActor.assumeIsolated { self?.refresh(claude: false, pi: false) } },
             // pi writes its session file on every message, as Codex does its rollout.
-            DirectoryWatcher(paths: [piHome.appending(path: "sessions").path, piStateDir.path], latency: 1) { [weak self] paths in
+            DirectoryWatcher(paths: piSource.watchPaths, latency: 1) { [weak self] paths in
                 MainActor.assumeIsolated {
                     self?.refreshPi(changed: paths)
                     self?.regroup()
@@ -243,70 +231,12 @@ final class AppModel {
         }
     }
 
-    /// `changed`: the paths of a file event; only those session files are read again. Without it (at launch and every
-    /// 30 s, which also finds files that an event missed) every session folder is listed.
     private func refreshPi(changed: [String]? = nil) {
-        piInstalled = FileManager.default.fileExists(atPath: piHome.path)
-        guard piInstalled else {
-            (piSnapshot, piStates, piSessions) = (SessionSnapshot(), [:], [:])
-            return
-        }
-        let fm = FileManager.default
-        // Hidden files are the extension's writes in progress.
-        let stateFiles = (try? fm.contentsOfDirectory(at: piStateDir, includingPropertiesForKeys: nil, options: .skipsHiddenFiles)) ?? []
-        piStates = Dictionary(stateFiles.compactMap { url in
-            piStateCache.value(at: url) { PiState(String(decoding: $0, as: UTF8.self)) }.flatMap { $0.map { (url.lastPathComponent, $0) } }
-        }) { $1 }
-        piStateCache.keep(only: Set(stateFiles))
-        let running = livePiSessions(piStates, running: Processes.isPi)
-        // acp_delegate runs: only the files that live state lines name, read at each refresh (no events watch them).
-        let delegates = livePiDelegates(piStates, live: running, parent: Processes.parent)
-        let delegateFiles = delegates.keys.map { URL(fileURLWithPath: $0) }
-        var files: [URL]
-        if let changed {
-            files = changed.filter { $0.hasSuffix(".jsonl") }.map { URL(fileURLWithPath: $0) }
-        } else {
-            let folders = (try? fm.contentsOfDirectory(at: piHome.appending(path: "sessions"), includingPropertiesForKeys: nil)) ?? []
-            files = folders.flatMap { (try? fm.contentsOfDirectory(at: $0, includingPropertiesForKeys: fileCacheKeys)) ?? [] }.filter { $0.pathExtension == "jsonl" }
-            piCache.keep(only: Set(files + delegateFiles))
-            piSessions = [:]
-        }
-        // A run whose pi ended has no row and leaves no session behind.
-        piSessions = piSessions.filter { !$0.value.isDelegate || delegates[$0.key] != nil }
-        files += delegateFiles
-        for url in files {
-            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-            let session = modified.flatMap { modified in
-                piCache.value(at: url, read: { readPiSession($0) }, decode: { parsePiSession($0, path: url.path, updatedAt: modified) }) ?? nil
-            }
-            piSessions[url.path] = delegates[url.path].map { session?.started(by: $0) } ?? session
-        }
-        let now = Date()
-        var panes: [String: String] = [:]
-        piSnapshot = SessionSnapshot(piSessions.values) { session in
-            let state = piStates[session.id].flatMap { $0.sessionPath == session.path ? $0 : nil }
-            // The extension names the process; a session without its line runs in a pi from before the install, or not at all.
-            let live = state != nil && running.contains(session.id)
-            // An acp_delegate run has its parent's pane in its environment; the pane is the parent's.
-            if live, !session.isDelegate, let state, let pane = Processes.environment(of: state.pid, "HERDR_PANE_ID") { panes[pane] = session.path }
-            // A session quiet for the Aged time is Older whatever its last message says.
-            let aged = now.timeIntervalSince(session.updatedAt) > lastCall.agedAfter
-            let status = classifyPi(session, state: state, live: live, aged: aged)
-            return (SessionRow(pi: session, status: status), .pi(session, state: state, live: live, aged: aged))
-        }
-        if panes != piPanes {
-            piPanes = panes
-            updateHerdrRows()
-        }
-    }
-
-    /// Deletes the extension's state of sessions with no session file and no pi process (at launch only: a pi that
-    /// was never prompted has no session file yet).
-    private func prunePiStates() {
-        let paths = Set(piSnapshot.rows.compactMap { if case .pi(let s) = $0.source { s.path } else { nil } })
-        for (id, state) in piStates where !paths.contains(state.sessionPath) && !Processes.isPi(state.pid) {
-            try? FileManager.default.removeItem(at: piStateDir.appending(path: id))
-        }
+        let previousPanes = piSource.paneSessions
+        let snapshot = piSource.refresh(changed: changed, agedAfter: lastCall.agedAfter)
+        piSnapshot = snapshot ?? SessionSnapshot()
+        piInstalled = snapshot != nil
+        if piSource.paneSessions != previousPanes { updateHerdrRows() }
     }
 
     /// Hook install status: at launch, when Settings opens or changes the hooks, and every 30 s when one of its files
@@ -418,7 +348,7 @@ final class AppModel {
     private func updateHerdrRows() {
         let now = Date()
         var since: [String: (status: String, since: Date)] = [:]
-        let listed = joiningSessions(herdrAgents, paneSessions: piPanes).filter(\.isListed)
+        let listed = joiningSessions(herdrAgents, paneSessions: piSource.paneSessions).filter(\.isListed)
         herdrSnapshot = SessionSnapshot(listed) { a in
             let start: Date
             if let previous = herdrSince[a.id] {
@@ -460,10 +390,10 @@ final class AppModel {
 
     /// A pi session (only a running one has a row): its terminal (in rootshell, its pane), or its herdr pane.
     private func openPi(_ session: PiSession) {
-        guard let pid = piStates[session.id].flatMap({ $0.sessionPath == session.path && Processes.isPi($0.pid) ? $0.pid : nil }) else { return }
+        guard let pid = piSource.pid(for: session) else { return }
         // A pi in a herdr pane runs under the herdr server, with no terminal app above it.
         if let client = TerminalOpener.client(above: pid) { TerminalOpener.show(client) }
-        else if let pane = Processes.environment(of: pid, "HERDR_PANE_ID") { herdr?.focus(pane: pane) }
+        else if let pane = piSource.pane(for: pid) { herdr?.focus(pane: pane) }
     }
 
     /// Why This State… (spec 3.4): the classifier input of a row and what the classifier says about it, with whether the
@@ -502,7 +432,7 @@ final class AppModel {
         let inHerdr = Set(herdrSnapshot.rows.compactMap { if case .herdr(let a) = $0.source { a.sessionPath } else { nil } })
         let pi = piOn ? piSnapshot.rows.filter { if case .pi(let s) = $0.source { !inHerdr.contains(s.path) } else { true } }.map { $0.underHerdr(inHerdr) } : []
         let tickets = TicketStore.shared
-        tickets.piSessions = piSessions
+        tickets.piSessions = piSource.sessions
         let rows = ((claudeOn ? claudeSnapshot.rows : []) + (codexOn ? codexSnapshot.rows : []) + pi + herdrSnapshot.rows).map { r in
             var r = r
             r.tickets = tickets.tickets(for: r)
