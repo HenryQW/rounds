@@ -175,8 +175,9 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
     const q0 = await read($, pool)
     const shownNow = !!q0.details && (isTerminal || !!q0.paneless)
     // Off the terminal Details is the Bouncer pane, so the band stays one thin row; where no pane can show, the band.
+    // focus also raises the pane when it is open already (the surface refuses it over text in the composer).
     if (!isTerminal && !inPane && !shownNow) {
-      const opened = await $.ui.open({ id: PANE, title: 'Bouncer' }).catch(() => undefined)
+      const opened = await $.ui.open({ id: PANE, title: 'Bouncer', focus: true }).catch(() => undefined)
       if (opened?.isPlaced) return
       await update($, pool, q => ({ ...q, paneless: true }))
     }
@@ -275,9 +276,16 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
   // chip, the PR (`#17860 +1`, glyph in the PR state colour). The title is not a Button: a desktop Button adds its own
   // inset, so the rows would not align.
   const isLinked = (c: Column) => !!c.ticket && !!linear && LINEAR_KEY.test(c.ticket)
-  const titleOf = (c: Column) => isLinked(c)
-    ? <Box flexDirection="row"><Text>{`${c.dot} `}</Text>{link(`${linear}/issue/${c.ticket}`, c.ticket)}</Box>
-    : <Text weight="medium" color={t?.ink} wrap="truncate-end">{c.value}</Text>
+  // On a card (go), the dot, and the name when it is not a Linear key, open that Bartender's session; the key stays
+  // the Linear link. A group of idle Bartenders has no one session to open.
+  const titleOf = (c: Column, go = false) => {
+    const id = go && c.ids.length === 1 ? c.ids[0]! : undefined
+    const name = <Text weight="medium" color={t?.ink} wrap="truncate-end">{c.value}</Text>
+    const press = id ? () => open(id, c.ticket || c.value) : undefined
+    return isLinked(c)
+      ? <Box flexDirection="row">{press ? <Button key={`go:${id}`} plain onPress={press}>{`${c.dot} `}</Button> : <Text>{`${c.dot} `}</Text>}{link(`${linear}/issue/${c.ticket}`, c.ticket)}</Box>
+      : press ? <Button key={`go:${id}`} plain onPress={press}>{name}</Button> : name
+  }
   const chipOf = (c: Column) => (
     <Box key={`chip:${c.key}`} flexShrink={0} paddingX="xs" {...(t ? { backgroundColor: t.hairline } : {})}>
       <Text size="footnote" color={t?.muted}>{c.label}</Text>
@@ -396,7 +404,7 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
         : colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
         <Box flexDirection="row" alignItems="center" gap="sm">
           {/* A Link wraps instead of truncating: a linked key keeps its width. */}
-          <Box key={`title:${c.key}`} flexGrow={1} flexShrink={isLinked(c) || !isTerminal ? 0 : 1} minWidth={0}>{titleOf(c)}</Box>
+          <Box key={`title:${c.key}`} flexGrow={1} flexShrink={isLinked(c) || !isTerminal ? 0 : 1} minWidth={0}>{titleOf(c, true)}</Box>
           {showChip && chipOf(c)}
           {showTime && <Text size="footnote" color={t?.muted}>{time}</Text>}
           <Button key={c.key} plain dimColor label="⋯" onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))} />

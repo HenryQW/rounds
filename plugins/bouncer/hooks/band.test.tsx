@@ -398,17 +398,36 @@ test('the band shows only the due ledger items as a count to act on, each a link
 test('off the terminal Details opens the Bouncer pane, two cards a row, and the band stays one row', async ($, on) => {
   engine(on)
   const opened: unknown[] = []
-  on('ui.open', (_: unknown, e: any) => { opened.push(e.id); return { value: { isPlaced: true } } })
+  on('ui.open', (_: unknown, e: any) => { opened.push([e.id, e.focus]); return { value: { isPlaced: true } } })
   for (const k of ['a', 'b', 'c', 'd', 'e']) await title($, k, `🍸 [MIDI-${k.charCodeAt(0)}] [Dev] Ticket ${k}`)
   const band = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   await band.press({ key: 'details' })
-  expect(opened).toEqual(['bouncer'])
+  // focus raises the pane when it is open already.
+  expect(opened).toEqual([['bouncer', true]])
   expect((await band.find({ key: 'details' }))?.text).toBe('Details')
   expect((await band.findAll({ type: 'Box' })).some((b: any) => b.props?.key?.startsWith('col:'))).toBe(false)
   await band.unmount()
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
   const rows = ['cards:0', 'cards:1', 'cards:2']
   expect(await Promise.all(rows.map(async k => ((await pane.find({ key: k }))?.children ?? []).filter((c: any) => c.props?.key?.startsWith('col:')).length))).toEqual([2, 2, 1])
+  await pane.unmount()
+})
+
+test('a card title opens its Bartender session in split view', async ($, on) => {
+  const opened: unknown[] = []
+  on('tool.call', { tool: 'mcp__ccd_window__open_session_in' }, (_: unknown, e: any) => {
+    opened.push([e.session_id, e.target])
+    return { result: 'Opened in split view.' }
+  })
+  engine(on)
+  const { prompts } = record(on)
+  await title($, 'local_a', '[Dev] 🍸 MIDI-1 aspire')
+  await title($, 'local_b', '🍸 [Prep] S96 prep')
+  const pane = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
+  await pane.press({ key: 'go:local_a' })
+  await pane.press({ key: 'go:local_b' })
+  expect(opened).toEqual([['local_a', 'split'], ['local_b', 'split']])
+  expect(prompts).toEqual([])
   await pane.unmount()
 })
 
