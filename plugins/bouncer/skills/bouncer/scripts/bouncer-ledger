@@ -8,7 +8,7 @@ check: a shell command that exits 0 when the item is due and 1 when it is not. E
 bouncer-ledger add <record> <kind> <key> <trigger> <check> <next>   add an open item to <record>.md (made if missing)
 bouncer-ledger done <record> <key>   mark that record's open item of <key> done (exit 1 when there is none)
 bouncer-ledger due                   run each open check; print "<record path>: <line>" for each due item
-bouncer-ledger list                  print "<record path>: <line>" for each open item
+bouncer-ledger list [--all]          print "<record path>: <line>" for each open item (--all: done items too)
 bouncer-ledger stale [--days N] [--turn <record>=<ISO time>]...   print each record with open items that is older
                                      than N days (default 7) or than the owning Bartender's last turn
 The records are in $BOUNCER_RECORDS, else the records_dir plugin option, else <data>/tickets (bouncer-data).
@@ -53,10 +53,10 @@ def record_path(name):
     if not re.fullmatch(r"[\w.-]+", name) or name.startswith("."): die(f"bad record name: {name!r}")
     return os.path.join(records_dir(), name + ".md")
 
-def all_open():
+def all_open(done=False):
     for path in sorted(glob.glob(os.path.join(records_dir(), "*.md"))):
         for l in items(path):
-            if parse(l)[0] == "open": yield path, l
+            if done or parse(l)[0] == "open": yield path, l
 
 def is_due(line):
     _, kind, key, _, check, _, _ = parse(line)
@@ -98,8 +98,8 @@ elif cmd == "done" and len(a) == 3:
     if hit is None: die(f"no open item {a[2]} in {path}", 1)
     lines[hit] = lines[hit].replace("- [open] ", "- [done] ", 1)
     with open(path, "w") as f: f.write("\n".join(lines) + "\n")
-elif cmd == "list" and len(a) == 1:
-    for path, l in all_open(): print(f"{path}: {l}")
+elif cmd == "list" and a[1:] in ([], ["--all"]):
+    for path, l in all_open(done=a[1:] == ["--all"]): print(f"{path}: {l}")
 elif cmd == "due" and len(a) == 1:
     for path, l in all_open():
         if is_due(l): print(f"{path}: {l}")

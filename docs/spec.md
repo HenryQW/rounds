@@ -56,7 +56,7 @@ Required keys: `sessionId`, `cwd`, `title`, `isArchived`, `lastActivityAt`. All 
 
 Bouncer mode titles (decided 2026-11-25): Bouncer mode runs as the `bouncer` plugin (`plugins/bouncer`, decided 2026-11-26) in Claude desktop. The Bouncer is a session that the user opens. It starts each Bartender as a side session and is the only session that renames them. Rounds reads only the titles:
 
-- Bartender: a side session titled `[<status>] 🍸 <TICKET> <repo>` or `[Idle] 🍸 <repo>`, with an optional `!` (a call to action) before it. The emoji is the Bartender type: 🍸 Ticket, 🔧 Skill (the ticket is a task name), 🧹 Cleanup. It is a subagent of its Bouncer (3.2): the user never opens it.
+- Bartender: a side session titled `🍸 [<TICKET>] [<status>] <ticket title>` or `🍸 [Idle] <repo>`, with an optional `!` (a call to action) before it (before plugin 0.10.5: `[<status>] 🍸 <TICKET> <repo>`, still read). The emoji is the Bartender type: 🍸 Ticket, 🔧 Skill (the ticket is a task name), 🧹 Cleanup. It is a subagent of its Bouncer (3.2): the user never opens it.
 - Bouncer: `!<n> 🚪 Bouncer <repo>` while `n` questions wait on the user, else `🚪 Bouncer <repo>` (one Bouncer a repo; a title from before plugin 0.10.4 has no repo). A count above 0 is a question (rule 9).
 
 ### 2.2 Transcript tail (read only)
