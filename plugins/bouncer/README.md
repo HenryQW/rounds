@@ -73,6 +73,7 @@ Each model call of the Bouncer reads its whole context again, so a call costs mo
 | Event | One call | It prints |
 |---|---|---|
 | Bouncer start, and after a clear | `bouncer-start` | The preflight checks, the decisions, the due and stale ledger items, the questions, the queue, the grants and the context size |
+| Before an assigned Bartender ends its turn | `bouncer-report --stop` | One correction request if the report has the wrong fields, ticket, status or length |
 | A Bartender's turn-end note | `bouncer-note` | The report (from the Bartender's last answer when the note's 400 characters lost it), the acceptance check, the grant, the record's drafts and open ledger items |
 | An assignment | `bouncer-assign` | The title, the model, the effort and the filled brief |
 

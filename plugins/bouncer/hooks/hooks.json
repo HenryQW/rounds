@@ -1,1 +1,6 @@
-{ "modules": ["./register.tsx"] }
+{
+  "modules": ["./register.tsx"],
+  "hooks": {
+    "Stop": [{ "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-report\" --stop" }] }]
+  }
+}

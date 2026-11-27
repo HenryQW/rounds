@@ -3,30 +3,63 @@
 Finds the 6 field lines anywhere in the text: STATUS (exactly WORKING|NEEDS_INPUT|DONE|BLOCKED, no suffix), TICKET, LINEAR, RESULT,
 QUESTION, EVIDENCE, one line each, in any order. Other lines are ignored. A field that comes again starts a new block,
 so the last block wins. The field lines must be at most 400 characters in all (the turn-end note quotes only 400).
+--stop: read a Claude Stop event. Ask an assigned Bartender for one correction if its final answer breaks the shape.
 --full: the text is the Bartender's whole last message, not the note's quote, so the 400 limit does not apply.
 A turn-end note of the Claude desktop app quotes the report inside a sentence, with " ⏎ " for each line break
 (`...: "STATUS: DONE ⏎ TICKET: ... ⏎ EVIDENCE: ..." Read it with ...`); the script first puts that quote back on lines.
 Out: {"status", "ticket", "linear", "result", "question", "evidence"} ("none" becomes null). Exit 2: bad report,
 with {"error": [...]} so the Bouncer checks the evidence instead."""
-import json, re, sys
+import json, os, re, subprocess, sys
 
 KEYS = ["STATUS", "TICKET", "LINEAR", "RESULT", "QUESTION", "EVIDENCE"]
-errs, got, lines = [], {}, []
+
+def parse(text, full=False):
+    errs, got, lines = [], {}, []
+    for line in text.splitlines():
+        m = re.match(r"^\s*([A-Z_]+):\s*(.*?)\s*$", line)
+        if m and m.group(1) in KEYS:
+            if m.group(1) in got: got, lines = {}, []   # a new block starts
+            got[m.group(1)] = m.group(2); lines.append(line.strip())
+    size = len("\n".join(lines))
+    if size > 400 and not full:
+        errs.append(f"field lines {size} chars, limit 400")
+    errs += [f"missing {k}" for k in KEYS if not got.get(k)]
+    if got.get("STATUS") and got["STATUS"] not in ("WORKING", "NEEDS_INPUT", "DONE", "BLOCKED"):
+        errs.append(f"bad STATUS: {got['STATUS']} (exactly one of WORKING, NEEDS_INPUT, DONE, BLOCKED, no other text)")
+    if got.get("STATUS") == "NEEDS_INPUT" and got.get("QUESTION", "none").lower() == "none":
+        errs.append("NEEDS_INPUT without a QUESTION")
+    return got, errs
+
+def check_stop():
+    event = json.load(sys.stdin)
+    host = os.environ.get("CLAUDE_CODE_HOST_SESSION_ID", "")
+    if (event.get("hook_event_name") != "Stop" or event.get("agent_id") or event.get("stop_hook_active")
+            or not re.fullmatch(r"local_[\w-]+", host)): return
+    script = os.path.join(os.path.dirname(os.path.realpath(__file__)), "bouncer-session")
+    assigned = subprocess.run([script, "assigned", host, event["session_id"]], capture_output=True, text=True)
+    if assigned.returncode == 1: return  # Ordinary, idle, or no current desktop session.
+    assigned.check_returncode()
+    ticket = assigned.stdout.strip()
+    text = (event.get("last_assistant_message") or "").rstrip("\r\n")
+    got, errs = parse(text)
+    fields = [line.partition(":")[0] for line in text.splitlines()]
+    if fields != KEYS: errs.append("use exactly the six field lines in order, without other text")
+    # Count the complete answer in UTF-16 units so an emoji cannot push evidence past the desktop quote.
+    if len(text.encode("utf-16-le")) // 2 > 400: errs.append("shorten the whole answer to 400 characters")
+    if got.get("TICKET") != ticket: errs.append("use the assigned ticket")
+    if got.get("STATUS") == "WORKING": errs.append("wait for background work inside this turn")
+    if errs:
+        print(json.dumps({"decision": "block", "reason":
+            f"Bartender report for {ticket}: {errs[0]}. Return only STATUS, TICKET, LINEAR, RESULT, QUESTION, "
+            "EVIDENCE as six KEY: value lines, at most 400 characters. Use DONE, NEEDS_INPUT or BLOCKED. "
+            "Keep the facts from this turn."}))
+
+if sys.argv[1:] == ["--stop"]:
+    check_stop()
+    sys.exit(0)
 text = re.sub(r'(instructions\): )"(.*)"((?: \(first \d+ of \d+ characters\))? Read it with )',
-              lambda m: m.group(1) + "\n" + re.sub(r" ?⏎ ?", "\n", m.group(2)) + "\n" + m.group(3), sys.stdin.read())
-for line in text.splitlines():
-    m = re.match(r"^\s*([A-Z_]+):\s*(.*?)\s*$", line)
-    if m and m.group(1) in KEYS:
-        if m.group(1) in got: got, lines = {}, []   # a new block starts
-        got[m.group(1)] = m.group(2); lines.append(line.strip())
-size = len("\n".join(lines))
-if size > 400 and sys.argv[1:] != ["--full"]:
-    errs.append(f"field lines {size} chars, limit 400")
-errs += [f"missing {k}" for k in KEYS if not got.get(k)]
-if got.get("STATUS") and got["STATUS"] not in ("WORKING", "NEEDS_INPUT", "DONE", "BLOCKED"):
-    errs.append(f"bad STATUS: {got['STATUS']} (exactly one of WORKING, NEEDS_INPUT, DONE, BLOCKED, no other text)")
-if got.get("STATUS") == "NEEDS_INPUT" and got.get("QUESTION", "none").lower() == "none":
-    errs.append("NEEDS_INPUT without a QUESTION")
+                  lambda m: m.group(1) + "\n" + re.sub(r" ?⏎ ?", "\n", m.group(2)) + "\n" + m.group(3), sys.stdin.read())
+got, errs = parse(text, full=sys.argv[1:] == ["--full"])
 if errs:
     print(json.dumps({"error": errs})); sys.exit(2)
 print(json.dumps({k.lower(): (None if got[k].lower() == "none" else got[k]) for k in KEYS}))

@@ -6,6 +6,7 @@ bouncer-session context [--cap N] [<session id>]   print "context: <n> tok": the
 bouncer-session last <local session id>   print the last answer of a Claude desktop session (the id that list_sessions
     and a turn-end note give, local_...): its text, without tool calls.
 bouncer-session title <local session id>  print that session's title.
+bouncer-session assigned <local session id> <Claude Code session id>  print the ticket in the current Bartender title.
 bouncer-session quote <local session id>  print what the app quotes of that session's last turn in a turn-end note
     (at most 400 characters), so a caller can tell whether a note is about the last turn.
 Transcripts are <config>/projects/*/<session id>.jsonl (CLAUDE_CONFIG_DIR, else ~/.claude). The desktop app keeps
@@ -53,11 +54,20 @@ if cmd == "context":
         if n:
             print(f"context: {n} tok" + (f" (over {cap})" if n > cap else "")); sys.exit(0)
     print("context: unknown"); sys.exit(1)
-elif cmd in ("last", "title", "quote") and len(a) == 2:
+elif (cmd in ("last", "title", "quote") and len(a) == 2) or (cmd == "assigned" and len(a) == 3):
     if not re.fullmatch(r"local_[\w-]+", a[1]): die(f"usage: bouncer-session {cmd} <local session id>")
     for path in glob.glob(os.path.join(DESKTOP, "*", "*", a[1] + ".json")):
         try: d = json.load(open(path))
         except (OSError, ValueError): continue
+        if cmd == "assigned":
+            # A nested Claude process can inherit the desktop id. Only its current main session owns the ticket.
+            if not a[2] or d.get("cliSessionId") != a[2] or d.get("isArchived"): continue
+            title = d.get("title") or ""
+            match = re.fullmatch(r"!?[🍸🔧🧹] \[([^\]\s]+)\] \[[^\]]+\] .+", title)
+            if not match:  # Titles before 0.10.5 put the status first.
+                match = re.fullmatch(r"!?\[(?!Idle\])[^\]]+\] [🍸🔧🧹] (\S+) \S+", title)
+            if match: print(match[1]); sys.exit(0)
+            continue
         if cmd != "last":
             value = d.get("title" if cmd == "title" else "lastTurnReport")
             if isinstance(value, str) and value.strip():
@@ -72,4 +82,4 @@ elif cmd in ("last", "title", "quote") and len(a) == 2:
                     print(text.strip()); sys.exit(0)
     sys.exit(1)
 else:
-    die("usage: bouncer-session context [--cap N] [<session id>] | last|title|quote <local session id>")
+    die("usage: bouncer-session context [--cap N] [<session id>] | last|title|quote <local session id> | assigned <local session id> <Claude Code session id>")

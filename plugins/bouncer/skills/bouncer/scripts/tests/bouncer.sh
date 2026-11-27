@@ -367,6 +367,36 @@ ses ./bouncer-session quote local_none >/dev/null; ok "session: quote of an unkn
 ok "session: last prints the last answer's text" "$(ses ./bouncer-session last local_a1 | tail -1)" "EVIDENCE: https://github.com/o/r/pull/1"
 ses ./bouncer-session last local_none >/dev/null; ok "session: last of an unknown session exits 1" $? 1
 
+# Exercise the installed Stop command with the desktop id and CLI session id that Claude supplies.
+stop_command=$(jq -er '.hooks.Stop[0].hooks[0].command' ../../../hooks/hooks.json)
+stop_result() {
+    local output
+    output=$(jq -n --arg sid "$1" --arg text "$2" --argjson extra "${3:-null}" \
+        '{hook_event_name: "Stop", session_id: $sid, stop_hook_active: false, last_assistant_message: $text} + $extra' |
+        ses env CLAUDE_PLUGIN_ROOT="$PWD/../../.." CLAUDE_CODE_HOST_SESSION_ID=local_a1 bash -c "$stop_command") || { echo error; return; }
+    if [ -z "$output" ]; then echo allow; else jq -er '.decision' <<< "$output"; fi
+}
+ok "stop: a complete report can end the turn" "$(stop_result cli-a1 "$R")" allow
+ok "stop: invalid report requests one correction" "$(stop_result cli-a1 'Finished')" block
+ok "stop: an incorrect second answer cannot loop" "$(stop_result cli-a1 'Finished' '{"stop_hook_active":true}')" allow
+ok "stop: subagents skip the gate" "$(stop_result cli-a1 'Finished' '{"agent_id":"child"}')" allow
+ok "stop: another session inheriting the host id skips the gate" "$(stop_result cli-a2 'Finished')" allow
+ok "stop: a report behind prose is invisible at the start of the quote" "$(stop_result cli-a1 "Summary
+$R")" block
+ok "stop: the report must name the assigned ticket" "$(stop_result cli-a1 "${R/ABC-1/ABC-2}")" block
+ok "stop: a voluntary end cannot report WORKING" "$(stop_result cli-a1 "${R/STATUS: DONE/STATUS: WORKING}")" block
+ok "stop: NEEDS_INPUT requires a question" "$(stop_result cli-a1 "${R/STATUS: DONE/STATUS: NEEDS_INPUT}")" block
+max_report="$R$(fill 400)"
+ok "stop: a 400 character report passes" "$(stop_result cli-a1 "$max_report")" allow
+ok "stop: an emoji crossing the quote limit needs a correction" "$(stop_result cli-a1 "${max_report%?}🍸")" block
+desk local_a1 "🍸 [Idle] r" '' cli-a1
+ok "stop: idle Bartenders skip the gate" "$(stop_result cli-a1 'Finished')" allow
+desk local_a1 '🚪 Bouncer r' '' cli-a1
+ok "stop: the Bouncer skips the gate" "$(stop_result cli-a1 'Finished')" allow
+desk local_a1 '![Dev] 🔧 ABC-1 r' '' cli-a1
+ok "stop: legacy assigned titles still require a report" "$(stop_result cli-a1 'Finished')" block
+desk local_a1 '🍸 [ABC-1] [Dev] Fix the reply' 'Checked the build' cli-a1
+
 # bouncer-note: one call for a turn-end note
 rm -f "$tmp/sdata/grants.md"; mkdir -p "$tmp/sdata/tickets"
 printf 'STATE\nx\n### not-a-draft\n\n## DRAFTS\n### pr-title\nfix: a\nNOTE\n### pr-body\n- [open] a task in the PR body\n\n## LEDGER\n- [open] pr | https://github.com/o/r/pull/1 | trigger: merged | check: none | next: close | 2026-11-28\n- [done] ci | x | trigger: t | check: none | next: n | 2026-11-27\n' > "$tmp/sdata/tickets/ABC-1.md"
