@@ -1,6 +1,6 @@
 # Bouncer plugin
 
-Bouncer mode for the Code tab of the Claude desktop app. You talk to one session, the Bouncer. It routes each ticket to a Bartender: a linked Code session in its own worktree, one ticket at a time. A Bartender runs bounded parts of its ticket in Barbacks (Agent subagents with worktree isolation). Rounds shows each Bartender as a subagent of its Bouncer ([spec 2.1](../../docs/spec.md#21-desktop-session-files-read-only)). The names are in [GLOSSARY.md](../../GLOSSARY.md#bouncer-mode-roles).
+Bouncer mode for the Code tab of the Claude desktop app. You talk to one session, the Bouncer. It routes ticket work to a Bartender: a linked Code session in its own worktree, one ticket at a time. A Bartender runs bounded parts of its ticket in Barbacks (Agent subagents with worktree isolation). Rounds shows each Bartender as a subagent of its Bouncer ([spec 2.1](../../docs/spec.md#21-desktop-session-files-read-only)). The names are in [GLOSSARY.md](../../GLOSSARY.md#bouncer-mode-roles).
 
 ## Install
 
@@ -24,10 +24,14 @@ Set it with `/plugin configure bouncer@rounds`, then start a new session.
 
 Models for Barbacks and the place of decision records come from your own rules (`CLAUDE.md`).
 
+## On-call triage
+
+Send `oncall ticket <KEY>, triage now` to the Bouncer. Set `bartender_skill` to a skill that handles this prompt. The Bouncer runs triage in its own session and requests each approval there.
+
 ## Questions and approvals
 The Bouncer asks you only before an outward action (a message other people read, a push, PR or merge, a delete that cannot be undone, money or access) or when no rule or default covers a choice. Your own rules can add actions. It does reversible steps, such as starting a Bartender or a spike, with no question and reports them in one line.
 
-- **One yes for each ticket.** At routing, the Bouncer asks once for the ticket's closing chain, for example `push, pr, merge`. A request that already says it ("fix it and merge") is the yes. The grant is a line in `grants.md`. The chain stops and asks again when a check fails, the scope changes, an action is outside the grant, or an approved text changed.
+- **One yes for each Bartender ticket.** At routing, the Bouncer asks once for the ticket's closing chain, for example `push, pr, merge`. A request that already says it ("fix it and merge") is the yes. The grant is a line in `grants.md`. The chain stops and asks again when a check fails, the scope changes, an action is outside the grant, or an approved text changed.
 - **The Bouncer runs outward actions.** Bartenders only prepare them: a committed branch, and the PR text and comment drafts in the ticket record. Auto mode refuses an approval that one session relays to another, so the session where you said yes runs the push, the PR, the merge and the comment.
 - **"What should I work on"** names only tickets that can be worked now, and lists the others with a one-line reason (blocked, waiting for a release or another ticket).
 - If a hook rewrites Bash commands (rtk runs `git push` as `rtk git push`), an allow rule must name the rewritten form.
