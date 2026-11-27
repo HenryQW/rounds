@@ -57,13 +57,13 @@ final class AppModel {
     private let stateDir = hookStateDirectory()
     /// Session folders available for the organization settings, including individual worktrees.
     var organizationDirectories: [String] {
-        Set((rows + codexRows + piRows + herdrRows).map(\.cwd).filter { $0.hasPrefix("/") }).sorted()
+        Set((claudeSnapshot.rows + codexSnapshot.rows + piSnapshot.rows + herdrSnapshot.rows).map(\.cwd).filter { $0.hasPrefix("/") }).sorted()
     }
-    private var rows: [SessionRow] = []
+    private var claudeSnapshot = SessionSnapshot()
     /// The last hook event of each session or thread, by id; read again when the state folder changes.
     @ObservationIgnored private var states: [String: HookState] = [:]
     /// Codex threads (spec 2.6), from Codex's database; state from hooks and the rollout tail.
-    private var codexRows: [SessionRow] = []
+    private var codexSnapshot = SessionSnapshot()
     /// The threads Codex lists; nil when Codex is not installed or its database did not load.
     @ObservationIgnored private var codexThreads: [CodexThread]?
     /// Modification dates and sizes of the database and its write-ahead log when `codexThreads` was read.
@@ -76,7 +76,7 @@ final class AppModel {
     let codexHome = URL.homeDirectory.appending(path: ".codex")
     @ObservationIgnored private let turnCache = FileCache<CodexTurn?>()
     /// pi sessions (spec 2.7), from pi's session files; state from the Rounds pi extension and the file's last message.
-    private var piRows: [SessionRow] = []
+    private var piSnapshot = SessionSnapshot()
     /// The extension's last state of each pi session, by session id.
     @ObservationIgnored private var piStates: [String: PiState] = [:]
     /// herdr pane id to the session file of the running pi in it (its `HERDR_PANE_ID`), for the herdr agents that
@@ -93,7 +93,7 @@ final class AppModel {
     @ObservationIgnored private var piSessions: [String: PiSession] = [:]
     @ObservationIgnored private let piStateCache = FileCache<PiState?>()
     /// herdr agents (spec 2.5), kept apart because they update from the socket, not from files.
-    private var herdrRows: [SessionRow] = []
+    private var herdrSnapshot = SessionSnapshot()
     private(set) var herdrConnection: HerdrMonitor.Status = .notRunning
     /// Agent id to its last status and when that status began (herdr reports no times).
     @ObservationIgnored private var herdrSince: [String: (status: String, since: Date)] = [:]
@@ -105,8 +105,6 @@ final class AppModel {
     @ObservationIgnored private let sessionCache = FileCache<Result<DesktopSession, DesktopSessionError>>()
     @ObservationIgnored private let stateCache = FileCache<HookState?>()
     @ObservationIgnored private var watchers: [DirectoryWatcher] = []
-    /// What each source's classifier read for each row, by source name and row id: Why This State… runs it again.
-    @ObservationIgnored private var inputs: [String: [String: StateInput]] = [:]
     @ObservationIgnored private var timer: Timer?
 
     private init() {
@@ -123,8 +121,8 @@ final class AppModel {
         refreshAll()
         prunePiStates()
         // Delete state of archived or unknown sessions only when both session lists loaded without failures.
-        let reliable = !rows.isEmpty && lastFailures.isEmpty && (!codexInstalled || codexThreads != nil)
-        let claudeIds = rows.compactMap(\.session).filter { !$0.isArchived }.compactMap(\.cliSessionId)
+        let reliable = !claudeSnapshot.rows.isEmpty && lastFailures.isEmpty && (!codexInstalled || codexThreads != nil)
+        let claudeIds = claudeSnapshot.rows.compactMap(\.session).filter { !$0.isArchived }.compactMap(\.cliSessionId)
         pruneStateFiles(dir: stateDir, liveIds: reliable ? Set(claudeIds).union(codexThreads?.map(\.id) ?? []) : nil)
         // Each watcher reads only its own source.
         watchers = [
@@ -173,7 +171,7 @@ final class AppModel {
     private func hookStatesChanged(_ paths: [String]) {
         readHookStates()
         let ids = Set(paths.map { URL(fileURLWithPath: $0).lastPathComponent })
-        let claudeIds = Set(rows.compactMap(\.session?.cliSessionId))
+        let claudeIds = Set(claudeSnapshot.rows.compactMap(\.session?.cliSessionId))
         refresh(claude: !ids.isSubset(of: codexThreads?.map(\.id) ?? []), codex: !ids.isSubset(of: claudeIds), pi: false)
     }
 
@@ -186,7 +184,7 @@ final class AppModel {
     private func refreshClaude() {
         guard FileManager.default.fileExists(atPath: sessionsRoot.path) else {
             banner = "Claude desktop session data not found at \(sessionsRoot.path)"
-            rows = []
+            claudeSnapshot = SessionSnapshot()
             return
         }
         let (sessions, failures) = loadDesktopSessions(root: sessionsRoot, cache: sessionCache)
@@ -199,17 +197,14 @@ final class AppModel {
 
         let claude = NSRunningApplication.runningApplications(withBundleIdentifier: "com.anthropic.claudefordesktop").first
         let now = Date()
-        var inputs: [String: StateInput] = [:]
-        rows = sessions.map { s in
+        claudeSnapshot = SessionSnapshot(sessions) { s in
             let hook = s.cliSessionId.flatMap { states[$0] }
             // A wrap-up without `needsUser` can still have asked a question; only the transcript holds it.
             let wrapUpQuestion = s.hasWrapUp && s.wrapUpNeedsUser == nil
             let tail = !s.isArchived && (needsTail(session: s, hook: hook) || wrapUpQuestion) ? cachedTail(s) : nil
             let input = ClassifierInput(session: s, hook: hook, tail: tail, claudeRunning: claude != nil, claudeLaunchedAt: claude?.launchDate, now: now)
-            inputs[s.id] = .claude(input)
-            return SessionRow(session: s, status: classify(input))
+            return (SessionRow(session: s, status: classify(input)), .claude(input))
         }
-        self.inputs["claude"] = inputs
     }
 
     private func cachedTail(_ s: DesktopSession) -> LastMessage? {
@@ -220,7 +215,7 @@ final class AppModel {
     private func refreshCodex() {
         codexInstalled = FileManager.default.fileExists(atPath: codexHome.path)
         guard codexInstalled else {
-            (codexRows, codexThreads, codexError) = ([], nil, nil)
+            (codexSnapshot, codexThreads, codexError) = (SessionSnapshot(), nil, nil)
             return
         }
         do {
@@ -231,20 +226,19 @@ final class AppModel {
             (codexThreads, codexStamp) = (threads, stamp)
             let live = Processes.isRunning("codex")
             let now = Date()
-            var inputs: [String: StateInput] = [:]
-            codexRows = threads.map { t in
+            codexSnapshot = SessionSnapshot(threads) { t in
                 // A thread quiet for the Aged time is Older whatever its rollout says; skip reading the file.
                 let rollout = URL(fileURLWithPath: t.rolloutPath)
                 let aged = now.timeIntervalSince(t.updatedAt) > lastCall.agedAfter
                 let turn = aged ? nil : turnCache.value(at: rollout, read: readCodexRolloutTail, decode: parseCodexRollout) ?? nil
-                inputs["codex:" + t.id] = .codex(t, hook: states[t.id], turn: turn, live: live)
-                return SessionRow(thread: t, status: classifyCodex(t, hook: states[t.id], turn: turn, live: live))
+                let hook = states[t.id]
+                let status = classifyCodex(t, hook: hook, turn: turn, live: live)
+                return (SessionRow(thread: t, status: status), .codex(t, hook: hook, turn: turn, live: live))
             }
-            self.inputs["codex"] = inputs
             codexError = nil
         } catch {
             if codexError == nil { log.error("Codex threads unreadable: \(String(describing: error), privacy: .public)") }
-            (codexRows, codexThreads) = ([], nil)
+            (codexSnapshot, codexThreads) = (SessionSnapshot(), nil)
             codexError = "Codex threads are unreadable (\(error)); the Codex format may have changed."
         }
     }
@@ -254,7 +248,7 @@ final class AppModel {
     private func refreshPi(changed: [String]? = nil) {
         piInstalled = FileManager.default.fileExists(atPath: piHome.path)
         guard piInstalled else {
-            (piRows, piStates, piSessions) = ([], [:], [:])
+            (piSnapshot, piStates, piSessions) = (SessionSnapshot(), [:], [:])
             return
         }
         let fm = FileManager.default
@@ -289,8 +283,7 @@ final class AppModel {
         }
         let now = Date()
         var panes: [String: String] = [:]
-        var inputs: [String: StateInput] = [:]
-        piRows = piSessions.values.map { session in
+        piSnapshot = SessionSnapshot(piSessions.values) { session in
             let state = piStates[session.id].flatMap { $0.sessionPath == session.path ? $0 : nil }
             // The extension names the process; a session without its line runs in a pi from before the install, or not at all.
             let live = state != nil && running.contains(session.id)
@@ -298,10 +291,9 @@ final class AppModel {
             if live, !session.isDelegate, let state, let pane = Processes.environment(of: state.pid, "HERDR_PANE_ID") { panes[pane] = session.path }
             // A session quiet for the Aged time is Older whatever its last message says.
             let aged = now.timeIntervalSince(session.updatedAt) > lastCall.agedAfter
-            inputs["pi:" + session.path] = .pi(session, state: state, live: live, aged: aged)
-            return SessionRow(pi: session, status: classifyPi(session, state: state, live: live, aged: aged))
+            let status = classifyPi(session, state: state, live: live, aged: aged)
+            return (SessionRow(pi: session, status: status), .pi(session, state: state, live: live, aged: aged))
         }
-        self.inputs["pi"] = inputs
         if panes != piPanes {
             piPanes = panes
             updateHerdrRows()
@@ -311,7 +303,7 @@ final class AppModel {
     /// Deletes the extension's state of sessions with no session file and no pi process (at launch only: a pi that
     /// was never prompted has no session file yet).
     private func prunePiStates() {
-        let paths = Set(piRows.compactMap { if case .pi(let s) = $0.source { s.path } else { nil } })
+        let paths = Set(piSnapshot.rows.compactMap { if case .pi(let s) = $0.source { s.path } else { nil } })
         for (id, state) in piStates where !paths.contains(state.sessionPath) && !Processes.isPi(state.pid) {
             try? FileManager.default.removeItem(at: piStateDir.appending(path: id))
         }
@@ -426,8 +418,8 @@ final class AppModel {
     private func updateHerdrRows() {
         let now = Date()
         var since: [String: (status: String, since: Date)] = [:]
-        var inputs: [String: StateInput] = [:]
-        herdrRows = joiningSessions(herdrAgents, paneSessions: piPanes).filter(\.isListed).map { a in
+        let listed = joiningSessions(herdrAgents, paneSessions: piPanes).filter(\.isListed)
+        herdrSnapshot = SessionSnapshot(listed) { a in
             let start: Date
             if let previous = herdrSince[a.id] {
                 start = herdrStateStart(previous: previous, status: a.agentStatus, now: now)
@@ -438,11 +430,10 @@ final class AppModel {
                 start = modified ?? (a.agentStatus == "working" || a.agentStatus == "blocked" ? now : .distantPast)
             }
             since[a.id] = (a.agentStatus, start)
-            inputs[a.id] = .herdr(status: a.agentStatus, since: start)
-            return SessionRow(agent: a, status: herdrStatus(a.agentStatus, since: start))
+            let row = SessionRow(agent: a, status: herdrStatus(a.agentStatus, since: start))
+            return (row, .herdr(status: a.agentStatus, since: start))
         }
         herdrSince = since
-        self.inputs["herdr"] = inputs
     }
 
     /// The project folder of a session folder (its git repository's main checkout), cached per folder.
@@ -478,7 +469,13 @@ final class AppModel {
     /// Why This State… (spec 3.4): the classifier input of a row and what the classifier says about it, with whether the
     /// user has seen the state and why the row shows another state. Nil for a row with no input (some demo rows).
     func explain(_ row: SessionRow) -> (input: StateInput, status: SessionStatus, explanation: StateExplanation)? {
-        guard let input = inputs.values.lazy.compactMap({ $0[row.id] }).first else { return nil }
+        let snapshot = switch row.source {
+        case .claude: claudeSnapshot
+        case .codex: codexSnapshot
+        case .pi: piSnapshot
+        case .herdr: herdrSnapshot
+        }
+        guard let input = snapshot.input(for: row) else { return nil }
         let (status, explanation) = input.explain(row)
         return (input, status, explanation)
     }
@@ -492,19 +489,21 @@ final class AppModel {
     /// Demo mode only: new placeholder rows (`Demo`'s window-turn scene).
     /// The demo's quiet sessions are seen, so they show in Served and Last Call has only what wants the user.
     func setDemoRows(_ r: (claude: [SessionRow], codex: [SessionRow], herdr: [SessionRow])) {
-        (rows, codexRows, herdrRows) = r
-        inputs = ["demo": Demo.inputs(r.claude + r.codex + r.herdr)]
-        for row in r.claude + r.codex + r.herdr where row.status.state.group == .quiet { marks.markSeen(row.id, at: Date()) }
+        let now = Date()
+        claudeSnapshot = SessionSnapshot(r.claude) { ($0, Demo.input(for: $0, now: now)) }
+        codexSnapshot = SessionSnapshot(r.codex) { ($0, Demo.input(for: $0, now: now)) }
+        herdrSnapshot = SessionSnapshot(r.herdr) { ($0, Demo.input(for: $0, now: now)) }
+        for row in r.claude + r.codex + r.herdr where row.status.state.group == .quiet { marks.markSeen(row.id, at: now) }
         regroup()
     }
 
     private func regroup() {
         // A pi session that runs in herdr shows once, as the herdr agent, which can focus its pane.
-        let inHerdr = Set(herdrRows.compactMap { if case .herdr(let a) = $0.source { a.sessionPath } else { nil } })
-        let pi = piOn ? piRows.filter { if case .pi(let s) = $0.source { !inHerdr.contains(s.path) } else { true } }.map { $0.underHerdr(inHerdr) } : []
+        let inHerdr = Set(herdrSnapshot.rows.compactMap { if case .herdr(let a) = $0.source { a.sessionPath } else { nil } })
+        let pi = piOn ? piSnapshot.rows.filter { if case .pi(let s) = $0.source { !inHerdr.contains(s.path) } else { true } }.map { $0.underHerdr(inHerdr) } : []
         let tickets = TicketStore.shared
         tickets.piSessions = piSessions
-        let rows = ((claudeOn ? rows : []) + (codexOn ? codexRows : []) + pi + herdrRows).map { r in
+        let rows = ((claudeOn ? claudeSnapshot.rows : []) + (codexOn ? codexSnapshot.rows : []) + pi + herdrSnapshot.rows).map { r in
             var r = r
             r.tickets = tickets.tickets(for: r)
             return r

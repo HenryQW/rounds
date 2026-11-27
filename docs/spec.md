@@ -289,7 +289,7 @@ Runs before rule 5 when rules 0 to 4 did not match, and also for rule 3: an inte
 
 ### 3.4 Explanation (Why This State…)
 
-Each classifier reports the rule that decided the state with the state itself (`StateInput.explain()`), so the explanation never guesses: it is the same code path. `SessionStatus` and its equality stay as they were; the app keeps each row's classifier input (`StateInput`) apart from the rows and runs the classifier again when the user asks (5.2).
+Each classifier reports the rule that decided the state with the state itself (`StateInput.explain()`). Each source refresh publishes the rows and their classifier inputs in one snapshot. When the user asks for an explanation, the app finds the input by source and row ID, then runs the same classifier again (5.2). If a source removes a row, the app also removes its input. Some demo rows have no classifier input.
 
 - Rule: for Claude, the rule number of the table in section 3 and a short name ("9: Question, from the summary"; 1 names its cause: Claude not running, the session ended, or a hook from before Claude started; reconcile results take the rule they act as, and "Stopped by you, from the transcript" is 10). Codex, pi and herdr have their own rules, with no number ("Turn started, from the rollout", "Extension state", "herdr status").
 - Signals, as label and value, with a time where there is one: Claude: last hook event (with its tool name), summary category (fresh or old), transcript tail kind, last turn edge, wrap-up and error when present, remote, Claude desktop running. Codex: last hook event, rollout turn, Codex running. pi: pi state line, last message, pi process, aged. herdr: herdr status. The app adds Seen (3.2). No prompt, reply or title text.
