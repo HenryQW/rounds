@@ -98,9 +98,10 @@ test('the band shows Bartenders, the question count and the queue', async ($, on
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ ...PANE, surface } as any)
-    expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢⚪]( [🔴🟡🟢⚪])*$/u }))?.text).toBe('🔴 🟡')
-    expect(chip(await ui.find({ key: 'title:' + 'act:a' }))).toBe('🟡 MIDI-1')
-    expect(chip(await ui.find({ key: 'title:' + 'act:b' }))).toBe('🔴 MIDI-2')
+    expect(await order(ui)).toBe('🔴 🟡')
+    expect(chip(await ui.find({ key: 'title:' + 'act:a' }))).toBe('🟡 aspire')
+    expect(chip(await ui.find({ key: 'title:' + 'act:b' }))).toBe('🔴 web')
+    expect(await tickets(ui)).toEqual(['MIDI-2', 'MIDI-1'])
     expect((await ui.find({ key: 'queue' }))?.text).toBe('Queue 2')
     await ui.unmount()
   }
@@ -200,7 +201,7 @@ test('a Bartender shows in the band when the Bouncer starts it', async ($, on) =
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
   const shown = (await cols(ui)).map((c: any) => c[1])
-  expect(shown).toEqual(['🟡 MIDI-1616', '🟡 bouncer-types', '🟢 1 idle'])
+  expect(shown).toEqual(['🟡 aspire', '🟡 rounds', '🟢 aspire'])
   await ui.unmount()
 })
 
@@ -238,7 +239,7 @@ test('only the head question shows; it opens its Bartender, or asks the Bouncer 
   expect((await ui.find({ type: 'Text', text: /MIDI-1616:/ }))?.text).toBe('🔴 MIDI-1616: Post the draft yourself? Default: yes')
   // Questions block in order: MIDI-3 waits (its `!` shows) but its line stays hidden until the head is answered.
   expect(await ui.find({ type: 'Text', text: /MIDI-3:/ })).toBe(undefined)
-  expect(chip(await ui.find({ key: 'title:' + 'act:local_c' }))).toBe('🔴 MIDI-3')
+  expect(chip(await ui.find({ key: 'title:' + 'act:local_c' }))).toBe('🔴 web')
   expect((await ui.findAll({ type: 'Button' })).map((b: any) => b.key).filter((k: any) => k?.startsWith('open:'))).toEqual(['open:local_a'])
 
   // The plugin opens the Bartender in split view itself; when the app refuses, it asks the Bouncer.
@@ -429,11 +430,11 @@ test('a card title opens its Bartender session in split view', async ($, on) => 
   await title($, 'local_a', '[Dev] 🍸 MIDI-1 aspire')
   await title($, 'local_b', '🍸 [Prep] S96 prep')
   const pane = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
-  await pane.press({ key: 'go:local_a' })
-  await pane.press({ key: 'go:local_b' })
+  await pane.press({ key: 'jump:local_a' })
+  await pane.press({ key: 'jump:local_b' })
   // The session title line is on every card, for a ticket and a non-ticket Bartender, and opens the session too.
-  expect((await pane.find({ key: 'jump:local_a' }))?.text).toBe('aspire')
-  expect((await pane.find({ key: 'jump:local_b' }))?.text).toBe('S96 prep')
+  expect((await pane.find({ key: 'jump:local_a' }))?.text).toBe('🟡 aspire')
+  expect((await pane.find({ key: 'jump:local_b' }))?.text).toBe('🟡 S96 prep')
   await pane.press({ key: 'jump:local_a' })
   await pane.press({ key: 'jump:local_b' })
   // The band pill's key opens the session.
@@ -563,7 +564,8 @@ test('one Bouncer a repo: a second session of the same repo shows Take Over, and
   expect(writes).toEqual(['me'])
   expect(await ui.find({ type: 'Text', text: /another session/ })).toBe(undefined)
   await details(ui)
-  expect(chip(await ui.find({ key: 'title:' + 'act:a' }))).toBe('🟡 MIDI-1')
+  expect(chip(await ui.find({ key: 'title:' + 'act:a' }))).toBe('🟡 aspire')
+  expect(await tickets(ui)).toEqual(['MIDI-1'])
   await ui.unmount()
 
   // Its session ends: the Bouncer is free for the next one.
@@ -620,8 +622,8 @@ test('the band fills from the linked sessions: titles, white when no turn runs, 
   await title($, 'local_old', '[Dev] 🍸 MIDI-9 rounds')
   await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
-  expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢⚪]( [🔴🟡🟢⚪])*$/u }))?.text).toBe('🟡 ⚪')
-  expect(await cols(ui)).toEqual([['Dev', '🟡 band', undefined], ['QA', '⚪ MIDI-1', undefined]])
+  expect(await order(ui)).toBe('🟡 ⚪')
+  expect(await cols(ui)).toEqual([['Dev', '🟡 rounds', undefined], ['QA', '⚪ rounds', undefined]])
   await ui.unmount()
 })
 
@@ -639,8 +641,9 @@ test('a turn-end report sets its Bartender dot, and the strip is sorted red firs
   await title($, 'd', '[CR] 🍸 A-3 aspire')
   await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: BLOCKED\nTICKET: A-2' } as any)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
-  expect((await ui.find({ type: 'Text', text: /^[🔴🟡🟢⚪]( [🔴🟡🟢⚪])*$/u }))?.text).toBe('🔴 🟡 🟡 🟢')
-  expect(chip(await ui.find({ key: 'title:' + 'act:c' }))).toBe('🔴 A-2')
+  expect(await order(ui)).toBe('🔴 🟡 🟡 🟢')
+  expect(chip(await ui.find({ key: 'title:' + 'act:c' }))).toBe('🔴 aspire')
+  expect(await tickets(ui)).toEqual(['A-2', 'A-1', 'A-3'])
   await ui.unmount()
 })
 
@@ -723,6 +726,13 @@ test('a report line is the wait reason while the Bartender waits on the user, el
   expect(reportLine({ status: 'WORKING', ticket: 'A-1', linear: null })).toBe('')
 })
 
+// The dots of the cards in drawn order (the pane has no dot strip), as one string.
+const order = async (ui: any) => (await ui.findAll({ type: 'Box' })).filter((b: any) => (b.props?.key ?? b.key)?.startsWith('title:'))
+  .map((b: any) => Array.from(String(b.text))[0]).join(' ')
+// The ticket key of each card that has one, in drawn order: the first child of its meta row (Link or Text).
+const tickets = async (ui: any) => (await ui.findAll({ type: 'Box' })).filter((b: any) => (b.props?.key ?? b.key)?.startsWith('meta:'))
+  .map((b: any) => { const f = b.children?.[0]; return f?.type === 'Link' ? linkText(f) : f?.type === 'Text' ? f.children.join('') : '' }).filter(Boolean)
+
 // Each card as [status chip, title, row 2], in band order.
 const cols = async (ui: any) => {
   const out = []
@@ -742,7 +752,7 @@ test('the pane has a card an active Bartender and one for the idle ones; the ban
   await title($, 'self', '🚪 Bouncer')
   await title($, 'a', '[QA] 🍸 MIDI-1 rounds')
   const pane = await $.ui.mount({ ...PANE, surface: 'terminal' } as any)
-  expect(await cols(pane)).toEqual([['QA', '🟡 MIDI-1', undefined]])
+  expect(await cols(pane)).toEqual([['QA', '🟡 rounds', undefined]])
   expect((await pane.find({ type: 'Text', text: /^Bouncer$/ }))?.text).toBe('Bouncer')
   expect((await pane.find({ type: 'Text', text: /^rounds$/ }))?.text).toBe('rounds')
 
@@ -751,7 +761,8 @@ test('the pane has a card an active Bartender and one for the idle ones; the ban
   await title($, 'd', '[Idle] 🧹 rounds')
   await title($, 'e', '![Dev] 🍸 MIDI-5 rounds')
   await title($, 'f', '[CR] 🍸 MIDI-6 rounds')
-  expect((await cols(pane)).map((c: any) => c[1])).toEqual(['🔴 MIDI-5', '🟡 MIDI-1', '🟡 band', '🟡 MIDI-6', '🟢 2 idle'])
+  expect((await cols(pane)).map((c: any) => c[1])).toEqual(['🔴 rounds', '🟡 rounds', '🟡 rounds', '🟡 rounds', '🟢 2 idle'])
+  expect(await tickets(pane)).toEqual(['MIDI-5', 'MIDI-1', 'band', 'MIDI-6'])
   expect((await pane.find({ key: 'section:Bartenders 5' }))?.text).toBe('Bartenders 5')
   await pane.unmount()
 
@@ -783,7 +794,7 @@ test('Details: the ask row shows only while a question waits; a report fills the
   expect(await ui.find({ type: 'Text', text: /^🔴 / })).toBe(undefined)
 
   await $.session.receive({ origin: { kind: 'task-notification' }, text: 'STATUS: DONE\nTICKET: MIDI-1' } as any)
-  expect(await cols(ui)).toEqual([['Dev', '⚪ MIDI-1', 'PR 31 open, CI green']])
+  expect(await cols(ui)).toEqual([['Dev', '⚪ rounds', 'PR 31 open, CI green']])
 
   await ui.press({ key: 'act:local_a' })
   expect((await ui.find({ type: 'Text', text: /PR 31/ }))?.text).toBe('PR 31 open, CI green')
