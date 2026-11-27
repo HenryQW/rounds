@@ -191,6 +191,8 @@ grep -qF 'same agent id' ../SKILL.md; ok "skill: a second delivery of a Barback 
 grep -qF 'End a turn only with STATUS DONE, NEEDS_INPUT or BLOCKED.' ../SKILL.md; ok "skill: the Bartender brief ends a turn only on DONE, NEEDS_INPUT or BLOCKED" $? 0
 grep -qF 'only for a turn cut short (a usage limit or an interrupt)' ../SKILL.md; ok "skill: WORKING only for a turn cut short" $? 0
 grep -qF 'This wins over the app'"'"'s line to tell the user the outcome' ../SKILL.md; ok "skill: a WORKING note or a partial result is a silent turn" $? 0
+grep -qF 'in the `DRAFTS` section of the ticket record, one `### <id>` heading each' ../SKILL.md; ok "skill: drafts go in the record's DRAFTS section" $? 0
+grep -qF 'in a message of its own, never next to other tool calls' ../SKILL.md; ok "skill: a state-changing Bash call goes alone" $? 0
 grep -qF '**Supervise each Bartender.**' ../SKILL.md; ok "skill: the Bouncer checks Bartender evidence before it relays" $? 0
 grep -qF '[Load the `<skill>` skill (Skill tool) before any work' ../SKILL.md; ok "skill: the brief loads the bartender_skill" $? 0
 for o in bartender_skill ticket_effort; do grep -qF "\${user_config.$o}" ../SKILL.md; ok "skill: option $o is read" $? 0; done
@@ -209,6 +211,7 @@ fill() { printf 'x%.0s' $(seq 1 $(( $1 - ${#R} ))); }   # pad RESULT so the repo
 rep "${R/RESULT: /RESULT: $(fill 401)}" >/dev/null; ok "report: 401 chars exits 2" $? 2
 rep "${R/RESULT: /RESULT: $(fill 400)}" >/dev/null; ok "report: 400 chars passes" $? 0
 rep "${R/STATUS: DONE/STATUS: FINISHED}" >/dev/null; ok "report: bad STATUS exits 2" $? 2
+rep "${R/STATUS: DONE/STATUS: DONE (Task B)}" >/dev/null; ok "report: STATUS with a suffix exits 2" $? 2
 rep "${R/EVIDENCE: https:\/\/github.com\/o\/r\/pull\/1/}" >/dev/null; ok "report: missing EVIDENCE exits 2" $? 2
 rep "${R/STATUS: DONE/STATUS: NEEDS_INPUT}" >/dev/null; ok "report: NEEDS_INPUT without question exits 2" $? 2
 rep "Done, report below.

@@ -124,6 +124,10 @@ export const sessionRows = (raw: string): SessionRow[] | undefined => {
  */
 export const prUrl = (n: number, texts: readonly string[]) => prUrls(texts).find(u => u.endsWith(`/pull/${n}`))
 
+/** The session's own PR while it is open, or when the ticket's texts name it; a merged or closed PR of an earlier task drops off. */
+export const ownPr = (pr: { number: number; state?: string } | undefined, texts: readonly string[]) =>
+  pr && (!/^(merged|closed)$/i.test(pr.state ?? '') || prUrl(pr.number, texts)) ? pr : undefined
+
 /** Each distinct full GitHub PR URL in the texts, in order. */
 export const prUrls = (texts: readonly string[]) =>
   [...new Set(texts.flatMap(t => [...t.matchAll(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g)].map(m => m[0])))]
