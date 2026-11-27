@@ -13,6 +13,8 @@ export type Pool = {
   queueOpen?: boolean
   /** True from a band prompt until the Bouncer's turn ends: the band sends one prompt at a time. */
   pending?: boolean
+  /** True from a prompt until the Bouncer's turn ends: the pane, whose props do not say it, sends no prompt then. */
+  working?: boolean
   /** Bartender session id to its open question for the user, from `questions.md`. */
   questions?: Readonly<Record<string, string>>
   /** The `bouncer-ledger list --all` lines, open and done (done ones keep their PR URLs); absent in a value an earlier version stored. */
@@ -23,8 +25,6 @@ export type Pool = {
   due?: readonly string[]
   /** A PR's full URL to its GitHub state (lower case) and base branch, read with `gh` once a turn for the open pr ledger items. */
   prs?: Readonly<Record<string, { state?: string; base?: string }>>
-  /** True while the band lists the due items. */
-  ledgerOpen?: boolean
   /** True while another session holds the Bouncer (`bouncer` in the plugin's data folder names it). */
   isOther?: boolean
   /** Bartender session id to the STATUS of its last turn-end report (`bouncer-report`). */
@@ -37,12 +37,8 @@ export type Pool = {
   notes?: Readonly<Record<string, string>>
   /** True while the system appearance is dark: the band picks Linear's dark tokens, else the light ones. */
   dark?: boolean
-  /** True when the band shows the columns (Details); false is Compact. Kept across sessions in `$.store` `details`. */
-  details?: boolean
   /** The column whose actions show in place of its sub-line (its key). */
   menu?: string
-  /** True once the Bouncer pane could not show: Details then shows in the band, its cards scrolling sideways. */
-  paneless?: boolean
   /** The Stop or Reset action (its value) that waits for its second click; cleared after 5 seconds. */
   confirm?: string
 }

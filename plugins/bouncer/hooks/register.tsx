@@ -139,7 +139,8 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
   })
   // Only the Bouncer talks to Bartenders: the band asks it with a plain prompt. Prompts are sequential:
   // none while a question waits on the user, while the Bouncer works, or before the last one's turn ended.
-  const isWorking = e.props?.isWorking ?? false
+  // The pane's props do not say whether a turn runs; the pool keeps it from prompt.submit to turn.complete.
+  const isWorking = e.props?.isWorking ?? !!p.working
   const ask = async (text: string) => {
     const now = await read($, pool)
     if (now.waiting > 0) return $.ui.toast('Answer the waiting question first')
@@ -168,22 +169,13 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
     : ctaB && { b: ctaB, name: ctaB.ticket || ctaB.repo, question: 'waits on you' }
   const lines = p.queueOpen ? p.queueLines ?? [] : []
   const due = p.due ?? []
-  const dueLines = p.ledgerOpen ? due : []
   const all = columns(p.bartenders, p.reports, p.running)
-  // Compact (the default) is one line; Details adds the ask row and the columns. Kept across sessions.
-  const flip = async () => {
-    const q0 = await read($, pool)
-    const shownNow = !!q0.details && (isTerminal || !!q0.paneless)
-    // Off the terminal Details is the Bouncer pane, so the band stays one thin row; where no pane can show, the band.
-    // focus also raises the pane when it is open already (the surface refuses it over text in the composer).
-    if (!isTerminal && !inPane && !shownNow) {
-      const opened = await $.ui.open({ id: PANE, title: 'Bouncer', focus: true }).catch(() => undefined)
-      if (opened?.isPlaced) return
-      await update($, pool, q => ({ ...q, paneless: true }))
-    }
-    const details = !shownNow
-    await update($, pool, q => ({ ...q, details }))
-    await $.store.set('details', details).catch(() => undefined)
+  // The band is one line; Details (and `+N`, `N to act`) opens the Bouncer pane, or brings it to the front: focus
+  // raises a pane that is open already (the surface refuses it over text in the composer).
+  const openPane = async () => {
+    const opened: { isPlaced: boolean, reason?: string } = await $.ui.open({ id: PANE, title: 'Bouncer', focus: true })
+      .catch((err: unknown) => ({ isPlaced: false, reason: String(err) }))
+    if (!opened.isPlaced) $.ui.toast(`The Bouncer pane waits to show${opened.reason ? `: ${opened.reason}` : ''}`)
   }
   // A column's actions name one session each (a ticket key, else its session id),
   // so an action on the grouped idle column is never ambiguous.
@@ -211,7 +203,7 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
     const [a, id] = v.split(' ')
     if (a && id) await ask(`${c.ticket || id}: ${a}`)
   }
-  const toggle = async (k: 'queueOpen' | 'ledgerOpen') => {
+  const toggle = async (k: 'queueOpen') => {
     await update($, pool, q => ({ ...q, [k]: !q[k] }))
     await refreshData($, records)
   }
@@ -241,21 +233,19 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
   const isTerminal = e.surface === 'terminal'
   // Linear's look off the terminal; the terminal keeps its own colours.
   const t = isTerminal ? undefined : LINEAR[p.dark ? 'dark' : 'light']
-  // Details shows in the pane, or in the band on the terminal and where no pane shows.
-  const showDetails = inPane || (!!p.details && (isTerminal || !!p.paneless))
-  const detailsLabel = showDetails ? 'Compact' : 'Details'
-  // A quiet switch: no fill, dim text that turns full strength under the pointer.
-  const detailsButton = <Button key="details" plain dimColor label={detailsLabel} onPress={flip} />
+  // A quiet button: no fill, dim text that turns full strength under the pointer.
+  const detailsButton = <Button key="details" plain dimColor label="Details" onPress={openPane} />
   const { Link } = $.ui.resolve(e)
   // Every link in the accent: a bare Link takes the surface's own colour, which drew grey in Details.
   const link = (href: string, label: string) =>
     t ? <Link href={href}><Text color={t.accent}>{label}</Text></Link> : <Link href={href} label={label} />
   // Only the ledger items due now (`bouncer-ledger due`), as what the user must do; open items that are not due are in
-  // their card's row 2. Each row: the key as a link (the PR, else the Linear issue) and its next step.
+  // their card's row 2. In the band a count that opens the pane; there each row is the key as a link (the PR, else the
+  // Linear issue), its next step and Ask Bouncer.
   const dueButton = due.length > 0 && (
-    <Button key="ledger" plain onPress={() => toggle('ledgerOpen')}><Text color="error">{`${due.length} to act`}</Text></Button>
+    <Button key="ledger" plain onPress={openPane}><Text color="error">{`${due.length} to act`}</Text></Button>
   )
-  const dueRows = dueLines.map(line => {
+  const dueRows = due.map(line => {
     const it = ledgerItem(line)
     if (!it) return <Text key={`due:${line}`} wrap="truncate">{line}</Text>
     const pr = /^https:\/\/github\.com\/\S+\/pull\/(\d+)$/.exec(it.key)
@@ -313,8 +303,8 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
     }
   }
 
-  // Details lists every open PR of the ticket (its open pr ledger items, and the session's own PR), each a link in the
-  // PR state colour with its base (`#17860 → dev`), on a row of its own under row 1. Compact keeps `#17860 +1`.
+  // The pane lists every open PR of the ticket (its open pr ledger items, and the session's own PR), each a link in the
+  // PR state colour with its base (`#17860 → dev`), on a row of its own under row 1. The band keeps `#17860 +1`.
   const prsOf = (c: Column) => {
     const id = c.ids.length === 1 ? c.ids[0]! : undefined
     const s = id ? p.sessions?.[id] : undefined
@@ -346,22 +336,34 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
     )
   }
 
-  if (!showDetails) {
-    // Compact: one row, as ponytail's compact band. Each Bartender is one pill (dot and key, status code, PR; the code is
-    // plain text, so pills do not nest); on the right what waits on the user, the due count and the switch. It wraps only when narrow.
+  if (!inPane) {
+    // The band is exactly one line: the Bartender pills that fit, `+N` for the rest, what waits on the user, the due
+    // count and Details at the far right. shortcut: no prop gives a pill's drawn width, so the fit is guessed in cells
+    // (one character a cell, the dot 2, the gap and the pill's frame 3; measured on the desktop app, 2026-11-27); the
+    // pills' Box clips what the guess lets through. Measure once the engine gives widths.
     const n = p.waiting
+    const right = (n > 0 ? `${n} waits on you`.length + 2 : 0) + (due.length > 0 ? `${due.length} to act`.length + 2 : 0) + 'Details'.length + 2
+    const cells = (c: Column) => 2 + c.value.length + (c.label ? c.label.length + 1 : 0) + prOf(c).cells + 3
+    const budget = (e.props?.bodyColumns ?? 120) - right - 5
+    let fit = 0
+    for (let used = 0; fit < all.length && (used += cells(all[fit]!)) <= budget; fit++);
+    const shown = all.slice(0, Math.max(fit, Math.min(1, all.length)))
+    const more = all.length - shown.length
     const mine = (
-      <Box flexDirection="row" alignItems="center" flexWrap="wrap" gap={isTerminal ? 2 : 'sm'} width={width}>
-        {all.length === 0 && strip}
-        {all.map(c => (
-          <Box key={`row:${c.key}`} flexDirection="row" alignItems="center" gap={isTerminal ? 1 : 'sm'} {...(t
-            ? { borderStyle: 'round' as const, borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'sm' as const, paddingY: 0 }
-            : {})}>
-            <Box key={`title:${c.key}`} flexShrink={isLinked(c) ? 0 : 1} minWidth={0}>{titleOf(c)}</Box>
-            {c.label && <Box key={`chip:${c.key}`} flexShrink={0}><Text color={t?.muted}>{c.label}</Text></Box>}
-            {prOf(c).el}
-          </Box>
-        ))}
+      <Box flexDirection="row" alignItems="center" flexWrap="nowrap" gap={isTerminal ? 2 : 'sm'} width={width}>
+        <Box flexDirection="row" alignItems="center" flexWrap="nowrap" gap={isTerminal ? 2 : 'sm'} flexShrink={1} minWidth={0} overflow="hidden">
+          {all.length === 0 && strip}
+          {shown.map(c => (
+            <Box key={`row:${c.key}`} flexDirection="row" alignItems="center" flexShrink={0} gap={isTerminal ? 1 : 'sm'} {...(t
+              ? { borderStyle: 'round' as const, borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'sm' as const, paddingY: 0 }
+              : {})}>
+              <Box key={`title:${c.key}`} flexShrink={0}>{titleOf(c)}</Box>
+              {c.label && <Box key={`chip:${c.key}`} flexShrink={0}><Text color={t?.muted}>{c.label}</Text></Box>}
+              {prOf(c).el}
+            </Box>
+          ))}
+        </Box>
+        {more > 0 && <Button key="more" plain dimColor onPress={openPane}>{`+${more}`}</Button>}
         <Box flexGrow={1} />
         {n > 0 && (waits?.b
           ? <Button key="waits" plain onPress={() => open(waits.b!.id, waits.name)}><Text color="error">{`${n} waits on you`}</Text></Button>
@@ -370,43 +372,34 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
         {detailsButton}
       </Box>
     )
-    if (dueLines.length > 0) return <Box flexDirection="column" gap={isTerminal ? 0 : 'xs'}>{mine}{dueRows}{below}</Box>
     return below ? <Box flexDirection="column">{mine}{below}</Box> : mine
   }
 
-  // Details. Terminal: ponytail's columns split by `│`. Elsewhere Linear's look: one card a Bartender
-  // (surface, hairline border, round corners, padding), a hairline under the header, nothing below ink-subtle.
-  // The terminal shows 4 columns and counts the rest (`+N`); off the terminal every card shows, in one row.
-  const shown = isTerminal && !inPane ? all.slice(0, 4) : all
-  const more = all.length - shown.length
-  // The terminal draws a rule under the header; elsewhere the cards' borders do that work.
-  const rule = isTerminal && <Text dimColor wrap="truncate-end">{'─'.repeat(e.props.bodyColumns)}</Text>
-  const bar = (i: number) => <Box key={`bar:${i}`} flexDirection="column">{['a', 'b', 'c'].map(k => <Text key={k} dimColor>│</Text>)}</Box>
-  const colWidth = width === undefined ? undefined : Math.max(10, Math.floor(width / Math.max(1, shown.length)) - 3)
-  // One card a Bartender, as a Rounds session row in two rows. Row 1: title, chip, PR, the time, `⋯` (the menu).
-  // Row 2: the next step or the last result. Width 0 and grow 1 give equal cards (no flexBasis prop).
-  // shortcut: no prop gives a card's drawn width, so what fits is guessed from the band's cells (one character a cell);
-  // when row 1 is too long the time goes first, then the chip. Measure the card once the engine gives its width.
-  // The pane holds two cards a row.
-  const perRow = inPane ? Math.min(2, shown.length) : shown.length
-  const room = Math.floor((e.props?.bodyColumns ?? e.viewport?.columns ?? 120) / Math.max(1, perRow)) - 3
+  // The Bouncer pane, in Linear's look off the terminal (surface cards, hairline borders, ink, muted and subtle text):
+  // the header, what waits on the user, the due list, the queue, then one card a Bartender, two a row.
+  // A card in three rows, as a Rounds session row: the title (the dot and name open the session, the key is the Linear
+  // link), the chip, the time and `⋯`; the open PRs; the next step or the last result. Width 0 and grow 1 give equal
+  // cards (no flexBasis prop).
+  // shortcut: no prop gives a card's drawn width, so what fits in row 1 is guessed from the pane's cells (one character
+  // a cell); when it is too long the time goes first, then the chip. Measure the card once the engine gives its width.
+  const room = Math.floor((e.props?.bodyColumns ?? 120) / Math.min(2, Math.max(1, all.length))) - 6
+  const section = (label: string) => <Box key={`section:${label}`}><Text size="footnote" weight="medium" color={t?.subtle} dimColor={!t}>{label}</Text></Box>
+  const frame = t
+    ? { borderStyle: 'round' as const, borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'md' as const, paddingY: 'md' as const }
+    : { borderStyle: 'round' as const, paddingX: 1 as const }
   const card = (c: Column) => {
     const { time } = prOf(c)
-    // Row 1 does not hold the PR in Details: the PRs have a row of their own.
-    const prCells = 0
-    const showChip = !!c.label && c.value.length + c.label.length + 3 + prCells <= room
+    const showChip = !!c.label && c.value.length + c.label.length + 3 <= room
     // The time also needs room for `⋯` and the gaps (4 cells), so it shows only when row 1 is short.
-    const showTime = !!time && c.value.length + (showChip ? c.label.length + 3 : 0) + prCells + time.length + 5 <= room
+    const showTime = !!time && c.value.length + (showChip ? c.label.length + 3 : 0) + time.length + 5 <= room
     const line = sub(c)
     return (
-      <Box key={`col:${c.key}`} flexDirection="column" minWidth={0} {...(t
-        ? { flexGrow: 1, flexShrink: 1, width: 0, minWidth: inPane ? 0 : 24, gap: 'sm' as const, borderStyle: 'round', borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'md' as const, paddingY: 'md' as const }
-        : colWidth === undefined ? { flexGrow: 1 } : { width: colWidth })}>
+      <Box key={`col:${c.key}`} flexDirection="column" flexGrow={1} flexShrink={1} width={0} minWidth={0} gap={isTerminal ? 0 : 'sm'} {...frame}>
         <Box flexDirection="row" alignItems="center" gap="sm">
           {/* A Link wraps instead of truncating: a linked key keeps its width. */}
           <Box key={`title:${c.key}`} flexGrow={1} flexShrink={isLinked(c) || !isTerminal ? 0 : 1} minWidth={0}>{titleOf(c, true)}</Box>
           {showChip && chipOf(c)}
-          {showTime && <Text size="footnote" color={t?.muted}>{time}</Text>}
+          {showTime && <Text size="footnote" color={t?.subtle}>{time}</Text>}
           <Button key={c.key} plain dimColor label="⋯" onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))} />
         </Box>
         {prRow(c)}
@@ -433,21 +426,17 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
       </Box>
     )
   }
-  const mine = (
-    <Box flexDirection="column" width={width} gap={isTerminal ? 0 : 'sm'} paddingY={isTerminal ? 0 : 'xs'}>
+  return (
+    <Box flexDirection="column" gap={isTerminal ? 1 : 'md'} paddingY={isTerminal ? 0 : 'xs'}>
       <Box flexDirection="row" alignItems="center" gap={isTerminal ? 1 : 'sm'}>
         {strip}
         <Text bold weight="semibold" color={t?.ink}>Bouncer</Text>
         <Text color={t?.muted}>{ownRepo}</Text>
         <Box flexGrow={1} />
         {p.queue > 0 && <Button key="queue" plain onPress={() => toggle('queueOpen')}><Text color={t?.muted}>{`Queue ${p.queue}`}</Text></Button>}
-        {dueButton}
-        {!inPane && detailsButton}
       </Box>
-      {rule}
-      {dueRows.length > 0 && <Box key="due" flexDirection="column" gap={isTerminal ? 0 : 'xs'}>{dueRows}</Box>}
       {waits && (
-        <Box backgroundColor="diffRemovedDimmed" paddingX={isTerminal ? 'xs' : 'lg'} paddingY={isTerminal ? 0 : 'sm'} {...(t ? { borderStyle: 'round', borderColor: t.hairline } : {})}>
+        <Box backgroundColor="diffRemovedDimmed" paddingX={isTerminal ? 'xs' : 'md'} paddingY={isTerminal ? 0 : 'sm'} {...(t ? { borderStyle: 'round', borderColor: t.hairline } : {})}>
           {waits.b
             ? <Button key={`open:${waits.b.id}`} plain onPress={() => open(waits.b!.id, waits.name)}>
                 <Text wrap="truncate" color={t?.ink}>{`🔴 ${waits.name}: ${waits.question}`}</Text>
@@ -455,32 +444,40 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
             : <Text wrap="truncate" color={t?.ink}>{`🔴 ${waits.name}: ${waits.question}`}</Text>}
         </Box>
       )}
-      {shown.length > 0 && !inPane && (
-        // Where no pane shows, the band's cards keep their width and scroll sideways.
-        <Box flexDirection="row" gap={isTerminal ? 2 : 'md'} flexWrap="nowrap" {...(isTerminal ? {} : { overflowX: 'scroll' as const })}>
-          {shown.flatMap((c, i) => [...(isTerminal && i > 0 ? [bar(i)] : []), card(c)])}
-          {more > 0 && <Text key="more" color={t?.muted}>{`+${more}`}</Text>}
+      {lines.length > 0 && (
+        <Box key="queue:list" flexDirection="column" gap={isTerminal ? 0 : 'xs'}>
+          {lines.map((line, i) => {
+            const ticket = line.split('|')[0]?.trim() ?? ''
+            return (
+              <Box flexDirection="row" alignItems="center" gap={1}>
+                <Box flexShrink={1} minWidth={0}><Text wrap="truncate" color={t?.ink}>{queueSummary(line)}</Text></Box>
+                {i === 0 && <Button key="queue:pop" plain onPress={() => ask('queue: pop')}>Pop</Button>}
+                <Button key={`queue:remove:${ticket}`} plain onPress={() => ask(`queue: remove ${ticket}`)}>Remove</Button>
+              </Box>
+            )
+          })}
         </Box>
       )}
-      {inPane && Array.from({ length: Math.ceil(shown.length / 2) }, (_, r) => (
-        <Box key={`cards:${r}`} flexDirection="row" gap="md">
-          {shown.slice(r * 2, r * 2 + 2).map(card)}
-          {shown.length > 1 && r * 2 + 1 >= shown.length && <Box key="pad" flexGrow={1} width={0} paddingX="md" />}
+      {dueRows.length > 0 && (
+        <Box key="due" flexDirection="column" gap={isTerminal ? 0 : 'sm'}>
+          <Box key="due:title"><Text size="footnote" weight="medium" color="error">{`${due.length} to act`}</Text></Box>
+          <Box flexDirection="column" gap={isTerminal ? 0 : 'sm'} {...frame}>{dueRows}</Box>
         </Box>
-      ))}
-      {lines.map((line, i) => {
-        const ticket = line.split('|')[0]?.trim() ?? ''
-        return (
-          <Box flexDirection="row" alignItems="center" gap={1}>
-            <Box flexShrink={1} minWidth={0}><Text wrap="truncate">{queueSummary(line)}</Text></Box>
-            {i === 0 && <Button key="queue:pop" plain onPress={() => ask('queue: pop')}>Pop</Button>}
-            <Button key={`queue:remove:${ticket}`} plain onPress={() => ask(`queue: remove ${ticket}`)}>Remove</Button>
-          </Box>
-        )
-      })}
+      )}
+      {all.length > 0 && (
+        <Box key="cards" flexDirection="column" gap={isTerminal ? 0 : 'sm'}>
+          {section(`Bartenders ${all.length}`)}
+          {Array.from({ length: Math.ceil(all.length / 2) }, (_, r) => (
+            <Box key={`cards:${r}`} flexDirection="row" gap={isTerminal ? 1 : 'md'}>
+              {all.slice(r * 2, r * 2 + 2).map(card)}
+              {/* The last card of an odd count keeps a half width: a spacer with the card's frame. */}
+              {all.length > 1 && r * 2 + 1 >= all.length && <Box key="pad" flexGrow={1} flexShrink={1} width={0} minWidth={0} {...frame} borderStyle={undefined} backgroundColor={undefined} />}
+            </Box>
+          ))}
+        </Box>
+      )}
     </Box>
   )
-  return below ? <Box flexDirection="column">{mine}{below}</Box> : mine
 }
 
 export const register: Register = (on, options) => {
@@ -525,6 +522,7 @@ export const register: Register = (on, options) => {
   // report that onNote parses: read list_sessions there too, so a finished Bartender's dot leaves 🟡 at once.
   on('prompt.submit', async ($, e, next) => {
     await onNote($, e.text).catch(() => undefined)
+    await update($, pool, p => (p.working ? p : { ...p, working: true }))
     if ((await read($, pool)).isOn) await refreshSessions($).catch(() => undefined)
     return next(e)
   })
@@ -532,8 +530,7 @@ export const register: Register = (on, options) => {
   // The queue, questions and ledger change outside the Bouncer's own calls (a Bartender, a shell, the last session):
   // read them again when the session starts and after each of the Bouncer's turns.
   on('session.start', async ($, e, next) => {
-    const details = (await $.store.get('details').catch(() => undefined)) === true
-    await update($, pool, p => (p.details === details ? p : { ...p, details }))
+    await update($, pool, p => (p.working ? { ...p, working: false } : p))
     await refreshLook($).catch(() => undefined)
     if ((await read($, pool)).isOn) {
       await refreshData($, records).catch(() => undefined)
@@ -549,7 +546,7 @@ export const register: Register = (on, options) => {
   // A band prompt's turn ended (main's, not a subagent's): the band may send the next one.
   on('turn.complete', async ($, e, next) => {
     if (!e.agentId) {
-      await update($, pool, p => (p.pending ? { ...p, pending: false } : p))
+      await update($, pool, p => (p.pending || p.working ? { ...p, pending: false, working: false } : p))
       await refreshLook($).catch(() => undefined)
       if ((await read($, pool)).isOn) {
         await refreshData($, records).catch(() => undefined)
