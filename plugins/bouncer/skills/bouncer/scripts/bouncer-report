@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """bouncer-report < <Bartender turn-end text>
-Finds the 6 field lines anywhere in the text: STATUS (WORKING|NEEDS_INPUT|DONE|BLOCKED), TICKET, LINEAR, RESULT,
+Finds the 6 field lines anywhere in the text: STATUS (exactly WORKING|NEEDS_INPUT|DONE|BLOCKED, no suffix), TICKET, LINEAR, RESULT,
 QUESTION, EVIDENCE, one line each, in any order. Other lines are ignored. A field that comes again starts a new block,
 so the last block wins. The field lines must be at most 400 characters in all (the turn-end note quotes only 400).
 Out: {"status", "ticket", "linear", "result", "question", "evidence"} ("none" becomes null). Exit 2: bad report,
@@ -19,7 +19,7 @@ if size > 400:
     errs.append(f"field lines {size} chars, limit 400")
 errs += [f"missing {k}" for k in KEYS if not got.get(k)]
 if got.get("STATUS") and got["STATUS"] not in ("WORKING", "NEEDS_INPUT", "DONE", "BLOCKED"):
-    errs.append(f"bad STATUS: {got['STATUS']}")
+    errs.append(f"bad STATUS: {got['STATUS']} (exactly one of WORKING, NEEDS_INPUT, DONE, BLOCKED, no other text)")
 if got.get("STATUS") == "NEEDS_INPUT" and got.get("QUESTION", "none").lower() == "none":
     errs.append("NEEDS_INPUT without a QUESTION")
 if errs:
