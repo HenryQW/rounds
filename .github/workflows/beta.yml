@@ -36,8 +36,7 @@ jobs:
           { echo "TAG=$TAG"; echo "ROUNDS_VERSION=$VERSION"; echo "ROUNDS_SHORT_VERSION=$VERSION beta ($SHA)"; } >> "$GITHUB_ENV"
 
       - name: Test
-        # A parallel run makes the Git and timing tests time out under load.
-        run: swift test --no-parallel
+        run: scripts/test.sh --no-parallel
 
       - name: Import the signing identity
         env:

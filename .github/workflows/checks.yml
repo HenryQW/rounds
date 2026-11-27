@@ -1,0 +1,23 @@
+name: Pull request checks
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  behavior-and-boundaries:
+    runs-on: xcode-27
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - name: Check Swift module boundaries
+        run: |
+          scripts/check-architecture.sh
+          sh scripts/tests/check-architecture.sh
+      - name: Test Rounds
+        run: scripts/test.sh --no-parallel
+      - name: Test Bouncer scripts
+        run: bash plugins/bouncer/skills/bouncer/scripts/tests/bouncer.sh

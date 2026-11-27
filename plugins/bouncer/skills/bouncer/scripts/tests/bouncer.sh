@@ -73,7 +73,7 @@ ok "data: a --plugin-dir checkout uses bouncer-inline" "$(env -u BOUNCER_DATA -u
 
 # bouncer-queue (in the data folder)
 # bouncer-data --repo: one folder a Bouncer repo
-git init -q "$tmp/main-repo" && git -C "$tmp/main-repo" commit -q --allow-empty -m i && git -C "$tmp/main-repo" worktree add -q "$tmp/wt" 2>/dev/null
+git init -q "$tmp/main-repo" && git -C "$tmp/main-repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i && git -C "$tmp/main-repo" worktree add -q "$tmp/wt" 2>/dev/null
 ok "data: --repo is the main checkout's name" "$(cd "$tmp/main-repo" && BOUNCER_DATA="$tmp/rd" "$OLDPWD/bouncer-data" --repo)" "$tmp/rd/main-repo"
 ok "data: --repo from a worktree is the main checkout's name" "$(cd "$tmp/wt" && BOUNCER_DATA="$tmp/rd" "$OLDPWD/bouncer-data" --repo)" "$tmp/rd/main-repo"
 ok "data: BOUNCER_REPO wins" "$(BOUNCER_DATA="$tmp/rd" BOUNCER_REPO=web ./bouncer-data --repo)" "$tmp/rd/web"

@@ -297,17 +297,17 @@ Each classifier reports the rule that decided the state with the state itself (`
 
 ## 4. Components
 
-One SwiftPM package (this Mac has Command Line Tools only, no Xcode). Targets: `RoundsCore` (Foundation-only logic), `rounds-hook`, `Rounds` (the app), `RoundsCoreTests`. `scripts/bundle.sh` builds `Rounds.app` and signs it with the self-signed identity "Rounds Self-Signed" when a keychain has it (the release), else ad hoc; `scripts/dmg.sh` packs it into `build/Rounds.dmg`. A tag `v<VERSION>` runs `.github/workflows/release.yml`, which publishes the disk image, the signed update and its appcast (5.8), and updates the Homebrew tap (website/docs/release.md). The one package dependency is Sparkle (5.8), pinned to an exact version.
+One Swift package supports Xcode and the Command Line Tools. `RoundsCore` owns the app's logic and uses platform libraries. `Rounds` is the app, and `rounds-hook` is its command helper. `RoundsCoreTests` and `RoundsAppTests` cover the two layers. Sparkle is the only package dependency and uses an exact version. See the [architecture map](architecture.md) for module boundaries and checks.
+
+`scripts/bundle.sh` builds `Rounds.app`. It signs it with the "Rounds Self-Signed" identity if present, or uses an ad hoc signature. `scripts/dmg.sh` packs it into `build/Rounds.dmg`. A tag `v<VERSION>` starts the [release workflow](../website/docs/release.md).
 
 | Unit | Job |
 |---|---|
-| `rounds-hook` (Foundation only, in `Contents/Helpers/`) | Reads hook JSON from stdin, appends one state line (2.3). Exit 0 on success; non-zero with a stderr message on failure. |
-| `HookInstaller` | Reads, checks and changes `settings.json`. Status: Installed / Not installed / Needs repair (a wrong helper path). Install and Remove: backup to `settings.json.rounds-backup`, then atomic replace. Keeps all other hooks, also a user hook in the same group as a Rounds entry (only the Rounds entry goes; a group goes only when it is then empty). Idempotent. Refuses invalid JSON. A symlink stays: Rounds writes the file it points to, with the backup beside that file. A missing file is empty; a link to a missing file and a file that cannot be read are errors. |
-| `DesktopSessionStore` | FSEvents watch, decode, publish `[DesktopSession]`. |
-| `HookStateStore` | FSEvents watch on `state/`, publish `[cliSessionId: HookState]`. Deletes state files of archived or deleted sessions at launch. |
-| `TranscriptReader` | Tail read and parse for reconcile. |
-| `Classifier` | Section 3. |
-| `AppModel` | Joins stores, runs the classifier on each change and every 30 s (for time windows), checks `NSWorkspace` for Claude desktop (`com.anthropic.claudefordesktop`). A change in the Claude, Codex or pi folder reads only that agent; a changed hook state file reads the agent of its session (both when the id is not known). Hook install status (`settings.json`, `hooks.json`, `config.toml`, the pi extension) is read at launch and when Settings opens or changes the hooks; the 30 s timer reads it again only when the modification date or size of one of these files changed. |
+| `rounds-hook` | Reads hook JSON from standard input and appends one state line (2.3). On failure it writes a message to standard error and exits with a nonzero code. |
+| `HookInstaller` | Checks and changes hook settings for Claude Code and Codex. It validates input, preserves other entries, keeps a backup and replaces the file atomically (2.4). |
+| `DirectoryWatcher` and `HerdrMonitor` | Report file-system changes and Herdr socket events to `AppModel`. |
+| `RoundsCore` loaders and classifiers | Read agent observations (2), decide state and group rows (3). |
+| `AppModel` | Owns source refreshes, snapshots, grouping and marks. It also checks hook installation status and passes the grouped rows to ticket, push and history stores. |
 | `HotkeyManager` | Carbon `RegisterEventHotKey`. Default ⌥⌘Space. |
 | `TicketStore` | Tickets of the listed rows (2.8): lookups, Linear and `gh` requests, the cache, the Linear key in the Keychain. |
 | `PushStore` | Push notifications (2.9): the check on each regroup, the sounds, the channel values in the Keychain, the Telegram and Bark requests. |

@@ -35,8 +35,7 @@ jobs:
         run: scripts/check-tap-token.sh 0
 
       - name: Test
-        # A parallel run makes the Git and timing tests time out under load.
-        run: swift test --no-parallel
+        run: scripts/test.sh --no-parallel
 
       - name: Import the signing identity
         env:

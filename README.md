@@ -54,7 +54,8 @@ Then open Settings (right-click the pill) > Agents and click Install… in the C
 
 | Task | Command |
 |---|---|
-| Run the tests | `scripts/test.sh` |
+| Run the tests | `scripts/test.sh --no-parallel` |
+| Check Swift module boundaries | `scripts/check-architecture.sh` |
 | Build, sign and install the app | `scripts/bundle.sh --install` |
 | Make the disk image | `scripts/dmg.sh` |
 | Make a release | Push a tag `v<VERSION>`; see `website/docs/release.md` |
@@ -62,7 +63,7 @@ Then open Settings (right-click the pill) > Agents and click Install… in the C
 | Take the README picture (demo data) | `scripts/screenshots.sh` |
 | Run the docs site | `cd website && pnpm install && pnpm dev` |
 
-The version is in `VERSION`. The design is in [DESIGN.md](DESIGN.md), the words in [GLOSSARY.md](GLOSSARY.md), and the full behaviour in [docs/spec.md](docs/spec.md). The app build (`Sources/`) does not include the docs site (`website/`).
+See the [architecture map](docs/architecture.md) for module boundaries and state owners. The design is in [DESIGN.md](DESIGN.md), the terms in [GLOSSARY.md](GLOSSARY.md), and the behavior in [docs/spec.md](docs/spec.md).
 
 ## Privacy
 
