@@ -7,7 +7,11 @@ bouncer-title --bouncer <n> <repo>                 ->  !<n> 🚪 Bouncer <repo>,
 Status codes come from BOUNCER_STATUS_CODES ("Name=Code; Name=Code"), else from the status_codes plugin option
 stored in Claude Code's settings.json, else from the option default in the plugin manifest.
 Exit 2: bad input, a bad code pair or an unknown status."""
-import json, os, sys
+import os, sys
+
+if getattr(sys.flags, "safe_path", False):
+    sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from bouncer_config import plugin_option
 
 TYPES = {"Ticket": "🍸", "Skill": "🔧", "Cleanup": "🧹"}   # the band, bouncer-route and Rounds parse these titles
 BOUNCER = "🚪 Bouncer"
@@ -15,18 +19,8 @@ BOUNCER = "🚪 Bouncer"
 def die(msg):
     print(msg, file=sys.stderr); sys.exit(2)
 
-def stored_option():
-    # The model may leave out BOUNCER_STATUS_CODES, so read the option where Claude Code stores it.
-    path = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "settings.json")
-    try: configs = json.load(open(path)).get("pluginConfigs", {})
-    except (OSError, ValueError): return ""
-    return next((str(v.get("options", {}).get("status_codes", "")) for k, v in configs.items() if k.startswith("bouncer@")), "")
-
 def codes():
-    raw = os.environ.get("BOUNCER_STATUS_CODES", "").strip() or stored_option().strip()
-    if not raw:   # the option is unset: use its default from the plugin manifest
-        manifest = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../../../.claude-plugin/plugin.json")
-        raw = json.load(open(manifest))["userConfig"]["status_codes"]["default"]
+    raw = os.environ.get("BOUNCER_STATUS_CODES", "").strip() or plugin_option("status_codes")
     out = {}
     for pair in filter(None, (p.strip() for p in raw.split(";"))):
         name, eq, code = (s.strip() for s in pair.partition("="))

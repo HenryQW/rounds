@@ -467,13 +467,14 @@ ok "assign: the decisions in force for the repo" "$(printf '%s\n' "$A" | sed -n 
 ok "assign: the record path and the skill folder are real paths" "$(printf '%s\n' "$A" | /usr/bin/grep -c "$tmp/sdata/tickets/ABC-1.md\|$(pwd -P | sed 's|/scripts$||')/scripts/bartender-branch ABC-1 ")" 2
 ok "assign: the report shape ends the brief" "$(printf '%s\n' "$A" | tail -6 | sed -n '1p;2p;6p' | tr '\n' ';')" "STATUS: WORKING | NEEDS_INPUT | DONE | BLOCKED;TICKET: ABC-1;EVIDENCE: <record link, PR, or file:line>;"
 ok "assign: no part is left to fill in" "$(printf '%s\n' "$A" | /usr/bin/grep -c '<TICKET>\|<mode>\|<repo>\|<skill>\|<report shape>\|<ticket record path>\|CLAUDE_SKILL_DIR\|<acceptance criteria>')" 0
-echo '{"pluginConfigs":{"bouncer@rounds":{"options":{"bartender_skill":"henry","ticket_effort":"high"}}}}' > "$ac/settings.json"
-A=$(asg ABC-1 web Code "In Progress" --drop OLD-1)
-ok "assign: the ticket_effort option" "$(printf '%s\n' "$A" | sed -n 3p)" "effort: high"
+jq -n --arg records "$tmp/custom-records" '{pluginConfigs:{"bouncer@rounds":{options:{bartender_skill:"henry",ticket_effort:"high",status_codes:"In Progress=Doing",records_dir:$records}}}}' > "$ac/settings.json"
+A=$(PYTHONSAFEPATH=1 asg ABC-1 web Code "In Progress" --drop OLD-1)
+ok "assign: title and brief use the same stored options" "$(printf '%s\n' "$A" | sed -n '1p;3p' | tr '\n' ';')" "title: 🍸 [ABC-1] [Doing] Fix A | B view;effort: high;"
+ok "assign: ledger uses the configured record folder" "$(printf '%s\n' "$A" | /usr/bin/grep -Fc "$tmp/custom-records/ABC-1.md")" 1
 ok "assign: --drop, then the skill's load line" "$(printf '%s\n' "$A" | sed -n 5,6p | sed 's/ (Skill tool).*//' | tr '\n' ';')" "Drop the context of OLD-1; it is closed.;Load the \`henry\` skill;"
 ok "assign: another repo has no decision" "$(printf '%s\n' "$A" | /usr/bin/grep -c '^Decisions in force: none\. Work or')" 1
 ok "assign: a Mechanical ticket" "$(asg ABC-1 pf Mechanical "In Progress" | sed -n 2,3p | tr '\n' ';')" "model: claude-sonnet-5-5;effort: medium;"
-ok "assign: a Skill design has no load line" "$(asg ABC-1 pf Code "In Progress" --type Skill | sed -n '1,3p;5p' | sed 's/\. Ticket: .*//' | tr '\n' ';')" "title: 🔧 [ABC-1] [Dev] Fix A | B view;model: claude-opus-5-5;effort: medium;You are a Bartender in Bouncer mode;"
+ok "assign: a Skill design has no load line" "$(asg ABC-1 pf Code "In Progress" --type Skill | sed -n '1,3p;5p' | sed 's/\. Ticket: .*//' | tr '\n' ';')" "title: 🔧 [ABC-1] [Doing] Fix A | B view;model: claude-opus-5-5;effort: medium;You are a Bartender in Bouncer mode;"
 ok "assign: a plain Cleanup sweep" "$(asg sweep pf Mechanical "In Progress" --type Cleanup | sed -n 2,3p | tr '\n' ';')" "model: claude-haiku-5-5;effort: low;"
 ok "assign: a Cleanup sweep that needs judgment" "$(asg sweep pf Code "In Progress" --type Cleanup | sed -n 2,3p | tr '\n' ';')" "model: claude-sonnet-5-5;effort: medium;"
 ok "assign: an unknown status gives no title, and the brief still prints" "$(asg ABC-1 pf Code Nope | sed -n '1p;4p' | tr '\n' ';')" "title: none (unknown status: Nope (add it to the status_codes plugin option));brief:;"

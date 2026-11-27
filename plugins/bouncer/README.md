@@ -22,6 +22,8 @@ Start a new session that you open yourself, then say "bouncer mode" or run `/bou
 
 Set it with `/plugin configure bouncer@rounds`, then start a new session.
 
+The plugin manifest defines the defaults. The title, assignment and ledger scripts use `bouncer_config.py` to read stored options and manifest defaults. The band gets its options from Claude Code.
+
 Models for Barbacks and the place of decision records come from your own rules (`CLAUDE.md`).
 
 ## On-call triage

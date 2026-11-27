@@ -1,6 +1,7 @@
 .build/
 build/
 .context/
+plugins/bouncer/skills/bouncer/scripts/__pycache__/
 
 website/node_modules/
 website/.blume/
