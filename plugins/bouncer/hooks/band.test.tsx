@@ -240,10 +240,10 @@ test('only the head question shows; it opens its Bartender, or asks the Bouncer 
   // Questions block in order: MIDI-3 waits (its `!` shows) but its line stays hidden until the head is answered.
   expect(await ui.find({ type: 'Text', text: /MIDI-3:/ })).toBe(undefined)
   expect(chip(await ui.find({ key: 'title:' + 'act:local_c' }))).toBe('🔴 web')
-  expect((await ui.findAll({ type: 'Button' })).map((b: any) => b.key).filter((k: any) => k?.startsWith('open:'))).toEqual(['open:local_a'])
+  expect((await ui.findAll({ type: 'Button' })).map((b: any) => b.key).filter((k: any) => k?.startsWith('ask:'))).toEqual(['ask:MIDI-1616'])
 
   // The plugin opens the Bartender in split view itself; when the app refuses, it asks the Bouncer.
-  await ui.press({ key: 'open:local_a' })
+  await ui.press({ key: 'ask:MIDI-1616' })
   expect(opened).toEqual([['local_a', 'split']])
   expect(prompts).toEqual(['MIDI-1616: open'])
   await ui.unmount()
@@ -266,7 +266,7 @@ test('while a question waits, the band sends no prompt but Open still works', as
   await act(ui, 'act:local_a', 'stop local_a')
   await ui.press({ key: 'queue' })
   await ui.press({ key: 'queue:pop' })
-  await ui.press({ key: 'open:local_a' })
+  await ui.press({ key: 'ask:MIDI-1616' })
   expect(opened).toEqual(['local_a'])
   expect(prompts).toEqual([])
   expect(toasts).toEqual(Array(2).fill('Answer the waiting question first'))
@@ -805,7 +805,46 @@ test('Details: the ask row shows only while a question waits; a report fills the
   questions = 'MIDI-1 | local_a | Merge it? Default: yes\n'
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-questions add "MIDI-1 | local_a | Merge it?"' } as any)
   expect((await ui.find({ type: 'Text', text: /^🔴 / }))?.text).toBe('🔴 MIDI-1: Merge it? Default: yes')
-  expect(await ui.find({ key: 'open:local_a' })).not.toBe(undefined)
+  expect(await ui.find({ key: 'ask:MIDI-1' })).not.toBe(undefined)
+  await ui.unmount()
+})
+
+test('the pane lists every undecided item, oldest first, with its age; a Bartender\'s opens its session, the Bouncer\'s scrolls to its Decide reply', async ($, on) => {
+  const calls: any[] = []
+  on('tool.call', (_: unknown, e: any) => { calls.push(e); return { result: {} } })
+  base(on, { details: true })
+  on('session.start', (_: unknown, e: { cwd: string }) => ({ cwd: e.cwd }))
+  on('process.hookEnv', () => ({ value: { CLAUDE_PLUGIN_DATA: '/data', CLAUDE_PLUGIN_ROOT: '/plugin' } }))
+  on('fs.read', (_: unknown, e: { path?: string }) => {
+    if (e.path === '/data/rounds/questions.md') return { value: 'rounds-36 | self | Merge PR 36? Default: yes | at: 2026-11-27T10:00:00Z\nMIDI-1 | local_a | Post the comment? | at: 2026-11-27T10:10:00Z\nMIDI-2 | self | Old line, no time\n' }
+    throw new Error('missing')
+  })
+  on('clock.now', () => ({ value: Date.parse('2026-11-27T10:30:00Z') }))
+  const { toasts } = record(on)
+  on('turn.complete', (_: unknown, e: { answer: string }) => ({ text: e.answer }))
+  await $.session.start({ cwd: '/w', surface: 'desktop', isInteractive: true } as any)
+  await title($, 'self', '🚪 Bouncer')
+  await title($, 'local_a', '[Dev] 🍸 MIDI-1 rounds')
+  await endTurn($)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' } as any)
+  expect((await ui.find({ key: 'undecided:title' }))?.text).toBe('Undecided 3')
+  const rows = (await ui.findAll({ type: 'Text', text: /^🔴 / })).map((x: any) => x.text)
+  expect(rows).toEqual(['🔴 rounds-36: Merge PR 36? Default: yes', '🔴 MIDI-1: Post the comment?', '🔴 MIDI-2: Old line, no time'])
+  expect((await ui.find({ key: 'undecided:rounds-36' }))?.text).toContain('30m')
+  expect((await ui.find({ key: 'undecided:MIDI-1' }))?.text).toContain('20m')
+
+  await ui.press({ key: 'ask:MIDI-1' })
+  expect(calls.some(c => c.tool === 'mcp__ccd_window__open_session_in' && c.session_id === 'local_a')).toBe(true)
+
+  // No Decide reply named rounds-36 yet: nothing scrolls. A reply that names it without Decide does not count.
+  await ui.press({ key: 'ask:rounds-36' })
+  expect(toasts).toEqual(['rounds-36: no reply named it yet'])
+  const msg = (requestId: string, text: string) => $.ui.mount({ plugin: 'bouncer', component: 'AssistantMessage', requestId, surface: 'desktop', props: { text, isFirstOfReply: true } } as any)
+  await (await msg('m1', 'rounds-36 is open.')).unmount()
+  await (await msg('m2', '> **Decide:** merge rounds-36? Pick: yes.')).unmount()
+  await ui.press({ key: 'ask:rounds-36' })
+  // shortcut: the test engine has no stand-in for $.ui.scroll, so a press after the Decide reply reaches the scroll call (its error), not the no-reply toast.
+  expect(toasts).toEqual(['rounds-36: no reply named it yet', 'rounds-36: HooksError: no implementation for ui.scroll'])
   await ui.unmount()
 })
 
