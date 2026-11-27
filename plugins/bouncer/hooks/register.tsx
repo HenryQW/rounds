@@ -340,25 +340,6 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
     ]
     return list.map(x => ({ ...x, state: (x.href && p.prs?.[x.href]?.state) || x.state, base: x.href ? p.prs?.[x.href]?.base : undefined }))
   }
-  const prRow = (c: Column) => {
-    const prs = prsOf(c)
-    return prs.length > 0 && (
-      <Box key={`prs:${c.key}`} flexDirection="row" flexWrap="wrap" gap="md">
-        {prs.map(x => {
-          const [glyph, color] = prMark(x.state)
-          return (
-            <Box key={`pr:${c.key}:${x.n}`} flexDirection="row" flexShrink={0}>
-              <Text color={color}>{`${glyph} `}</Text>
-              {x.href ? link(x.href, `#${x.n}`) : <Text color={t?.muted}>{`#${x.n}`}</Text>}
-              {/* The base only while open: a merged PR's glyph says enough. */}
-              {x.base && (!x.state || /^open$/i.test(x.state)) && <Text color={t?.muted}>{` → ${x.base}`}</Text>}
-            </Box>
-          )
-        })}
-      </Box>
-    )
-  }
-
   if (!inPane) {
     // The band is exactly one line: the Bartender pills that fit, `+N` for the rest, what waits on the user, the due
     // count and Details at the far right. shortcut: no prop gives a pill's drawn width, so the fit is guessed in cells
@@ -411,38 +392,52 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
   // A card in three rows, as a Rounds session row: the title (the dot and name open the session, the key is the Linear
   // link), the chip, the time and `⋯`; the open PRs; the next step or the last result. Width 0 and grow 1 give equal
   // cards (no flexBasis prop).
-  // shortcut: no prop gives a card's drawn width, so what fits in row 1 is guessed from the pane's cells (one character
-  // a cell); when it is too long the time goes first, then the chip. Measure the card once the engine gives its width.
-  const room = Math.floor((e.props?.bodyColumns ?? 120) / Math.min(2, Math.max(1, all.length))) - 6
   const section = (label: string) => <Box key={`section:${label}`}><Text size="footnote" weight="medium" color={t?.subtle} dimColor={!t}>{label}</Text></Box>
   const frame = t
     ? { borderStyle: 'round' as const, borderColor: t.hairline, backgroundColor: t.surface, paddingX: 'md' as const, paddingY: 'md' as const }
     : { borderStyle: 'round' as const, paddingX: 1 as const }
   const card = (c: Column) => {
     const { time } = prOf(c)
-    const showChip = !!c.label && c.value.length + c.label.length + 3 <= room
-    // The time also needs room for `⋯` and the gaps (4 cells), so it shows only when row 1 is short.
-    const showTime = !!time && c.value.length + (showChip ? c.label.length + 3 : 0) + time.length + 5 <= room
+    const id = c.ids.length === 1 ? c.ids[0]! : undefined
     const line = sub(c)
+    const prs = prsOf(c)
+    // Row 1 is the session title: the dot and title are one button that opens the session (the idle group's title is its count).
+    const title = id ? sessionTitle(id) : c.value.replace(/^\S+ /, '')
     return (
-      <Box key={`col:${c.key}`} flexDirection="column" flexGrow={1} flexShrink={1} width={0} minWidth={0} gap={isTerminal ? 0 : 'sm'} {...frame}>
+      <Box key={`col:${c.key}`} flexDirection="column" flexGrow={1} flexShrink={1} width={0} minWidth={0} gap={isTerminal ? 0 : 'xs'} {...frame}>
         <Box flexDirection="row" alignItems="center" gap="sm">
-          {/* A Link wraps instead of truncating: a linked key keeps its width. */}
-          <Box key={`title:${c.key}`} flexGrow={1} flexShrink={isLinked(c) || !isTerminal ? 0 : 1} minWidth={0}>{titleOf(c, true)}</Box>
-          {showChip && chipOf(c)}
-          {showTime && <Text size="footnote" color={t?.subtle}>{time}</Text>}
+          <Box key={`title:${c.key}`} flexGrow={1} flexShrink={1} minWidth={0}>
+            {id
+              ? <Button key={`jump:${id}`} plain onPress={() => open(id, c.ticket || c.value)}>{`${c.dot} `}<Text weight="medium" color={t?.ink} wrap="wrap" maxLines={2}>{title}</Text></Button>
+              : <Box paddingLeft={isTerminal ? 0 : 'xs'}><Text weight="medium" color={t?.ink} wrap="truncate-end">{c.value}</Text></Box>}
+          </Box>
           <Button key={c.key} plain dimColor label="⋯" onPress={() => update($, pool, q => ({ ...q, menu: q.menu === c.key ? undefined : c.key }))} />
         </Box>
-        {/* The session title, always: a click opens that Bartender's session. */}
-        {c.ids.length === 1 && (
-          <Box key={`jump:${c.key}`} flexDirection="row">
-            <Button key={`jump:${c.ids[0]}`} plain onPress={() => open(c.ids[0]!, c.ticket || c.value)}>
-              <Text color={t?.ink} wrap="truncate-end">{sessionTitle(c.ids[0]!)}</Text>
-            </Button>
+        {/* Row 2: the key (the Linear link), the status chip and the time since its last activity. Row 3: each PR with its base. */}
+        {id && (
+          <Box key={`meta:${c.key}`} flexDirection="row" alignItems="center" flexWrap="wrap" gap="sm" paddingLeft={isTerminal ? 0 : 'xs'}>
+            {c.ticket ? (isLinked(c) ? link(`${linear}/issue/${c.ticket}`, c.ticket) : <Text size="footnote" color={t?.muted}>{c.ticket}</Text>) : null}
+            {c.label && chipOf(c)}
+            <Box flexGrow={1} />
+            {time && <Text size="footnote" color={t?.subtle}>{time}</Text>}
           </Box>
         )}
-        {prRow(c)}
-        {line && <Box key={`line:${c.key}`}><Text size="footnote" color={t?.muted} wrap="wrap" maxLines={2}>{line}</Text></Box>}
+        {prs.length > 0 && (
+          <Box key={`prs:${c.key}`} flexDirection="row" flexWrap="wrap" gap="md" paddingLeft={isTerminal ? 0 : 'xs'}>
+            {prs.map(x => {
+              const [glyph, color] = prMark(x.state)
+              return (
+                <Box key={`pr:${c.key}:${x.n}`} flexDirection="row" flexShrink={0}>
+                  <Text color={color}>{`${glyph} `}</Text>
+                  {x.href ? link(x.href, `#${x.n}`) : <Text color={t?.muted}>{`#${x.n}`}</Text>}
+                  {/* The base only while open: a merged PR's glyph says enough. */}
+                  {x.base && (!x.state || /^open$/i.test(x.state)) && <Text color={t?.muted}>{` → ${x.base}`}</Text>}
+                </Box>
+              )
+            })}
+          </Box>
+        )}
+        {line && <Box key={`line:${c.key}`} paddingLeft={isTerminal ? 0 : 'xs'}><Text size="footnote" color={t?.muted} wrap="wrap" maxLines={2}>{line}</Text></Box>}
         {/* The menu is a row of its own under the next step: secondary buttons on one row; the card grows to fit.
             The terminal keeps plain ones. */}
         {p.menu === c.key && rowsOf(menuCells(c)).map((cells, r) => (
@@ -468,7 +463,8 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
   return (
     <Box flexDirection="column" gap={isTerminal ? 1 : 'md'} paddingY={isTerminal ? 0 : 'xs'}>
       <Box flexDirection="row" alignItems="center" gap={isTerminal ? 1 : 'sm'}>
-        {strip}
+        {/* Each card shows its own dot, so the pane header has no dot strip. */}
+        {all.length === 0 && strip}
         <Text bold weight="semibold" color={t?.ink}>Bouncer</Text>
         <Text color={t?.muted}>{ownRepo}</Text>
         <Box flexGrow={1} />
