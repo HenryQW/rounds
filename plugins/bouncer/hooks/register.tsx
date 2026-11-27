@@ -339,11 +339,13 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
   if (!inPane) {
     // The band is exactly one line: the Bartender pills that fit, `+N` for the rest, what waits on the user, the due
     // count and Details at the far right. shortcut: no prop gives a pill's drawn width, so the fit is guessed in cells
-    // (one character a cell, the dot 2, the gap and the pill's frame 3; measured on the desktop app, 2026-11-27); the
-    // pills' Box clips what the guess lets through. Measure once the engine gives widths.
+    // (a character a cell on the terminal, 0.8 of one on the desktop app's proportional font; the dot 2, the gap and
+    // the pill's frame 3; measured on the desktop app, 2026-11-27); the pills' Box clips what the guess lets through.
+    // Measure once the engine gives widths.
     const n = p.waiting
-    const right = (n > 0 ? `${n} waits on you`.length + 2 : 0) + (due.length > 0 ? `${due.length} to act`.length + 2 : 0) + 'Details'.length + 2
-    const cells = (c: Column) => 2 + c.value.length + (c.label ? c.label.length + 1 : 0) + prOf(c).cells + 3
+    const w = (chars: number) => (isTerminal ? chars : Math.ceil(chars * 0.8))
+    const right = w((n > 0 ? `${n} waits on you`.length + 2 : 0) + (due.length > 0 ? `${due.length} to act`.length + 2 : 0) + 'Details'.length + 2)
+    const cells = (c: Column) => 2 + w(c.value.length + (c.label ? c.label.length + 1 : 0) + prOf(c).cells) + 3
     const budget = (e.props?.bodyColumns ?? 120) - right - 5
     let fit = 0
     for (let used = 0; fit < all.length && (used += cells(all[fit]!)) <= budget; fit++);
