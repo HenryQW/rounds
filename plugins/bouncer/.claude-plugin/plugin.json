@@ -1,6 +1,6 @@
 {
   "name": "bouncer",
-  "version": "0.10.4",
+  "version": "0.11.0",
   "description": "Bouncer mode for the Claude desktop app: one Bouncer session routes tickets to Bartender sessions, one ticket each, in their own worktrees.",
   "author": {
     "name": "Henry Wang",
@@ -34,6 +34,18 @@
       "title": "Linear workspace URL",
       "description": "The Linear workspace that ticket keys in the band link to, as https://linear.app/<workspace>. A key opens <URL>/issue/<KEY>. Blank: keys are plain text.",
       "default": ""
+    },
+    "bartender_skill": {
+      "type": "string",
+      "title": "Bartender skill",
+      "description": "A skill with your own routing and gates, for example post-merge checks and approvals. The Bouncer loads it, and each Ticket Bartender brief starts with a line to load it. Blank: no skill.",
+      "default": ""
+    },
+    "ticket_effort": {
+      "type": "string",
+      "title": "Ticket effort",
+      "description": "The effort of a Code or Spike Ticket Bartender: low, medium, high, xhigh or max.",
+      "default": "medium"
     }
   }
 }

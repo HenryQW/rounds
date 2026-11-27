@@ -181,6 +181,11 @@ unset BOUNCER_DATA BOUNCER_REPO
 # SKILL.md: the Barback brief line that stops a double delivery of its result (each delivery starts a Bartender turn)
 grep -qF 'End your turn with the report as your final text. Never also send it' ../SKILL.md; ok "skill: Barback brief ends its turn with the report and never also sends it" $? 0
 grep -qF 'same agent id' ../SKILL.md; ok "skill: a second delivery of a Barback result gets no work" $? 0
+grep -qF 'This wins over the app'"'"'s line to tell the user the outcome' ../SKILL.md; ok "skill: a WORKING note or a partial result is a silent turn" $? 0
+grep -qF '**Supervise each Bartender.**' ../SKILL.md; ok "skill: the Bouncer checks Bartender evidence before it relays" $? 0
+grep -qF '[Load the `<skill>` skill (Skill tool) before any work' ../SKILL.md; ok "skill: the brief loads the bartender_skill" $? 0
+for o in bartender_skill ticket_effort; do grep -qF "\${user_config.$o}" ../SKILL.md; ok "skill: option $o is read" $? 0; done
+ok "plugin.json: bartender_skill default is blank, ticket_effort default is medium" "$(python3 -c 'import json;c=json.load(open("../../../.claude-plugin/plugin.json"))["userConfig"];print(repr(c["bartender_skill"]["default"]),c["ticket_effort"]["default"])')" "'' medium"
 
 # bouncer-report
 R='STATUS: DONE

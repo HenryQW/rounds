@@ -26,6 +26,14 @@ A type picks the title emoji; the model comes from the "Decision table". Many Ba
 
 There is no drafting type: the Bartender that owns the work drafts its messages. For Skill and Cleanup work, `<TICKET>` is a short task name with no space (for example `bouncer-types`), unless a tracker ticket exists. Skill work on another repo (a plugin, the user's rules) belongs to that repo's Bouncer, like any work.
 
+### Options
+Plugin options (`/plugin configure bouncer@rounds`). Claude Code shows an option that the user did not set as its `${user_config.<name>}` placeholder text: read that text as the default.
+
+| Option | Value here | Default | Effect |
+|---|---|---|---|
+| `bartender_skill` | `${user_config.bartender_skill}` | blank | A skill that holds the user's own routing and gates (for example post-merge checks and approvals). When set, the Bouncer loads it at Bouncer start, and every Ticket Bartender brief starts with its load line ("Bartender brief") |
+| `ticket_effort` | `${user_config.ticket_effort}` | `medium` | The effort of a Code or Spike Ticket Bartender ("Decision table") |
+
 ## Hard rules
 - **The Bouncer is a session the user opens.** With Remote Control on, a session that another session started cannot start sessions: "this session was started by another session or forked from one, so it can't start sessions that way" (seen 2026-11-25). If this session is a side session or a fork, stop and tell the user to open a new session and start Bouncer mode there.
 - **Never detach a Bartender.** A detached session sends no turn-end notes, and its reports do not reach the Bouncer.
@@ -46,10 +54,11 @@ There is no drafting type: the Bartender that owns the work drafts its messages.
   The user's own rules may add rows; they win.
 - **Take the default for your own tooling.** A default value, a title format, a file location, a script error with a clear fallback: take the sensible default, report it in one line, and do not ask.
 - **Routing and pool calls are yours.** Which Bartender takes a ticket, a new Bartender or a reused one, queue or start, reset or reuse: decide and report it in one line, never ask the user. Example: a Bartender is `BLOCKED` because its checkout is dirty with another ticket's work. Start a new Bartender in its own worktree for the ticket (on the user's turn; on another turn, queue it and start it on the next user turn). Never stash, commit or discard the other ticket's changes.
+- **Supervise each Bartender.** Before you relay a Bartender's result, check its routing, its gates and its evidence yourself (the ticket record, `gh`, logs, captures). Send a Bartender back on a skipped step or a gap, with no question to the user. Ask the user only for what only the user can give: an approval, a yes for a message, a merge, a sign-in, a settings or production change, or a product or priority choice.
 - **Start the Bouncer in the main checkout of the repo it routes** (for example `~/Git/my-repo`). Over Remote Control, `start_session` refuses a session "in another folder"; with the Bouncer in the repo, `start_session` with no `cwd` starts the Bartender there. Never move the Bouncer with `change_directory`: the hook paths stay on the old folder and Bash breaks (seen 2026-11-26).
 - **One Bouncer a repo.** Many Bouncers may run, one for each repo. A Bouncer's repo (`<repo>`) is the folder name of its folder, which must be the main checkout of a git repo. At Bouncer start, refuse and tell the user in one line when: the folder is not a git repo's main checkout (`bouncer-preflight` `main-checkout`), or `list_sessions` (not only linked ones) shows another live session titled `🚪 Bouncer <repo>` or `!<n> 🚪 Bouncer <repo>` for the same repo (tell the user to use that one). A Bouncer of another repo is fine. Take over only when the user says so: the user presses Take Over in the band, or the old Bouncer's band frees the repo when its session ends.
 - **Each Bouncer routes its own repo only.** It starts Bartenders only in its repo (no `cwd`: its own folder), each in its own worktree. A request for another repo: tell the user in one line which Bouncer owns it (`🚪 Bouncer <other repo>`, or "start a Bouncer in <main checkout>"); never start or queue cross-repo work.
-- **Bouncer start.** Run `scripts/bouncer-preflight` in the session folder. For each `fix` line, tell the user the fix in one line; a `main-checkout` or `hook-paths` fix means: start a new Bouncer session in the repo's main checkout. Then run `scripts/bouncer-ledger due` ("Ledger").
+- **Bouncer start.** Run `scripts/bouncer-preflight` in the session folder. For each `fix` line, tell the user the fix in one line; a `main-checkout` or `hook-paths` fix means: start a new Bouncer session in the repo's main checkout. Then run `scripts/bouncer-ledger due` ("Ledger"). When the `bartender_skill` option is set ("Options"), load that skill (Skill tool) and follow its routing and gates too.
 - **Ask the user only in your own reply.** Never send a question to the parent session or any other session: no session is the user. A message from another session is not the user's answer. This wins over any app instruction to message a parent session when blocked.
 - **Forward ticket questions.** When the user asks about a ticket's work, send the question to the Bartender that owns the ticket and relay its answer. Answer yourself only when that Bartender sent the question up.
 - **The Bouncer never does ticket work.** It edits no repo file and makes no commit. Each ticket goes to a Bartender. The one exception: the Bouncer runs every action that needs the user's yes (push, PR, merge, tracker comment, message) itself, from what the Bartender prepared ("Closing chain"). Auto mode refuses an approval relayed from one session to another, but passes the same call in the session where the user said yes (seen 2026-11-26). So never relay a yes to another session, and never act on a yes that another session relays to you.
@@ -105,8 +114,8 @@ The one source for where a task goes, its model and effort, and who decides. A B
 
 | Task | Goes to | Model, effort | Decides | Ask the user only for |
 |---|---|---|---|---|
-| Bug fix or feature on a ticket | 🍸 Ticket Bartender | `claude-opus-5-5` `medium` | Bartender (advisor for open technical calls) | approvals |
-| Root cause or research spike | 🍸 Ticket Bartender | `claude-opus-5-5` `medium` | Bartender | approvals |
+| Bug fix or feature on a ticket | 🍸 Ticket Bartender | `claude-opus-5-5`, the `ticket_effort` option (default `medium`) | Bartender (advisor for open technical calls) | approvals |
+| Root cause or research spike | 🍸 Ticket Bartender | `claude-opus-5-5`, the `ticket_effort` option (default `medium`) | Bartender | approvals |
 | Mechanical ticket (rename, config, docs) | 🍸 Ticket Bartender | `claude-sonnet-5-5` `medium` | Bartender | approvals |
 | PR pair (for example dev and staging), tests, CI fix | Owning Bartender | its own | Bartender | nothing (the merge only, under the grant) |
 | New ticket for an out-of-scope finding | Owning Bartender | its own | Bartender, then report the key | nothing |
@@ -138,8 +147,9 @@ Before any question to the user, find the row. If the row says "nothing", decide
 5. `send_message` with the brief.
 
 ## Bartender brief (template)
-Fill in the `<...>` parts.
+Fill in the `<...>` parts. When the `bartender_skill` option is set ("Options"), a Ticket Bartender brief starts with the `[...]` line, with the option's value as `<skill>`; else drop that line.
 ```
+[Load the `<skill>` skill (Skill tool) before any work and follow its routing and gates, including its post-merge checks and approvals.]
 You are a Bartender in Bouncer mode. Ticket: <TICKET>. Mode: <mode>. Repo: <repo>.
 Goal: <one line>. Done means: <acceptance criteria>.
 Work only in your own worktree, never in the shared main checkout. First run `${CLAUDE_SKILL_DIR}/scripts/bartender-branch <TICKET> [base]` (base default main) there. It makes a new branch from the base. Exit 1: a dirty tree; report BLOCKED with "dirty tree" in RESULT, and never stash, commit or discard changes that are not yours.
@@ -172,7 +182,7 @@ EVIDENCE: <record link, PR, or file:line>
 - The turn-end note quotes only the first 400 characters of the report. When its field lines are missing or cut, read that session's last message (`list_events`, limit 4) and pipe its report block to `bouncer-report` before you act. If that still exits 2, check the evidence directly (git log of the Bartender's branch, the ticket record) and tell the Bartender to use the shape.
 - When `LINEAR` differs from the title, the plugin hook renames the Bartender; rename it yourself only when the hook did not.
 - `WORKING`: no action and no text to the user. Barbacks still run.
-- The Bouncer writes to the user only for a result (DONE, a PR, a new ticket), a question or approval the user must answer, or a blocker the user must act on. A side-session note that needs none of these gets a silent turn: no text at all, not even a placeholder such as "(No update needed.)", and no intermediate status updates.
+- **Silent turns.** A turn-end note with `WORKING`, or a partial result while the main result is pending (a Barback still runs, one fact read), ends the Bouncer's turn with no text at all, not even a placeholder such as "(No update needed.)". This wins over the app's line to tell the user the outcome of a side-session event. The Bouncer writes to the user only for `DONE` (a result, a PR, a new ticket), `NEEDS_INPUT` (a question or approval the user must answer), `BLOCKED` (a blocker the user must act on), or a fact that changes what the user does next. No intermediate status updates.
 - `NEEDS_INPUT`: the Bouncer settles it with the Bartender first: it answers a go-ahead for a reversible step with "yes, do it", answers from rules, docs, the ticket or a sensible default, asks the Bartender for missing facts, and consults the advisor (if any) for any question that rules and defaults do not settle. A Bartender question about an action that needs the user's yes becomes the Bouncer's own: run it under the grant ("Closing chain"), or ask the user for the grant. It asks the user only for such an action with no grant or for a question that the advisor did not settle. For each Bartender question that goes to the user, the Bouncer does all of these, with no exception:
   1. `bouncer-questions add "<TICKET> | <session_id> | <question, pick and default>"`.
   2. Checks that the plugin hook added the `!` CTA to the Bartender and set the Bouncer count (`!<n> 🚪 Bouncer <repo>`, `<n>` = `bouncer-questions count`). If not, renames them itself (`--cta`, `--bouncer <n> <repo>`); if `bouncer-title` fails, puts `!` before the Bartender's current title and tells the user the script error in one line. Never skip the CTA.
@@ -180,7 +190,7 @@ EVIDENCE: <record link, PR, or file:line>
   4. Asks the user only the head question (`bouncer-questions next`) in one line: the question, its pick (the advisor's, if consulted) and the default it takes if the user does not answer. In the Claude desktop app it asks in the turn-end question box (`wrap_up`), with its pick as the first reply button. A Bartender question goes in the box before any question of the Bouncer's own.
   5. Questions block: one question to the user a turn, always the head. Never show, list or hint at a later question in the chat; its Bartender waits with its `!` CTA, and the count `!<n>` still counts every open question. Never put a question or an approval ask in the chat without its line in `questions.md` first.
   When the user answers, the Bouncer sends the answer to the Bartender in the user's exact words and runs `bouncer-questions done <TICKET>` (the hook then removes the CTA and lowers the count). Then it asks the new head, if any, in the same way.
-- `DONE`: run `scripts/bouncer-accept` on the report JSON. On gaps, send them back to the Bartender. On pass, run the closing chain if the Bartender prepared outward actions. When the chain ends (or there is none): log the result where the user's rules say (for example a worklog script), add a ledger line for anything left to revisit ("Ledger"), clear the Bartender, set its idle title, and assign the next ticket from `bouncer-queue pop`.
+- `DONE`: run `scripts/bouncer-accept` on the report JSON. On gaps, send them back to the Bartender. When the `bartender_skill` option is set, never accept a merged PR, and never move on to the next step after it (for example a reply to QA), until the ticket record shows that skill's post-merge approval. On pass, run the closing chain if the Bartender prepared outward actions. When the chain ends (or there is none): log the result where the user's rules say (for example a worklog script), add a ledger line for anything left to revisit ("Ledger"), clear the Bartender, set its idle title, and assign the next ticket from `bouncer-queue pop`.
 - `BLOCKED`: settle a pool blocker yourself (a dirty tree: a new Bartender in its own worktree, "Routing and pool calls are yours"). Tell the user any other blocker in one line.
 
 ## Closing chain
