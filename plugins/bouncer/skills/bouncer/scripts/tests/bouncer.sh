@@ -50,14 +50,21 @@ S='[{"sessionId":"s1","title":"[Dev] 🍸 ABC-1 a","isRunning":true},
     {"sessionId":"s8","title":"[Idle] 🔧 g"},
     {"sessionId":"s9","title":"🍸 [Idle] h","isRunning":false},
     {"sessionId":"s10","title":"!🍸 [Idle] k","isRunning":false}]'
-ok "route: idle Bartender in repo is assigned" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"b\"}}" '.action+" "+.sessionId')" "assign s2"
-ok "route: an idle Bartender in the new title format is assigned" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"h\"}}" '.action+" "+.sessionId')" "assign s9"
+ok "route: idle Bartender in repo is assigned" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"b\"}, \"caps\": {\"active\": 6}}" '.action+" "+.sessionId')" "assign s2"
+ok "route: an idle Bartender in the new title format is assigned" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"h\"}, \"caps\": {\"active\": 6}}" '.action+" "+.sessionId')" "assign s9"
+repo_title=$(./bouncer-title --idle 'my  repo')
+repo_session=$(jq -nc --arg title "$repo_title" '{sessionId:"spaced", title:$title, isRunning:false}')
+ok "route: exact repo with spaces gets its idle Bartender" "$(route "{\"sessions\": [$repo_session], \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"my  repo\"}}" '.action+" "+.sessionId')" 'assign spaced'
+ok "route: repo suffix cannot take another repo's idle Bartender" "$(route "{\"sessions\": [$repo_session], \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"repo\"}}" .action)" start
+ok "route: Idle as a ticket key still counts as busy" "$(route '{"sessions":[{"sessionId":"busy","title":"🍸 [Idle] [Dev] repo"}],"request":{"ticket":"ABC-9","repo":"repo"},"caps":{"active":1}}' .action)" queue
 ok "route: an idle Bartender with a question waiting (!) is not reassigned" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"k\"}, \"caps\": {\"active\": 9}}" .action)" start
 ok "route: idle title but running is busy" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"e\"}}" .action)" queue
 ok "route: busy repo under cap starts (one per ticket)" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"a\"}, \"caps\": {\"active\": 9}}" .action)" start
 ok "route: 5 active at cap 3 queues" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"z\"}}" .action)" queue
+ok "route: cap queues even with a matching idle Bartender" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"h\"}}" .action)" queue
+ok "route: a multiword legacy status counts as busy" "$(route '{"sessions":[{"sessionId":"legacy","title":"[In Progress] 🍸 ABC-1 repo"}],"request":{"ticket":"ABC-9","repo":"repo"},"caps":{"active":1}}' .action)" queue
 ok "route: under cap starts" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"z\"}, \"caps\": {\"active\": 6}}" .action)" start
-ok "route: idle Skill Bartender gets Skill work" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"x\", \"repo\": \"g\", \"type\": \"Skill\"}}" '.action+" "+.sessionId')" "assign s8"
+ok "route: idle Skill Bartender gets Skill work" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"x\", \"repo\": \"g\", \"type\": \"Skill\"}, \"caps\": {\"active\": 6}}" '.action+" "+.sessionId')" "assign s8"
 ok "route: an idle Skill Bartender does not take a ticket" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"g\"}, \"caps\": {\"active\": 9}}" .action)" start
 ok "route: an idle Ticket Bartender does not take Cleanup work" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"x\", \"repo\": \"b\", \"type\": \"Cleanup\"}, \"caps\": {\"active\": 9}}" .action)" start
 echo '{"sessions": [], "request": {"ticket": "x", "repo": "a", "type": "Draft"}}' | ./bouncer-route >/dev/null; ok "route: unknown type exits 2" $? 2
