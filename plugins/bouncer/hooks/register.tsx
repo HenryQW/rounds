@@ -28,8 +28,10 @@ const dataFile = async ($: EngineInterface, name: string) => {
 const ledgerList = async ($: EngineInterface, records: string, cmd: 'list' | 'due' = 'list') => {
   const env = await $.process.hookEnv()
   if (!env.CLAUDE_PLUGIN_ROOT) return undefined
-  const ran = await $.process.run([`${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-ledger`, ...(cmd === 'list' ? ['list', '--all'] : [cmd])],
-    { env: records ? { ...env, BOUNCER_RECORDS: records } : env }).catch(() => undefined)
+  const script = `${env.CLAUDE_PLUGIN_ROOT}/skills/bouncer/scripts/bouncer-ledger`
+  // `due` runs each item's check (gh calls): a login shell finds gh where the app's PATH may not, as the PR queries do.
+  const argv = cmd === 'list' ? [script, 'list', '--all'] : ['/bin/bash', '-lc', 'exec "$0" due', script]
+  const ran = await $.process.run(argv, { env: records ? { ...env, BOUNCER_RECORDS: records } : env }).catch(() => undefined)
   return ran?.exitCode === 0 ? queueLines(ran.stdout) : undefined
 }
 // One Bouncer a repo: `bouncer` in <data>/<repo>/ holds the engine session id of that repo's Bouncer.
@@ -187,7 +189,7 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
   const menuCells = (c: Column) => {
     const o = actions(c).find(x => x.value === p.confirm)
     if (o) return [
-      { value: o.value, label: `Confirm ${o.label.toLowerCase()}?`, red: o.value.startsWith('reset'), press: () => pick(c, o.value) },
+      { value: o.value, label: `Confirm ${o.label}?`, red: o.value.startsWith('reset'), press: () => pick(c, o.value) },
       { value: 'cancel', label: 'Cancel', red: false, press: () => update($, pool, q => ({ ...q, confirm: undefined })) },
     ]
     return actions(c).map(x => ({
@@ -198,6 +200,8 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
       },
     }))
   }
+  // One menu row a session: the idle column's three actions a session would not fit one row.
+  const rowsOf = <T,>(cells: T[]) => Array.from({ length: Math.ceil(cells.length / 3) }, (_, r) => cells.slice(r * 3, r * 3 + 3))
   const pick = async (c: Column, v: string) => {
     await update($, pool, q => ({ ...q, menu: undefined, confirm: undefined }))
     const [a, id] = v.split(' ')
@@ -219,10 +223,15 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
     : <Text key="dots">{dots(p.bartenders, p.reports, p.running).join(' ')}</Text>
   // Row 2 is the most useful fact: the next step of the ticket's open ledger item, else the last report's RESULT or
   // wait reason, else nothing (the dot already says whether a turn runs).
+  // A column's ledger lines; its session's repo (the folder of its main checkout) picks among records of the same name.
+  const ledgerOf = (c: Column) => {
+    const cwd = c.ids.length === 1 ? p.sessions?.[c.ids[0]!]?.cwd : undefined
+    return ticketLedger(p.ledgerLines ?? [], c.ticket, cwd?.split('/.claude/worktrees/')[0]?.split('/').pop())
+  }
   const sub = (c: Column) => {
     const id = c.ids.length === 1 ? c.ids[0]! : undefined
     // A pr item whose PR is merged or closed is stale (the ledger closes it later), so it is never the next step.
-    const live = ticketLedger(p.ledgerLines ?? [], c.ticket).filter(l => {
+    const live = ledgerOf(c).filter(l => {
       const url = /: - \[open\] pr \| (\S+) \|/.exec(l)?.[1]
       const state = url ? p.prs?.[url]?.state : undefined
       return !state || /^open$/i.test(state)
@@ -284,11 +293,12 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
   const prOf = (c: Column) => {
     const id = c.ids.length === 1 ? c.ids[0]! : undefined
     const s = id ? p.sessions?.[id] : undefined
-    const [glyph, glyphColor] = prMark(s?.pr?.state)
     // PR links only from full URLs in its report or its ticket's ledger lines; never from the folder's remote.
-    const urls = prUrls([id ? p.reportTexts?.[id] ?? '' : '', ...ticketLedger(p.ledgerLines ?? [], c.ticket)])
+    const urls = prUrls([id ? p.reportTexts?.[id] ?? '' : '', ...ledgerOf(c)])
     const n = s?.pr?.number ?? Number(/\d+$/.exec(urls[0] ?? '')?.[0] ?? 0)
     const href = n ? prUrl(n, urls) : undefined
+    // The state gh read for the URL first, as the pane does; the session's own PR state else.
+    const [glyph, glyphColor] = prMark((href && p.prs?.[href]?.state) || s?.pr?.state)
     const others = urls.filter(u => u !== href).length
     return {
       cells: n ? `⑂ #${n}${others ? ` +${others}` : ''}`.length + 1 : 0,
@@ -308,9 +318,9 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
   const prsOf = (c: Column) => {
     const id = c.ids.length === 1 ? c.ids[0]! : undefined
     const s = id ? p.sessions?.[id] : undefined
-    const urls = openPrUrls(p.ledgerLines ?? [], c.ticket)
+    const urls = openPrUrls(ledgerOf(c), c.ticket)
     const own = s?.pr?.number
-    const ownHref = own ? prUrl(own, [id ? p.reportTexts?.[id] ?? '' : '', ...ticketLedger(p.ledgerLines ?? [], c.ticket)]) : undefined
+    const ownHref = own ? prUrl(own, [id ? p.reportTexts?.[id] ?? '' : '', ...ledgerOf(c)]) : undefined
     const list = [
       ...(own && !(ownHref && urls.includes(ownHref)) ? [{ n: own, href: ownHref, state: s?.pr?.state }] : []),
       ...urls.map(u => ({ n: Number(/\d+$/.exec(u)?.[0] ?? 0), href: u as string | undefined, state: u === ownHref ? s?.pr?.state : undefined })),
@@ -408,12 +418,12 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
         {line && <Box key={`line:${c.key}`}><Text size="footnote" color={t?.muted} wrap="wrap" maxLines={2}>{line}</Text></Box>}
         {/* The menu is a row of its own under the next step: secondary buttons on one row; the card grows to fit.
             The terminal keeps plain ones. */}
-        {p.menu === c.key && (
-          <Box key={`menu:${c.key}`} flexDirection="row" gap="sm" flexWrap="nowrap">
+        {p.menu === c.key && rowsOf(menuCells(c)).map((cells, r) => (
+          <Box key={`menu:${c.key}${r ? `:${r}` : ''}`} flexDirection="row" gap="sm" flexWrap="nowrap">
             {/* A desktop Button keeps its label's width (no width prop), so each cell draws the button: equal (width 0, grow 1, as the cards),
                 a plain Button centred in it, in a Box that never shrinks, so the label never truncates. The keyed cell is the hover scope, so the
                 whole cell lights; only the label takes the click (a Box has no onPress, a Button holds only text). Stop and Reset ask first. */}
-            {menuCells(c).map(o => (
+            {cells.map(o => (
               <Box key={`cell:${c.key}:${o.value}`} flexDirection="row" width={0} flexGrow={1} alignItems="center" justifyContent="center"
                 {...(t ? { backgroundColor: t.hairline, borderStyle: 'round', borderColor: o.red ? 'error' : t.hairline, paddingX: 0 as const, paddingY: 'xs' as const, hover: { backgroundColor: t.hover } } : {})}>
                 <Box flexShrink={0}>
@@ -424,7 +434,7 @@ const draw = async ($: EngineInterface, e: any, next: any, inPane: boolean, reco
               </Box>
             ))}
           </Box>
-        )}
+        ))}
       </Box>
     )
   }

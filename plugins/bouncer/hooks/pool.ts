@@ -127,9 +127,19 @@ export const prUrl = (n: number, texts: readonly string[]) => prUrls(texts).find
 export const prUrls = (texts: readonly string[]) =>
   [...new Set(texts.flatMap(t => [...t.matchAll(/https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/g)].map(m => m[0])))]
 
-/** The ledger lines of one ticket's record: `/<path>/<KEY>.md: ...`, or `<repo>-<branch>.md` for work named by its branch's end. */
-export const ticketLedger = (lines: readonly string[], ticket: string) =>
-  ticket ? lines.filter(l => l.includes(`/${ticket}.md:`) || l.includes(`-${ticket}.md:`)) : []
+/**
+ * The ledger lines of one ticket's record: `/<path>/<KEY>.md: ...`, or `<repo>-<branch>.md` for work named by its
+ * branch's end. When records of two repos end in the same name, the one of `repo` (any case) wins; with no repo or
+ * no record of it, all of them stay.
+ */
+export const ticketLedger = (lines: readonly string[], ticket: string, repo?: string) => {
+  if (!ticket) return []
+  const name = (l: string) => /\/([^/]+)\.md:/.exec(l)?.[1] ?? ''
+  const exact = lines.filter(l => name(l) === ticket)
+  const ends = lines.filter(l => name(l) !== ticket && name(l).endsWith(`-${ticket}`))
+  const mine = repo ? ends.filter(l => name(l).toLowerCase().startsWith(`${repo.toLowerCase()}-`)) : []
+  return [...exact, ...(new Set(ends.map(name)).size > 1 && mine.length > 0 ? mine : ends)]
+}
 
 /** The next step of a ticket's first open ledger item (`... | next: review, then merge | 2026-11-26`). */
 export const ledgerNext = (lines: readonly string[]) =>

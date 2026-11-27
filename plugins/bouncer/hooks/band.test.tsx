@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { EMPTY, dot, parseBartender, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
+import { EMPTY, dot, parseBartender, ticketLedger, questionsBySession, renamed, reportLine, sessionRows, synced } from './pool'
 
 const BAND = { plugin: 'bouncer', component: 'AbovePrompt', props: { hasSurvey: false, bodyColumns: 120 } } as const
 const PANE = { plugin: 'bouncer', component: 'Pane', requestId: 'bouncer', props: { bodyColumns: 120 } } as const
@@ -131,7 +131,8 @@ test('one click on Stop or Reset sends nothing; it asks to confirm, and Cancel e
   for (const v of ['stop', 'reset']) {
     await ui.press({ key: `act:a:${v} a` })
     expect(prompts).toEqual([])
-    expect(await labels()).toEqual([`Confirm ${v}?`, 'Cancel'])
+    // Title Case, as every button label.
+    expect(await labels()).toEqual([`Confirm ${v[0]!.toUpperCase()}${v.slice(1)}?`, 'Cancel'])
     await ui.press({ key: 'act:a:cancel' })
     expect(prompts).toEqual([])
     expect(await labels()).toEqual(['Status', 'Stop', 'Reset'])
@@ -363,7 +364,8 @@ test('the band shows only the due ledger items as a count to act on, each a link
   let due = ''
   on('process.run', (_: unknown, e: any) => {
     runs.push([e.argv.join(' '), e.init?.env?.BOUNCER_RECORDS])
-    const stdout = e.argv[1] === 'due' ? due : LEDGER + DUE
+    // `due` runs in a login shell (gh on PATH): `/bin/bash -lc 'exec "$0" due' <script>`.
+    const stdout = e.argv[2] === 'exec "$0" due' ? due : LEDGER + DUE
     return { value: { exitCode: 0, stdout, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   await $.tool.call({ tool: 'Skill', skill: 'bouncer' } as any)
@@ -377,7 +379,7 @@ test('the band shows only the due ledger items as a count to act on, each a link
   await $.tool.call({ tool: 'Bash', command: 'scripts/bouncer-ledger done K-1 u' } as any)
   expect(runs).toEqual([['/plugin/skills/bouncer/scripts/bouncer-ledger list --all', '~/.tickets']])
   await endTurn($)
-  expect(runs).toContainEqual(['/plugin/skills/bouncer/scripts/bouncer-ledger due', '~/.tickets'])
+  expect(runs).toContainEqual(['/bin/bash -lc exec "$0" due /plugin/skills/bouncer/scripts/bouncer-ledger', '~/.tickets'])
   ui = await $.ui.mount({ ...BAND, surface: 'desktop' } as any)
   expect((await ui.find({ key: 'ledger' }))?.text).toBe('2 to act')
   // The band stays one line: the list is in the pane.
@@ -468,6 +470,11 @@ test('all idle Bartenders share one column, whose actions name each session', as
   const labels = await actions(ui, 'idle')
   expect(labels).toContain('Reset aaaaaaaa')
   expect(labels).toContain('Reset bbbbbbbb')
+  // One menu row a session, so nine buttons never squeeze into one row of a half-width card.
+  const cellsIn = async (k: string) => ((await ui.find({ key: k }))?.children ?? []).filter((c: any) => c.props?.key?.startsWith('cell:')).length
+  await ui.press({ key: 'idle' })
+  expect(await Promise.all(['menu:idle', 'menu:idle:1', 'menu:idle:2'].map(cellsIn))).toEqual([3, 3, 3])
+  await ui.press({ key: 'idle' })
   await act(ui, 'idle', 'reset local_bbbbbbbb2')
   expect(prompts).toEqual(['local_bbbbbbbb2: reset'])
   await ui.unmount()
@@ -913,4 +920,15 @@ test('a prompt into the Bouncer reads list_sessions again, so a Bartender that e
   await $.prompt.submit({ text: '<side-sessions-event>local_a ended its turn</side-sessions-event>' } as any)
   expect(chip(await ui.find({ key: 'title:act:local_a' }))).toBe('🟢 MIDI-1')
   await ui.unmount()
+})
+
+test('a record named by its branch takes the session repo when two repos share the name', () => {
+  const lines = ['/r/aaa-band.md: - [open] pr | https://github.com/x/aaa/pull/1 | next: a', '/r/rounds-band.md: - [open] pr | https://github.com/x/rounds/pull/2 | next: b', '/r/MIDI-1.md: - [open] x']
+  expect(ticketLedger(lines, 'band', 'Rounds')).toEqual([lines[1]])
+  // No repo, or no record of it: both stay.
+  expect(ticketLedger(lines, 'band')).toEqual(lines.slice(0, 2))
+  expect(ticketLedger(lines, 'band', 'other')).toEqual(lines.slice(0, 2))
+  // One record of another repo stays: a folder may be another repo than its work.
+  expect(ticketLedger(lines.slice(1), 'band', 'other')).toEqual([lines[1]])
+  expect(ticketLedger(lines, 'MIDI-1', 'Rounds')).toEqual([lines[2]])
 })
