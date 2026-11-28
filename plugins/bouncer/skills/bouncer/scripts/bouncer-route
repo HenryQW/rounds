@@ -2,11 +2,11 @@
 """bouncer-route < {"sessions": [list_sessions rows], "request": {"ticket", "repo", "type"?}, "caps": {"active": 3}}
 Out: {"action": "assign"|"start"|"queue", "sessionId"?: id, "reason": text}. Exit 2: bad input.
 Rules: a Bartender title contains its type emoji (Ticket 🍸, the default; Skill 🔧; Cleanup 🧹).
-Idle: the title is "<emoji> [Idle] <repo>" (before plugin 0.10.5 "[Idle] <emoji> <repo>") and isRunning is not true; the repo
-is its last word. An idle Bartender of the same type and repo gets the work;
-else a new Bartender starts (one per ticket, so tickets of one repo run in parallel).
-At most caps.active non-idle Bartenders (default 3). Archived rows are ignored."""
-import json, sys
+Idle: the title is "<emoji> [Idle] <repo>" (before plugin 0.10.5 "[Idle] <emoji> <repo>") and isRunning is not true.
+A current title stores the whole repo name. An old title stores its last word.
+Below caps.active non-idle Bartenders (default 3), assign a free Bartender of the same type and repo if one exists.
+Otherwise, start a new Bartender for the ticket. At the cap, queue new work. Archived rows are ignored."""
+import json, re, sys
 
 def bad(msg):
     print(json.dumps({"error": f"bad input: {msg}"})); sys.exit(2)
@@ -22,23 +22,38 @@ TYPES = {"Ticket": "🍸", "Skill": "🔧", "Cleanup": "🧹"}   # as in bouncer
 if not ticket or not repo or active < 1 or kind not in TYPES:
     bad(f"ticket, repo, caps.active >= 1 and a type of {'|'.join(TYPES)} are required")
 
-def idle(s):
-    # A `!` title has a question that waits on the user: never free, in either title format.
-    title = s.get("title") or ""
-    return not title.startswith("!") and "[Idle]" in title.split()[:2] and not s.get("isRunning")
+def title_identity(title):
+    icon, _, rest = title.partition(" ")
+    if icon in TYPES.values():
+        idle_prefix = "[Idle] "
+        name = rest[len(idle_prefix):] if rest.startswith(idle_prefix) else ""
+        # A second bracket and a name mean Idle is the ticket key.
+        return icon, name if name and not re.match(r"\[[^\]]+\] .+", name) else None
+    legacy = re.fullmatch(r"\[([^\]]+)\]\s+(\S+)(?:\s+(.*))?", title)
+    if legacy:
+        status, icon, rest = legacy.groups()
+        if icon in TYPES.values():
+            words = (rest or "").split()
+            return icon, words[-1] if status == "Idle" and len(words) in (1, 2) else None
+    return None, None
 
-def emoji(s):
-    words = (s.get("title") or "").lstrip("!").split()
-    return next((w for w in words[:2] if w in TYPES.values()), None)
-
-bars = [s for s in rows if emoji(s) and not s.get("isArchived")]
-here = [s for s in bars if s["title"].split()[-1] == repo and emoji(s) == TYPES[kind]]
-busy = [s for s in bars if not idle(s)]
-free = [s for s in here if idle(s)]
-if free:
-    out = {"action": "assign", "sessionId": free[0]["sessionId"], "reason": f"idle {kind} Bartender in {repo}"}
-elif len(busy) >= active:
-    out = {"action": "queue", "reason": f"pool full: {len(busy)} of {active} Bartenders active"}
+busy = 0
+free = None
+for session in rows:
+    if session.get("isArchived"):
+        continue
+    title = session.get("title") or ""
+    icon, name = title_identity(title.lstrip("!"))
+    if not icon:
+        continue
+    if name is None or title.startswith("!") or session.get("isRunning"):
+        busy += 1
+    elif free is None and name == repo and icon == TYPES[kind]:
+        free = session
+if busy >= active:
+    out = {"action": "queue", "reason": f"pool full: {busy} of {active} Bartenders active"}
+elif free is not None:
+    out = {"action": "assign", "sessionId": free["sessionId"], "reason": f"idle {kind} Bartender in {repo}"}
 else:
-    out = {"action": "start", "reason": f"no idle {kind} Bartender in {repo}; {len(busy)} of {active} active"}
+    out = {"action": "start", "reason": f"no idle {kind} Bartender in {repo}; {busy} of {active} active"}
 print(json.dumps(out))

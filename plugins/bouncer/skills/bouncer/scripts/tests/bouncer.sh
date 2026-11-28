@@ -50,14 +50,21 @@ S='[{"sessionId":"s1","title":"[Dev] 🍸 ABC-1 a","isRunning":true},
     {"sessionId":"s8","title":"[Idle] 🔧 g"},
     {"sessionId":"s9","title":"🍸 [Idle] h","isRunning":false},
     {"sessionId":"s10","title":"!🍸 [Idle] k","isRunning":false}]'
-ok "route: idle Bartender in repo is assigned" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"b\"}}" '.action+" "+.sessionId')" "assign s2"
-ok "route: an idle Bartender in the new title format is assigned" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"h\"}}" '.action+" "+.sessionId')" "assign s9"
+ok "route: idle Bartender in repo is assigned" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"b\"}, \"caps\": {\"active\": 6}}" '.action+" "+.sessionId')" "assign s2"
+ok "route: an idle Bartender in the new title format is assigned" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"h\"}, \"caps\": {\"active\": 6}}" '.action+" "+.sessionId')" "assign s9"
+repo_title=$(./bouncer-title --idle 'my  repo')
+repo_session=$(jq -nc --arg title "$repo_title" '{sessionId:"spaced", title:$title, isRunning:false}')
+ok "route: exact repo with spaces gets its idle Bartender" "$(route "{\"sessions\": [$repo_session], \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"my  repo\"}}" '.action+" "+.sessionId')" 'assign spaced'
+ok "route: repo suffix cannot take another repo's idle Bartender" "$(route "{\"sessions\": [$repo_session], \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"repo\"}}" .action)" start
+ok "route: Idle as a ticket key still counts as busy" "$(route '{"sessions":[{"sessionId":"busy","title":"🍸 [Idle] [Dev] repo"}],"request":{"ticket":"ABC-9","repo":"repo"},"caps":{"active":1}}' .action)" queue
 ok "route: an idle Bartender with a question waiting (!) is not reassigned" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"k\"}, \"caps\": {\"active\": 9}}" .action)" start
 ok "route: idle title but running is busy" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"e\"}}" .action)" queue
 ok "route: busy repo under cap starts (one per ticket)" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"a\"}, \"caps\": {\"active\": 9}}" .action)" start
 ok "route: 5 active at cap 3 queues" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"z\"}}" .action)" queue
+ok "route: cap queues even with a matching idle Bartender" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"h\"}}" .action)" queue
+ok "route: a multiword legacy status counts as busy" "$(route '{"sessions":[{"sessionId":"legacy","title":"[In Progress] 🍸 ABC-1 repo"}],"request":{"ticket":"ABC-9","repo":"repo"},"caps":{"active":1}}' .action)" queue
 ok "route: under cap starts" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"z\"}, \"caps\": {\"active\": 6}}" .action)" start
-ok "route: idle Skill Bartender gets Skill work" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"x\", \"repo\": \"g\", \"type\": \"Skill\"}}" '.action+" "+.sessionId')" "assign s8"
+ok "route: idle Skill Bartender gets Skill work" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"x\", \"repo\": \"g\", \"type\": \"Skill\"}, \"caps\": {\"active\": 6}}" '.action+" "+.sessionId')" "assign s8"
 ok "route: an idle Skill Bartender does not take a ticket" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"ABC-9\", \"repo\": \"g\"}, \"caps\": {\"active\": 9}}" .action)" start
 ok "route: an idle Ticket Bartender does not take Cleanup work" "$(route "{\"sessions\": $S, \"request\": {\"ticket\": \"x\", \"repo\": \"b\", \"type\": \"Cleanup\"}, \"caps\": {\"active\": 9}}" .action)" start
 echo '{"sessions": [], "request": {"ticket": "x", "repo": "a", "type": "Draft"}}' | ./bouncer-route >/dev/null; ok "route: unknown type exits 2" $? 2
@@ -73,7 +80,7 @@ ok "data: a --plugin-dir checkout uses bouncer-inline" "$(env -u BOUNCER_DATA -u
 
 # bouncer-queue (in the data folder)
 # bouncer-data --repo: one folder a Bouncer repo
-git init -q "$tmp/main-repo" && git -C "$tmp/main-repo" commit -q --allow-empty -m i && git -C "$tmp/main-repo" worktree add -q "$tmp/wt" 2>/dev/null
+git init -q "$tmp/main-repo" && git -C "$tmp/main-repo" -c user.name=t -c user.email=t@t commit -q --allow-empty -m i && git -C "$tmp/main-repo" worktree add -q "$tmp/wt" 2>/dev/null
 ok "data: --repo is the main checkout's name" "$(cd "$tmp/main-repo" && BOUNCER_DATA="$tmp/rd" "$OLDPWD/bouncer-data" --repo)" "$tmp/rd/main-repo"
 ok "data: --repo from a worktree is the main checkout's name" "$(cd "$tmp/wt" && BOUNCER_DATA="$tmp/rd" "$OLDPWD/bouncer-data" --repo)" "$tmp/rd/main-repo"
 ok "data: BOUNCER_REPO wins" "$(BOUNCER_DATA="$tmp/rd" BOUNCER_REPO=web ./bouncer-data --repo)" "$tmp/rd/web"
@@ -107,6 +114,10 @@ ok "queue: pop removes it" "$(./bouncer-queue list)" "ABC-1 | a | Mechanical | d
 ./bouncer-queue add "ABC-3 | c | Code | x"
 ./bouncer-queue remove ABC-1; ok "queue: remove drops only that line" "$(./bouncer-queue list)" "ABC-3 | c | Code | x"
 ./bouncer-queue remove ABC-3
+./bouncer-queue add "cleanup-old | a | Spike | doc"
+./bouncer-queue add "cleanup.old | b | Spike | doc"
+./bouncer-queue remove cleanup.old; ok "queue: a dotted key can be removed" $? 0
+ok "queue: a ticket key matches literally" "$(./bouncer-queue list)" "cleanup-old | a | Spike | doc"
 BOUNCER_DATA="$tmp/data2" ./bouncer-queue add "T | r | Spike | user's msg" 2>/dev/null; ok "queue: apostrophe is kept" "$(cat "$tmp/data2/r/queue.md")" "T | r | Spike | user's msg"
 
 # bouncer-questions (in the data folder)
@@ -162,6 +173,21 @@ ok "grants: a new grant of the same ticket replaces the old" "$(./bouncer-grants
 ./bouncer-grants has ABC-2 pu; ok "grants: has matches whole actions only" $? 1
 ok "grants: get" "$(./bouncer-grants get ABC-1)" "ABC-1 | close, link, comment | yes, close it"
 ./bouncer-grants done ABC-2; ok "grants: done removes only that ticket" "$(cat "$tmp/q/grants.md")" "ABC-1 | close, link, comment | yes, close it"
+./bouncer-grants add "cleanup-old | push | yes"
+./bouncer-grants has cleanup.old push 2>/dev/null; ok "grants: a different ticket key has no grant" $? 1
+./bouncer-grants add "cleanup.old | comment | yes"
+./bouncer-grants done cleanup.old; ok "grants: a dotted key can be removed" $? 0
+ok "grants: a ticket key matches literally on add and done" "$(./bouncer-grants list)" $'ABC-1 | close, link, comment | yes, close it\ncleanup-old | push | yes'
+./bouncer-grants has 'cleanup-old | push' push 2>/dev/null; ok "grants: a key with a separator matches no grant" $? 1
+./bouncer-grants done cleanup-old
+printf '%s\n' 'clean*up | push | old grant' 'clean*up | comment | latest grant' >> "$tmp/q/grants.md"
+./bouncer-grants has 'clean*up' push 2>/dev/null; ok "grants: duplicate saved grants authorize no action" $? 2
+./bouncer-grants get 'clean*up' 2>/dev/null; ok "grants: duplicate saved grants cannot be read as a grant" $? 2
+./bouncer-grants add 'clean*up | comment | explicit replacement'
+ok "grants: an explicit grant replaces both saved grants" "$(./bouncer-grants get 'clean*up')" 'clean*up | comment | explicit replacement'
+printf '%s\n' 'clean*up | push | old grant' >> "$tmp/q/grants.md"
+./bouncer-grants done 'clean*up'; ok "grants: duplicate saved grants can be removed" $? 0
+ok "grants: removal drops all grants for that key" "$(./bouncer-grants list)" 'ABC-1 | close, link, comment | yes, close it'
 
 # bouncer-decisions (memory.md and decisions/ in the data folder)
 export BOUNCER_TODAY=2026-11-27
@@ -467,13 +493,14 @@ ok "assign: the decisions in force for the repo" "$(printf '%s\n' "$A" | sed -n 
 ok "assign: the record path and the skill folder are real paths" "$(printf '%s\n' "$A" | /usr/bin/grep -c "$tmp/sdata/tickets/ABC-1.md\|$(pwd -P | sed 's|/scripts$||')/scripts/bartender-branch ABC-1 ")" 2
 ok "assign: the report shape ends the brief" "$(printf '%s\n' "$A" | tail -6 | sed -n '1p;2p;6p' | tr '\n' ';')" "STATUS: WORKING | NEEDS_INPUT | DONE | BLOCKED;TICKET: ABC-1;EVIDENCE: <record link, PR, or file:line>;"
 ok "assign: no part is left to fill in" "$(printf '%s\n' "$A" | /usr/bin/grep -c '<TICKET>\|<mode>\|<repo>\|<skill>\|<report shape>\|<ticket record path>\|CLAUDE_SKILL_DIR\|<acceptance criteria>')" 0
-echo '{"pluginConfigs":{"bouncer@rounds":{"options":{"bartender_skill":"henry","ticket_effort":"high"}}}}' > "$ac/settings.json"
-A=$(asg ABC-1 web Code "In Progress" --drop OLD-1)
-ok "assign: the ticket_effort option" "$(printf '%s\n' "$A" | sed -n 3p)" "effort: high"
+jq -n --arg records "$tmp/custom-records" '{pluginConfigs:{"bouncer@rounds":{options:{bartender_skill:"henry",ticket_effort:"high",status_codes:"In Progress=Doing",records_dir:$records}}}}' > "$ac/settings.json"
+A=$(PYTHONSAFEPATH=1 asg ABC-1 web Code "In Progress" --drop OLD-1)
+ok "assign: title and brief use the same stored options" "$(printf '%s\n' "$A" | sed -n '1p;3p' | tr '\n' ';')" "title: 🍸 [ABC-1] [Doing] Fix A | B view;effort: high;"
+ok "assign: ledger uses the configured record folder" "$(printf '%s\n' "$A" | /usr/bin/grep -Fc "$tmp/custom-records/ABC-1.md")" 1
 ok "assign: --drop, then the skill's load line" "$(printf '%s\n' "$A" | sed -n 5,6p | sed 's/ (Skill tool).*//' | tr '\n' ';')" "Drop the context of OLD-1; it is closed.;Load the \`henry\` skill;"
 ok "assign: another repo has no decision" "$(printf '%s\n' "$A" | /usr/bin/grep -c '^Decisions in force: none\. Work or')" 1
 ok "assign: a Mechanical ticket" "$(asg ABC-1 pf Mechanical "In Progress" | sed -n 2,3p | tr '\n' ';')" "model: claude-sonnet-5-5;effort: medium;"
-ok "assign: a Skill design has no load line" "$(asg ABC-1 pf Code "In Progress" --type Skill | sed -n '1,3p;5p' | sed 's/\. Ticket: .*//' | tr '\n' ';')" "title: 🔧 [ABC-1] [Dev] Fix A | B view;model: claude-opus-5-5;effort: medium;You are a Bartender in Bouncer mode;"
+ok "assign: a Skill design has no load line" "$(asg ABC-1 pf Code "In Progress" --type Skill | sed -n '1,3p;5p' | sed 's/\. Ticket: .*//' | tr '\n' ';')" "title: 🔧 [ABC-1] [Doing] Fix A | B view;model: claude-opus-5-5;effort: medium;You are a Bartender in Bouncer mode;"
 ok "assign: a plain Cleanup sweep" "$(asg sweep pf Mechanical "In Progress" --type Cleanup | sed -n 2,3p | tr '\n' ';')" "model: claude-haiku-5-5;effort: low;"
 ok "assign: a Cleanup sweep that needs judgment" "$(asg sweep pf Code "In Progress" --type Cleanup | sed -n 2,3p | tr '\n' ';')" "model: claude-sonnet-5-5;effort: medium;"
 ok "assign: an unknown status gives no title, and the brief still prints" "$(asg ABC-1 pf Code Nope | sed -n '1p;4p' | tr '\n' ';')" "title: none (unknown status: Nope (add it to the status_codes plugin option));brief:;"

@@ -143,29 +143,25 @@ enum Demo {
 
     /// Classifier inputs that give the demo rows their states, for Why This State…: herdr and Codex rows, and the Claude
     /// rows whose state one hook line gives (Needs input, Working, Failed, Background).
-    static func inputs(_ rows: [SessionRow], now: Date = Date()) -> [String: StateInput] {
-        var inputs: [String: StateInput] = [:]
-        for row in rows {
-            let since = row.status.since
-            switch row.source {
-            case .herdr(let agent): inputs[row.id] = .herdr(status: agent.agentStatus, since: since)
-            case .codex(let thread):
-                inputs[row.id] = .codex(thread, hook: nil, turn: CodexTurn(kind: row.status.state == .working ? .started : .completed, at: since), live: true)
-            case .claude(let session):
-                let line: HookLine? = switch row.status.state {
-                case .needsInput: HookLine(at: since, event: "PermissionRequest", detail: "Bash", backgroundTasks: nil, cronSchedules: [])
-                case .working: HookLine(at: since, event: "PreToolUse", detail: row.status.detail, backgroundTasks: nil, cronSchedules: [])
-                case .failed: HookLine(at: since, event: "StopFailure", detail: "", backgroundTasks: nil, cronSchedules: [])
-                case .background: HookLine(at: since, event: "Stop", detail: "", backgroundTasks: row.status.tasks.count, cronSchedules: [], tasks: row.status.tasks)
-                default: nil
-                }
-                if let line {
-                    inputs[row.id] = .claude(ClassifierInput(session: session, hook: HookState(last: line), tail: nil, claudeRunning: true, now: now))
-                }
-            case .pi: break
+    static func input(for row: SessionRow, now: Date) -> StateInput? {
+        let since = row.status.since
+        switch row.source {
+        case .herdr(let agent): return .herdr(status: agent.agentStatus, since: since)
+        case .codex(let thread):
+            let turn = CodexTurn(kind: row.status.state == .working ? .started : .completed, at: since)
+            return .codex(thread, hook: nil, turn: turn, live: true)
+        case .claude(let session):
+            let line: HookLine? = switch row.status.state {
+            case .needsInput: HookLine(at: since, event: "PermissionRequest", detail: "Bash", backgroundTasks: nil, cronSchedules: [])
+            case .working: HookLine(at: since, event: "PreToolUse", detail: row.status.detail, backgroundTasks: nil, cronSchedules: [])
+            case .failed: HookLine(at: since, event: "StopFailure", detail: "", backgroundTasks: nil, cronSchedules: [])
+            case .background: HookLine(at: since, event: "Stop", detail: "", backgroundTasks: row.status.tasks.count, cronSchedules: [], tasks: row.status.tasks)
+            default: nil
             }
+            guard let line else { return nil }
+            return .claude(ClassifierInput(session: session, hook: HookState(last: line), tail: nil, claudeRunning: true, now: now))
+        case .pi: return nil
         }
-        return inputs
     }
 
     /// The waits the History page shows in demo mode: the same each run, 2 to 7 a day in work hours over 30 days, from

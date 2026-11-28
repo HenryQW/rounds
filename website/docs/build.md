@@ -25,7 +25,7 @@ After the first launch, install the hooks. See [Install](/install#install-the-ho
 
 | Task | Command |
 | --- | --- |
-| Run the tests | `scripts/test.sh` |
+| Run the tests | `scripts/test.sh --no-parallel` |
 | Make the disk image `build/Rounds.dmg` | `scripts/dmg.sh` (after `scripts/bundle.sh`) |
 | Take the README picture (demo data) | `scripts/screenshots.sh` |
 | Run the docs site | `cd website && pnpm install && pnpm dev` |

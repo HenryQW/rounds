@@ -22,6 +22,8 @@ Start a new session that you open yourself, then say "bouncer mode" or run `/bou
 
 Set it with `/plugin configure bouncer@rounds`, then start a new session.
 
+The plugin manifest defines the defaults. The title, assignment and ledger scripts use `bouncer_config.py` to read stored options and manifest defaults. The band gets its options from Claude Code.
+
 Models for Barbacks and the place of decision records come from your own rules (`CLAUDE.md`).
 
 ## On-call triage
@@ -64,6 +66,8 @@ The plugin keeps its state in the data folder that Claude Code gives it: `~/.cla
 | `decisions/INDEX.md` | The router: one line a domain, with what it covers, its active count and its file, so the Bouncer opens only the domain it needs |
 | `decision-table.md` | Rows that the Bouncer adds to its decision table when you answer a question that no row covered |
 | `tickets/<TICKET>.md` | Ticket records, unless the `records_dir` option names another folder. Each record's `LEDGER` section holds its work to revisit (an open PR, a held message, a follow-up, a staging check); `bouncer-ledger due` lists what is due |
+
+Each command matches the ticket key as literal text. Queue and grant replacements go to the end of their lists. A replacement question keeps its position. If an older file has multiple grants for one ticket, the plugin requires a new grant or removal of the saved grants.
 
 The pool is in the session titles, so it needs no file. Every Bouncer sees the same folder; the queue and the questions are per repo, in `<repo>/`. The first run of 0.10.4 moves an older `queue.md` and `questions.md` into the first Bouncer's repo folder, once. Plugin updates keep the folder. `claude plugin uninstall bouncer@rounds` deletes it unless you add `--keep-data`.
 

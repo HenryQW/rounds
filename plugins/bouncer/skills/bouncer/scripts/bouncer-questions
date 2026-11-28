@@ -15,10 +15,10 @@ trim() { local s=$1; s=${s#"${s%%[![:space:]]*}"}; printf '%s' "${s%"${s##*[![:s
 usage() { echo "usage: bouncer-questions add <line> | next | done <ticket> --decision D<n>|--none | list | count" >&2; exit 2; }
 cmd=${1:-}
 [ -n "$cmd" ] || usage
-f="$("$(dirname "$0")/bouncer-data" --repo)/questions.md"
+scripts=$(dirname "$0")
+source "$scripts/bouncer-ticket-rows.sh"
+f="$("$scripts/bouncer-data" --repo)/questions.md"
 touch "$f"
-# Match the ticket literally: Skill and Cleanup task names may hold regex characters.
-has() { T="$1 |" awk 'index($0, ENVIRON["T"]) == 1 { f = 1 } END { exit !f }' "$f"; }
 case $cmd in
   add)
     IFS='|' read -r t s q <<<"${2:-}"   # q keeps any further | of the question
@@ -27,8 +27,9 @@ case $cmd in
     [ -n "$t" ] && [ -n "$s" ] && [ -n "$q" ] || { echo "bad line: want TICKET | session_id | question" >&2; exit 2; }
     now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     # A ticket's new question keeps the old one's place: questions block in order, so a reworded head stays the head.
-    if has "$t"; then
-      tmp=$(mktemp); T="$t |" N="$t | $s | $q | at: $now" awk 'index($0, ENVIRON["T"]) == 1 { print ENVIRON["N"]; next } { print }' "$f" > "$tmp"; mv "$tmp" "$f"
+    matching=$(ticket_rows find "$t" "$f")
+    if [ -n "$matching" ]; then
+      tmp=$(mktemp); ticket_rows replace "$t" "$f" "$t | $s | $q | at: $now" > "$tmp"; mv "$tmp" "$f"
     else echo "$t | $s | $q | at: $now" >> "$f"; fi ;;
   next)
     [ -s "$f" ] || { echo "no open question" >&2; exit 1; }
@@ -38,12 +39,13 @@ case $cmd in
     case ${3:-} in
       --none) ;;
       --decision)
-        [[ ${4:-} =~ ^D[0-9]+$ ]] && "$(dirname "$0")/bouncer-decisions" get "$4" >/dev/null 2>&1 \
+        [[ ${4:-} =~ ^D[0-9]+$ ]] && "$scripts/bouncer-decisions" get "$4" >/dev/null 2>&1 \
           || { echo "no active decision ${4:-}: record the answer with bouncer-decisions add first" >&2; exit 2; } ;;
       *) echo "done: name how the answer was kept: --decision D<n>, or --none for an answer that holds for this turn only" >&2; exit 2 ;;
     esac
-    has "$t" || { echo "no open question for $t" >&2; exit 1; }
-    tmp=$(mktemp); T="$t |" awk 'index($0, ENVIRON["T"]) != 1' "$f" > "$tmp"; mv "$tmp" "$f" ;;
+    matching=$(ticket_rows find "$t" "$f")
+    [ -n "$matching" ] || { echo "no open question for $t" >&2; exit 1; }
+    tmp=$(mktemp); ticket_rows drop "$t" "$f" > "$tmp"; mv "$tmp" "$f" ;;
   list) cat "$f" ;;
   count) grep -c . "$f" || true ;;
   *) usage ;;

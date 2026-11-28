@@ -9,7 +9,9 @@ set -euo pipefail
 trim() { local s=$1; s=${s#"${s%%[![:space:]]*}"}; printf '%s' "${s%"${s##*[![:space:]]}"}"; }   # not xargs: it fails on quotes
 cmd=${1:-}
 [ -n "$cmd" ] || { echo "usage: bouncer-queue add|pop|remove|list [line|ticket]" >&2; exit 2; }
-f="$("$(dirname "$0")/bouncer-data" --repo)/queue.md"
+scripts=$(dirname "$0")
+source "$scripts/bouncer-ticket-rows.sh"
+f="$("$scripts/bouncer-data" --repo)/queue.md"
 touch "$f"
 case $cmd in
   add)
@@ -18,15 +20,16 @@ case $cmd in
     t=$(trim "$t"); r=$(trim "$r"); m=$(trim "$m"); b=$(trim "${b:-}")
     [ -n "$t" ] && [ -n "$r" ] && [ -n "$b" ] && [ -z "${x:-}" ] || { echo "bad line: want TICKET | repo | mode | brief source" >&2; exit 2; }
     case $m in Code|Spike|Mechanical) ;; *) echo "bad mode: $m (Code, Spike, Mechanical)" >&2; exit 2;; esac
-    tmp=$(mktemp); grep -v "^$t |" "$f" > "$tmp" || true   # a stale line of the same ticket is replaced
+    tmp=$(mktemp); ticket_rows drop "$t" "$f" > "$tmp"
     echo "$t | $r | $m | $b" >> "$tmp"; mv "$tmp" "$f" ;;
   pop)
     [ -s "$f" ] || { echo "queue empty" >&2; exit 1; }
     head -n 1 "$f"; tmp=$(mktemp); tail -n +2 "$f" > "$tmp"; mv "$tmp" "$f" ;;
   remove)
     t=$(trim "${2:-}"); [ -n "$t" ] || { echo "usage: bouncer-queue remove <TICKET>" >&2; exit 2; }
-    grep -q "^$t |" "$f" || { echo "not in the queue: $t" >&2; exit 1; }
-    tmp=$(mktemp); grep -v "^$t |" "$f" > "$tmp" || true; mv "$tmp" "$f" ;;
+    matching=$(ticket_rows find "$t" "$f")
+    [ -n "$matching" ] || { echo "not in the queue: $t" >&2; exit 1; }
+    tmp=$(mktemp); ticket_rows drop "$t" "$f" > "$tmp"; mv "$tmp" "$f" ;;
   list) cat "$f" ;;
   *) echo "usage: bouncer-queue add|pop|remove|list [line|ticket]" >&2; exit 2 ;;
 esac
